@@ -41,11 +41,15 @@ for (const path of tracked) {
   if (bannedPaths.some((pattern) => pattern.test(path))) failures.push(`tracked coding-agent file: ${path}`);
 }
 
-const localName = git(['config', '--local', '--get', 'user.name']).trim();
-const localEmail = git(['config', '--local', '--get', 'user.email']).trim();
-if (localName !== ownerName) failures.push(`repository user.name must be ${ownerName}`);
-if (!allowedEmails.has(localEmail))
-  failures.push(`repository user.email is not allowed: ${localEmail || '(unset)'}`);
+if (!process.env.CI) {
+  const localName = git(['config', '--local', '--get', 'user.name']).trim();
+  const localEmail = git(['config', '--local', '--get', 'user.email']).trim();
+  if (localName !== ownerName) failures.push(`repository user.name must be ${ownerName}`);
+  if (!allowedEmails.has(localEmail))
+    failures.push(`repository user.email is not allowed: ${localEmail || '(unset)'}`);
+} else {
+  process.stdout.write('CI runner detected; validating committed identities rather than runner config.\n');
+}
 
 const log = git(['log', '--all', '--format=%H%x1f%an%x1f%ae%x1f%cn%x1f%ce%x1f%G?%x1f%B%x1e'], true);
 const unsigned: string[] = [];
