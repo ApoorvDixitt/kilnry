@@ -12,6 +12,8 @@ coverage/
 .vitest/
 playwright-report/
 test-results/
+*.tsbuildinfo
+*.tgz
 
 .env
 .env.*

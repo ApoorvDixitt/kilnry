@@ -1,5 +1,19 @@
 {
   "$schema": "https://turbo.build/schema.json",
+  "globalPassThroughEnv": [
+    "BETTER_AUTH_SECRET",
+    "DATABASE_URL",
+    "KILNRY_DATA_DIR",
+    "KILNRY_DOCKER",
+    "KILNRY_HOST",
+    "KILNRY_LAN",
+    "KILNRY_LIBRARY_ROOT",
+    "KILNRY_LOG",
+    "KILNRY_MASTER_KEY",
+    "KILNRY_MASTER_KEY_FILE",
+    "KILNRY_PORT",
+    "KILNRY_TLS"
+  ],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
@@ -11,9 +25,10 @@
     },
     "test": {
       "dependsOn": ["^build"],
-      "outputs": ["coverage/**"]
+      "outputs": []
     },
     "dev": {
+      "dependsOn": ["^build"],
       "cache": false,
       "persistent": true
     }

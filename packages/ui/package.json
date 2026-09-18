@@ -6,14 +6,22 @@
   "type": "module",
   "author": "Apoorv Dixit (https://github.com/ApoorvDixitt)",
   "license": "SEE LICENSE IN LICENSE.md",
-  "exports": "./dist/index.js",
+  "exports": {
+    ".": "./dist/index.js",
+    "./messages/en.json": "./messages/en.json",
+    "./theme.css": "./theme.css",
+    "./tokens/design-tokens.json": "./tokens/design-tokens.json"
+  },
   "types": "./dist/index.d.ts",
   "files": [
-    "dist"
+    "dist",
+    "messages",
+    "theme.css",
+    "tokens"
   ],
   "scripts": {
     "build": "tsc -b",
     "typecheck": "tsc -b --pretty false",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run --passWithNoTests --exclude 'dist/**'"
   }
 }

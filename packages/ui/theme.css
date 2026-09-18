@@ -1,0 +1,124 @@
+/*
+ * Kilnry — https://github.com/ApoorvDixitt/kilnry
+ * Copyright (c) 2026 Apoorv Dixit. Licensed under the Sustainable Use License 1.0.
+ * SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
+ * See LICENSE.md in the repository root. You may not remove or obscure this notice.
+ */
+
+@theme {
+  --color-accent-50: #edfbf2;
+  --color-accent-100: #d8f6e3;
+  --color-accent-200: #b1eac8;
+  --color-accent-300: #7dd3a3;
+  --color-accent-400: #40b47b;
+  --color-accent-500: #1c945f;
+  --color-accent-600: #007a4b;
+  --color-accent-700: #00653d;
+  --color-accent-800: #075030;
+  --color-accent-900: #033b22;
+  --color-accent-950: #042515;
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-border: var(--border);
+  --color-border-control: var(--border-control);
+  --color-text: var(--text);
+  --color-muted: var(--text-muted);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-active: var(--accent-active);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent-text: var(--accent-text);
+  --color-accent-subtle: var(--accent-subtle-bg);
+  --color-accent-subtle-text: var(--accent-subtle-text);
+  --color-ring: var(--ring);
+  --color-success: var(--success);
+  --color-success-bg: var(--success-bg);
+  --color-warning: var(--warning);
+  --color-warning-bg: var(--warning-bg);
+  --color-danger: var(--danger);
+  --color-danger-bg: var(--danger-bg);
+  --color-info: var(--info);
+  --color-info-bg: var(--info-bg);
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-pill: 999px;
+  --shadow-popover: var(--shadow-popover-theme);
+  --ease-kilnry-out: cubic-bezier(0.25, 1, 0.5, 1);
+  --ease-kilnry-emphasized: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+:root,
+[data-theme='light'] {
+  color-scheme: light;
+  --background: #ffffff;
+  --surface: #f8fbf9;
+  --surface-2: #f0f5f2;
+  --border: #e2e8e4;
+  --border-control: #868e89;
+  --text: #181f1b;
+  --text-muted: #58605b;
+  --accent: #007a4b;
+  --accent-hover: #00653d;
+  --accent-active: #075030;
+  --accent-foreground: #ffffff;
+  --accent-text: #00653d;
+  --accent-subtle-bg: #edfbf2;
+  --accent-subtle-text: #075030;
+  --ring: #007a4b;
+  --success: #007f6c;
+  --success-bg: #dafaf2;
+  --warning: #a36400;
+  --warning-bg: #fff2d6;
+  --danger: #cc323e;
+  --danger-bg: #ffeceb;
+  --info: #2971c6;
+  --info-bg: #e9f3ff;
+  --shadow-popover-theme: 0 8px 24px -8px rgb(24 31 27 / 18%), 0 0 0 1px var(--border);
+  --dur-100: 100ms;
+  --dur-150: 150ms;
+  --dur-200: 200ms;
+  --dur-300: 300ms;
+  --dur-500: 500ms;
+}
+
+[data-theme='dark'] {
+  color-scheme: dark;
+  --background: #1b1f1d;
+  --surface: #222724;
+  --surface-2: #2a2f2c;
+  --border: #333935;
+  --border-control: #5c645f;
+  --text: #eef2f0;
+  --text-muted: #a3aba6;
+  --accent: #1c945f;
+  --accent-hover: #22a369;
+  --accent-active: #178253;
+  --accent-foreground: #ffffff;
+  --accent-text: #2faf73;
+  --accent-subtle-bg: #143324;
+  --accent-subtle-text: #7dd3a3;
+  --ring: #2faf73;
+  --success: #45cab1;
+  --success-bg: #12302b;
+  --warning: #f7b83d;
+  --warning-bg: #3a2e14;
+  --danger: #f97676;
+  --danger-bg: #3b2222;
+  --info: #81b4f6;
+  --info-bg: #1c2a3d;
+  --shadow-popover-theme: 0 8px 24px -8px rgb(0 0 0 / 60%), 0 0 0 1px var(--border);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-100: 0ms;
+    --dur-150: 0ms;
+    --dur-200: 0ms;
+    --dur-300: 0ms;
+    --dur-500: 0ms;
+  }
+}

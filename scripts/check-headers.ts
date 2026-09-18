@@ -27,10 +27,11 @@ function gitFiles(): string[] {
 
 function isExempt(path: string): boolean {
   return (
-    path === 'LICENSE.md' ||
+    basename(path) === 'LICENSE.md' ||
     path.startsWith('LICENSES/') ||
     path === 'pnpm-lock.yaml' ||
     path === '.github/CODEOWNERS' ||
+    path.endsWith('.d.ts') ||
     path.endsWith('.json') ||
     path.includes('/fixtures/') ||
     path.includes('/__snapshots__/') ||
@@ -62,6 +63,7 @@ function renderedHeader(style: Exclude<ReturnType<typeof styleFor>, 'footer' | u
   if (style === 'slash') return notice.map((line) => `// ${line}`).join('\n');
   if (style === 'hash') return notice.map((line) => `# ${line}`).join('\n');
   if (style === 'sql') return notice.map((line) => `-- ${line}`).join('\n');
+  if (style === 'html') return `<!--\n${notice.map((line) => `  ${line}`).join('\n')}\n-->`;
   return `/*\n${notice.map((line) => ` * ${line}`).join('\n')}\n */`;
 }
 

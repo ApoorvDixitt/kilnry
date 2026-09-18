@@ -1,0 +1,355 @@
+{
+  "$schema": "https://design-tokens.github.io/community-group/format/",
+  "meta": {
+    "name": "Kilnry design tokens",
+    "version": "0.1.0",
+    "date": "2026-09-18",
+    "notes": "Accent hue 158 (between Starbucks 161 and Rolex 157). Accent is reserved for anything that costs money plus focus and selection. Neutrals carry a faint green tint (C 0.004-0.012). All contrast pairs verified WCAG AA in research; see wireframe doc section 2."
+  },
+  "color": {
+    "accent": {
+      "50": {
+        "oklch": "oklch(0.975 0.018 158)",
+        "hex": "#EDFBF2"
+      },
+      "100": {
+        "oklch": "oklch(0.945 0.040 158)",
+        "hex": "#D8F6E3"
+      },
+      "200": {
+        "oklch": "oklch(0.890 0.075 158)",
+        "hex": "#B1EAC8"
+      },
+      "300": {
+        "oklch": "oklch(0.800 0.110 158)",
+        "hex": "#7DD3A3"
+      },
+      "400": {
+        "oklch": "oklch(0.690 0.135 158)",
+        "hex": "#40B47B"
+      },
+      "500": {
+        "oklch": "oklch(0.590 0.130 158)",
+        "hex": "#1C945F"
+      },
+      "600": {
+        "oklch": "oklch(0.510 0.120 158)",
+        "hex": "#007A4B"
+      },
+      "700": {
+        "oklch": "oklch(0.445 0.105 158)",
+        "hex": "#00653D"
+      },
+      "800": {
+        "oklch": "oklch(0.380 0.085 158)",
+        "hex": "#075030"
+      },
+      "900": {
+        "oklch": "oklch(0.310 0.070 158)",
+        "hex": "#033B22"
+      },
+      "950": {
+        "oklch": "oklch(0.235 0.050 158)",
+        "hex": "#042515"
+      }
+    },
+    "neutral": {
+      "0": {
+        "oklch": "oklch(1 0 0)",
+        "hex": "#FFFFFF"
+      },
+      "50": {
+        "oklch": "oklch(0.985 0.004 158)",
+        "hex": "#F8FBF9"
+      },
+      "100": {
+        "oklch": "oklch(0.965 0.006 158)",
+        "hex": "#F0F5F2"
+      },
+      "200": {
+        "oklch": "oklch(0.925 0.008 158)",
+        "hex": "#E2E8E4"
+      },
+      "300": {
+        "oklch": "oklch(0.870 0.010 158)",
+        "hex": "#CFD6D2"
+      },
+      "400": {
+        "oklch": "oklch(0.720 0.012 158)",
+        "hex": "#9FA7A2"
+      },
+      "450": {
+        "oklch": "oklch(0.640 0.012 158)",
+        "hex": "#868E89"
+      },
+      "500": {
+        "oklch": "oklch(0.580 0.012 158)",
+        "hex": "#757D78"
+      },
+      "600": {
+        "oklch": "oklch(0.480 0.012 158)",
+        "hex": "#58605B"
+      },
+      "650": {
+        "oklch": "oklch(0.520 0.012 158)",
+        "hex": "#636B66"
+      },
+      "700": {
+        "oklch": "oklch(0.400 0.012 158)",
+        "hex": "#434A45"
+      },
+      "800": {
+        "oklch": "oklch(0.300 0.012 158)",
+        "hex": "#29302B"
+      },
+      "900": {
+        "oklch": "oklch(0.230 0.012 158)",
+        "hex": "#181F1B"
+      },
+      "925": {
+        "oklch": "oklch(0.205 0.012 158)",
+        "hex": "#131915"
+      },
+      "950": {
+        "oklch": "oklch(0.175 0.012 158)",
+        "hex": "#0C120E"
+      },
+      "975": {
+        "oklch": "oklch(0.145 0.010 158)",
+        "hex": "#070B09"
+      }
+    },
+    "sand": {
+      "100": {
+        "oklch": "oklch(0.93 0.03 85)",
+        "hex": "#F1E7D2",
+        "use": "illustration only"
+      },
+      "300": {
+        "oklch": "oklch(0.82 0.06 80)",
+        "hex": "#D9C099",
+        "use": "illustration only"
+      }
+    },
+    "semantic": {
+      "success": {
+        "text": "#007F6C",
+        "solid": "#45CAB1",
+        "bg": "#DAFAF2",
+        "note": "teal h178, 20 degrees from accent; text/icon/left-border only, never a filled button"
+      },
+      "warning": {
+        "text": "#A36400",
+        "solid": "#EFA810",
+        "dark": "#F7B83D",
+        "bg": "#FFF2D6"
+      },
+      "danger": {
+        "text": "#CC323E",
+        "solid": "#F97676",
+        "bg": "#FFECEB",
+        "note": "warm coral-rose h22, harmonizes with green"
+      },
+      "info": {
+        "text": "#2971C6",
+        "solid": "#81B4F6",
+        "bg": "#E9F3FF"
+      }
+    }
+  },
+  "theme": {
+    "light": {
+      "background": "{color.neutral.0}",
+      "surface": "{color.neutral.50}",
+      "surface-2": "{color.neutral.100}",
+      "border": "{color.neutral.200}",
+      "border-control": "{color.neutral.450}",
+      "text": "{color.neutral.900}",
+      "text-muted": "{color.neutral.600}",
+      "accent": "{color.accent.600}",
+      "accent-hover": "{color.accent.700}",
+      "accent-active": "{color.accent.800}",
+      "accent-foreground": "{color.neutral.0}",
+      "accent-subtle-bg": "{color.accent.50}",
+      "accent-subtle-text": "{color.accent.800}",
+      "ring": "{color.accent.600}",
+      "accent-text": "{color.accent.700}"
+    },
+    "dark": {
+      "_note": "Redesigned 2026-09-18 per D-32: warm charcoal (hue 158, low chroma), no pure black, low-contrast dividers, deeper accent fill with white text, no glow. Literal hex because these steps sit between the neutral ramp values.",
+      "background": "#1B1F1D",
+      "surface": "#222724",
+      "surface-2": "#2A2F2C",
+      "border": "#333935",
+      "border-control": "#5C645F",
+      "text": "#EEF2F0",
+      "text-muted": "#A3ABA6",
+      "accent": "#1C945F",
+      "accent-hover": "#22A369",
+      "accent-active": "#178253",
+      "accent-foreground": "#FFFFFF",
+      "accent-text": "#2FAF73",
+      "accent-subtle-bg": "#143324",
+      "accent-subtle-text": "#7DD3A3",
+      "ring": "#2FAF73",
+      "success": "#45CAB1",
+      "success-bg": "#12302B",
+      "warning": "#F7B83D",
+      "warning-bg": "#3A2E14",
+      "danger": "#F97676",
+      "danger-bg": "#3B2222",
+      "info": "#81B4F6",
+      "info-bg": "#1C2A3D",
+      "tile-placeholder": "linear-gradient(135deg,#2A2F2C,#333935)",
+      "contrast": {
+        "text/background": "13.9:1",
+        "text-muted/background": "6.4:1",
+        "accent-text/background": "5.9:1",
+        "accent-foreground/accent": "3.9:1 (use accent-active as resting fill if 4.5:1 is required for 14px labels)"
+      }
+    },
+    "_mode": "default light; follows OS (prefers-color-scheme) with manual override in Settings > Appearance (F-SET-09); data-theme attribute on <html>"
+  },
+  "typography": {
+    "family": {
+      "sans": "\"Geist\", \"Anek Devanagari\", ui-sans-serif, system-ui, -apple-system, \"Segoe UI\", sans-serif",
+      "mono": "\"Geist Mono\", ui-monospace, \"SF Mono\", Menlo, Consolas, monospace",
+      "note": "Alternate pairing B: Bricolage Grotesque display + IBM Plex Sans body + Noto Sans Devanagari. Decide in wireframe review."
+    },
+    "scale": {
+      "xs": {
+        "px": 12,
+        "lh": 16,
+        "use": "cost strip, timestamps, metadata"
+      },
+      "sm": {
+        "px": 14,
+        "lh": 20,
+        "use": "tables, secondary labels, nav"
+      },
+      "base": {
+        "px": 16,
+        "lh": 24,
+        "use": "body, inputs"
+      },
+      "lg": {
+        "px": 18,
+        "lh": 28,
+        "use": "lead paragraph"
+      },
+      "xl": {
+        "px": 20,
+        "lh": 28,
+        "use": "card title"
+      },
+      "2xl": {
+        "px": 24,
+        "lh": 32,
+        "use": "section heading"
+      },
+      "3xl": {
+        "px": 30,
+        "lh": 36,
+        "use": "page title"
+      },
+      "4xl": {
+        "px": 36,
+        "lh": 40,
+        "use": "docs hero"
+      },
+      "5xl": {
+        "px": 48,
+        "lh": 52,
+        "tracking": "-0.02em",
+        "use": "marketing hero only"
+      }
+    },
+    "weights": {
+      "regular": 400,
+      "medium": 500,
+      "semibold": 600,
+      "note": "600 only for page titles; hierarchy by size not weight"
+    },
+    "mono": {
+      "px": 13,
+      "lh": 20,
+      "features": "font-variant-ligatures: none; font-variant-numeric: tabular-nums"
+    }
+  },
+  "radius": {
+    "sm": "6px",
+    "md": "10px",
+    "lg": "14px",
+    "pill": "999px",
+    "map": "controls sm, cards md, dialogs/composer/media tiles lg, chips pill"
+  },
+  "border": {
+    "width": "1px",
+    "divider": "{theme.border}",
+    "control": "{theme.border-control}"
+  },
+  "shadow": {
+    "card": "none",
+    "popover": "0 8px 24px -8px oklch(0.23 0.012 158 / 0.18), 0 0 0 1px var(--border)",
+    "popover-dark": "0 8px 24px -8px oklch(0 0 0 / 0.6), 0 0 0 1px var(--border)"
+  },
+  "ring": {
+    "focus": "0 0 0 2px var(--background), 0 0 0 4px var(--ring)"
+  },
+  "space": {
+    "unit": 4,
+    "scale": [0, 4, 8, 12, 16, 20, 24, 32, 40, 48, 64]
+  },
+  "density": {
+    "control-h": "36px",
+    "control-h-compact": "32px",
+    "row-h": "44px",
+    "toolbar-h": "48px",
+    "topbar-h": "48px",
+    "sidebar-w": "240px",
+    "sidebar-rail-w": "56px",
+    "folder-tree-w": "240px",
+    "inspector-w": "320px",
+    "composer-max-w": "760px",
+    "palette-w": "640px",
+    "model-picker": "420x480px",
+    "docs-sidebar-w": "272px",
+    "docs-toc-w": "220px",
+    "docs-content-max": "76ch"
+  },
+  "motion": {
+    "duration": {
+      "100": "100ms",
+      "150": "150ms",
+      "200": "200ms",
+      "300": "300ms",
+      "500": "500ms"
+    },
+    "easing": {
+      "out": "cubic-bezier(0.25, 1, 0.5, 1)",
+      "emphasized": "cubic-bezier(0.32, 0.72, 0, 1)",
+      "in-out": "cubic-bezier(0.65, 0, 0.35, 1)",
+      "linear": "linear"
+    },
+    "spring": {
+      "snappy": {
+        "visualDuration": 0.2,
+        "bounce": 0
+      },
+      "settle": {
+        "visualDuration": 0.3,
+        "bounce": 0.1
+      },
+      "sheet": {
+        "visualDuration": 0.35,
+        "bounce": 0
+      }
+    },
+    "reduced-motion": "all durations collapse to 0ms via media query; MotionConfig reducedMotion=user; opacity and color still animate"
+  },
+  "icons": {
+    "set": "Lucide (ISC)",
+    "stroke": "1.75px at 20px, 1.5px at 16px",
+    "logo": "rounded arch (kiln) in neutral + single 45deg spark with dot in accent; two shapes; spark is the only accent element"
+  }
+}

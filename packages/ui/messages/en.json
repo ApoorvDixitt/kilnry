@@ -1,0 +1,90 @@
+{
+  "brand": {
+    "name": "Kilnry",
+    "tagline": "Fire ideas into finished files."
+  },
+  "nav": {
+    "create": "Create",
+    "library": "Library",
+    "characters": "Characters",
+    "presets": "Presets",
+    "workflows": "Workflows",
+    "chat": "Chat",
+    "jobs": "Jobs",
+    "settings": "Settings"
+  },
+  "shell": {
+    "command": "Command palette",
+    "theme": "Theme",
+    "budget": "$0.00 / no cap",
+    "checklistTitle": "Getting started",
+    "checklistGenerate": "Generate something",
+    "checklistFolder": "Save into a folder",
+    "checklistWorkflow": "Run a workflow",
+    "checklistMcp": "Connect an MCP client",
+    "close": "Close"
+  },
+  "welcome": {
+    "eyebrow": "Local setup",
+    "accountTitle": "Create your local account",
+    "accountSubtitle": "Stays on this machine. No email is sent, ever.",
+    "email": "Email",
+    "emailHint": "Only used as your local login name.",
+    "password": "Password",
+    "confirmPassword": "Confirm password",
+    "showPassword": "Show password",
+    "hidePassword": "Hide password",
+    "continue": "Continue",
+    "working": "Saving…",
+    "accountWhy": "Kilnry needs a local session to protect your keys, especially if you later allow network access. Nothing is uploaded.",
+    "terminalTitle": "Open the setup link from your terminal",
+    "terminalBody": "Run pnpm dev and open the one-time link it prints.",
+    "libraryTitle": "Where should your work live?",
+    "librarySubtitle": "Everything you create lands here as files you own, with a small metadata file beside each one.",
+    "libraryPath": "Library folder",
+    "libraryDefault": "Use default",
+    "libraryWorking": "Preparing folder…",
+    "libraryDocker": "This path is set by your Docker volume.",
+    "readyTitle": "Your studio is ready",
+    "readyBody": "The local foundation is set. Provider setup arrives next; you can already explore the studio shell.",
+    "open": "Open Kilnry",
+    "passwordLength": "Use at least 10 characters.",
+    "passwordWeak": "That password is easy to guess. Add words or symbols.",
+    "passwordMismatch": "Passwords don't match.",
+    "emailInvalid": "Enter an email address. It's only used as your login name.",
+    "genericError": "Kilnry couldn't save this step. Check the details and try again.",
+    "progress": "Setup progress",
+    "localOnly": "127.0.0.1 · local only"
+  },
+  "login": {
+    "title": "Welcome back",
+    "subtitle": "Sign in to this Kilnry installation.",
+    "submit": "Sign in",
+    "working": "Signing in…",
+    "lost": "Lost access? Run npx kilnry reset-password on this machine.",
+    "error": "That email or password did not match this local account."
+  },
+  "create": {
+    "title": "Create",
+    "emptyTitle": "Your next render starts here.",
+    "emptyBody": "Connect a provider in the next milestone, then describe an image, video, or sound.",
+    "emptyAction": "Provider setup coming next",
+    "shortcut": "Press / to focus the composer once generation is connected.",
+    "composerPlaceholder": "Describe what you want to make…",
+    "model": "No model connected",
+    "estimate": "≈ $0.00",
+    "generate": "Generate",
+    "generateDisabled": "Connect a provider before generating.",
+    "modeImage": "Image",
+    "modeVideo": "Video",
+    "modeAudio": "Audio",
+    "modeWorkflow": "Workflow"
+  },
+  "placeholder": {
+    "title": "This room is warming up.",
+    "body": "The foundation is live. This workspace arrives in its scheduled milestone."
+  },
+  "health": {
+    "ready": "Ready"
+  }
+}

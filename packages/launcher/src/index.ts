@@ -3,4 +3,6 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
-export {};
+export * from './commands/doctor.js';
+export * from './paths.js';
+export * from './platform.js';

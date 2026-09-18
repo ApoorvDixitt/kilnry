@@ -20,7 +20,7 @@ concurrency:
 jobs:
   ci:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -40,7 +40,23 @@ jobs:
         run: pnpm check:provenance
       - name: Check canon
         run: pnpm check:canon
+      - name: Check message catalogue
+        run: pnpm i18n:check
+      - name: Check launcher package size
+        run: pnpm check:size
+      - name: Lint and format
+        run: pnpm lint
       - name: Typecheck
         run: pnpm typecheck
+      - name: Unit and integration tests
+        run: pnpm test
+      - name: Install browser
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Browser component tests
+        run: pnpm test:browser
+      - name: Smoke acceptance tests
+        run: pnpm e2e --grep @smoke
+      - name: Production build
+        run: pnpm build
       - name: Audit production dependencies
         run: pnpm audit --prod
