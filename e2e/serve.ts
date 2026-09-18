@@ -15,7 +15,7 @@ for (const directory of ['e2e-data', 'e2e-library']) {
 }
 
 const detached = process.platform !== 'win32';
-const child = spawn('pnpm', ['dev'], { cwd: root, detached, env: process.env, stdio: 'inherit' });
+const child = spawn('tsx', ['scripts/dev.ts'], { cwd: root, detached, env: process.env, stdio: 'inherit' });
 let stopping = false;
 
 function stop(signal: NodeJS.Signals): void {
@@ -37,5 +37,5 @@ child.once('error', (error) => {
   process.exitCode = 1;
 });
 child.once('exit', (code, signal) => {
-  process.exit(code ?? (signal ? 1 : 0));
+  process.exit(stopping ? 0 : (code ?? (signal ? 1 : 0)));
 });

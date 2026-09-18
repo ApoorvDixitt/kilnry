@@ -12,7 +12,7 @@
   },
   "scripts": {
     "build": "turbo run build",
-    "dev": "turbo run dev --filter=@kilnry/web",
+    "dev": "tsx scripts/dev.ts",
     "typecheck": "tsc -b --pretty false && pnpm --filter @kilnry/web typecheck",
     "lint": "eslint . --max-warnings 0 && prettier --check .",
     "test": "turbo run test",
