@@ -1,0 +1,29 @@
+# Kilnry — https://github.com/ApoorvDixitt/kilnry
+# Copyright (c) 2026 Apoorv Dixit. Licensed under the Sustainable Use License 1.0.
+# SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
+# See LICENSE.md in the repository root. You may not remove or obscure this notice.
+
+name: Provider request
+description: Request support for a provider or model route
+title: 'provider: '
+labels: [provider]
+body:
+  - type: input
+    id: provider
+    attributes:
+      label: Provider
+    validations:
+      required: true
+  - type: input
+    id: docs
+    attributes:
+      label: Official API documentation
+    validations:
+      required: true
+  - type: textarea
+    id: value
+    attributes:
+      label: Capabilities and value
+      description: List the capabilities, pricing source, retention policy, and why existing routes do not cover the need.
+    validations:
+      required: true

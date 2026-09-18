@@ -1,0 +1,27 @@
+{
+  "name": "@kilnry/skills",
+  "version": "0.0.0",
+  "description": "Kilnry skills, presets, and workflows",
+  "type": "module",
+  "author": "Apoorv Dixit (https://github.com/ApoorvDixitt)",
+  "license": "SEE LICENSE IN LICENSE.md",
+  "files": [
+    "dist",
+    "skills",
+    "presets",
+    "workflows",
+    "prompts",
+    "README.md",
+    "LICENSE.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "exports": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b --pretty false",
+    "test": "vitest run --passWithNoTests"
+  }
+}

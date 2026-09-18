@@ -1,0 +1,30 @@
+{
+  "name": "kilnry",
+  "version": "0.0.0",
+  "description": "Kilnry npm launcher",
+  "type": "module",
+  "author": "Apoorv Dixit (https://github.com/ApoorvDixitt)",
+  "license": "SEE LICENSE IN LICENSE.md",
+  "bin": {
+    "kilnry": "bin/kilnry.js"
+  },
+  "engines": {
+    "node": ">=22.12"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "README.md",
+    "LICENSE.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "exports": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b --pretty false",
+    "test": "vitest run --passWithNoTests"
+  }
+}

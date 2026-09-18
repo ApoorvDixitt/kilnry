@@ -1,0 +1,39 @@
+{
+  "name": "kilnry-monorepo",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Local-first AI media studio",
+  "author": "Apoorv Dixit (https://github.com/ApoorvDixitt)",
+  "license": "SEE LICENSE IN LICENSE.md",
+  "packageManager": "pnpm@12.4.2",
+  "engines": {
+    "node": ">=22.12 <27",
+    "pnpm": ">=12"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "typecheck": "tsc -b --pretty false",
+    "lint": "eslint . --max-warnings 0 && prettier --check .",
+    "test": "turbo run test",
+    "check:headers": "tsx scripts/check-headers.ts",
+    "fix:headers": "tsx scripts/check-headers.ts --fix",
+    "check:provenance": "tsx scripts/check-provenance.ts",
+    "check:canon": "tsx scripts/check-canon.ts",
+    "release": "tsx scripts/release.ts",
+    "deps:check": "pnpm outdated -r --long",
+    "prepare": "tsx scripts/install-hooks.ts"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@typescript/native": "npm:typescript@7.0.2",
+    "@types/node": "24.13.5",
+    "commit-and-tag-version": "12.7.3",
+    "eslint": "10.10.0",
+    "prettier": "3.9.8",
+    "tsx": "4.23.13",
+    "turbo": "2.11.1",
+    "typescript": "npm:@typescript/typescript6@6.0.2",
+    "typescript-eslint": "8.70.0",
+    "vitest": "5.0.1"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "name": "@kilnry/presets",
+  "version": "0.0.0",
+  "description": "Kilnry preset schema and runner",
+  "private": true,
+  "type": "module",
+  "author": "Apoorv Dixit (https://github.com/ApoorvDixitt)",
+  "license": "SEE LICENSE IN LICENSE.md",
+  "exports": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b --pretty false",
+    "test": "vitest run --passWithNoTests"
+  }
+}

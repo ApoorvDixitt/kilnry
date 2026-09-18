@@ -1,0 +1,32 @@
+# Kilnry — https://github.com/ApoorvDixitt/kilnry
+# Copyright (c) 2026 Apoorv Dixit. Licensed under the Sustainable Use License 1.0.
+# SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
+# See LICENSE.md in the repository root. You may not remove or obscure this notice.
+
+packages:
+  - apps/*
+  - packages/*
+
+allowBuilds:
+  esbuild: true
+
+minimumReleaseAgeExclude:
+  - '@turbo/darwin-64@2.11.1'
+  - '@turbo/darwin-arm64@2.11.1'
+  - '@turbo/linux-64@2.11.1'
+  - '@turbo/linux-arm64@2.11.1'
+  - '@turbo/windows-64@2.11.1'
+  - '@turbo/windows-arm64@2.11.1'
+  - prettier@3.9.8
+  - turbo@2.11.1
+
+onlyBuiltDependencies:
+  - '@electric-sql/pglite'
+  - '@napi-rs/keyring'
+  - argon2
+  - sharp
+
+overrides:
+  react: 19.3.0
+  react-dom: 19.3.0
+  zod: 4.6.5

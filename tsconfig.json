@@ -1,0 +1,16 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/ui" },
+    { "path": "packages/core" },
+    { "path": "packages/db" },
+    { "path": "packages/providers" },
+    { "path": "packages/media" },
+    { "path": "packages/mcp" },
+    { "path": "packages/agent" },
+    { "path": "packages/workflows" },
+    { "path": "packages/presets" },
+    { "path": "packages/skills" },
+    { "path": "packages/launcher" }
+  ]
+}

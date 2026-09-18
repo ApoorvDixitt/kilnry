@@ -1,0 +1,46 @@
+# Kilnry — https://github.com/ApoorvDixitt/kilnry
+# Copyright (c) 2026 Apoorv Dixit. Licensed under the Sustainable Use License 1.0.
+# SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
+# See LICENSE.md in the repository root. You may not remove or obscure this notice.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24.21.0
+      - name: Enable pnpm
+        run: corepack enable
+      - name: Install pnpm
+        run: corepack install --global pnpm@12.4.2
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Check licence headers
+        run: pnpm check:headers
+      - name: Check provenance
+        run: pnpm check:provenance
+      - name: Check canon
+        run: pnpm check:canon
+      - name: Typecheck
+        run: pnpm typecheck
+      - name: Audit production dependencies
+        run: pnpm audit --prod
