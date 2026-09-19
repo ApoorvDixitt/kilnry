@@ -39,19 +39,21 @@ Defaults (adjustable): production builds use isolated in-memory PGlite while col
 
 ## M2 · Providers, Library core, Job engine · 2026-09-19
 
-Status: complete. Local gates and GitHub [`ci` run 35411204214](https://github.com/ApoorvDixitt/kilnry/actions/runs/35411204214) passed.
+Status: complete after a second source-level audit and remediation pass. GitHub [`ci` run 35426946068](https://github.com/ApoorvDixitt/kilnry/actions/runs/35426946068) passed on the final implementation head.
 
-Completed F-ONB-04; F-CRE-13; F-LIB-03, F-LIB-04, F-LIB-10, F-LIB-11; F-PRV-01, F-PRV-02, F-PRV-03, F-PRV-07; F-JOB-02, F-JOB-03, F-JOB-04; F-SET-01, F-SET-02, F-SET-08. This includes envelope-encrypted provider keys and recovery, redaction, fal/OpenRouter/Pollinations setup, canonical model and price registries, authoritative estimation, constrained Auto routing, provider adapters, durable jobs on shared PGlite, canonical media finalization, Library indexing and recovery, Range media delivery, SSE events, secured generation routes, and the minimal M2 proof UI.
+Completed F-ONB-04; F-CRE-13; F-LIB-03, F-LIB-04, F-LIB-10, F-LIB-11; F-PRV-01, F-PRV-02, F-PRV-03, F-PRV-07; F-JOB-02, F-JOB-03, F-JOB-04; F-SET-01 and the M2 foundations of F-SET-02/F-SET-08. Core blocks now include authoritative confirmation, transaction-serialized budget reservations, provider-price ingestion, stale-submit refusal, D-42 routing, encrypted keys with machine binding and recovery proof, strict request security, durable jobs, resumable downloads, multi-output finalization, embedded metadata and recovery, bounded derivatives, watcher/reindex, Range/SSE routes, and paid plus free demo generation.
 
 Gate results:
 
-- `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm test:browser`, `pnpm e2e --grep @smoke`, all canon/header/provenance/i18n/size checks, `pnpm audit --prod`, and `pnpm build`: pass.
-- TRD-19 G-01…G-30 estimator goldens and staleness paths: pass. Strict MSW fal/OpenRouter matrices cover success, moderation, 429, 5xx, timeout, insufficient funds, and ambiguous submit without paid egress.
-- Crash-resume polls accepted work without resubmission; mid-submit crash becomes ambiguous. Reindex equality, sidecar recovery, moderation-zero ledger, idempotency, cancellation, concurrency, and no-key zero-egress: pass.
-- `gitleaks` found no secrets. Light and dark 1440×900 M2 route screenshots were visually checked for clipping, overlap, states, accent use, and minimum text size.
+- Every required command passes: lint, both type checks, unit/integration, browser, smoke E2E, canon/header/provenance/i18n/size, production audit, and build.
+- 94 core, 22 provider, 7 media, and 3 browser tests pass. G-01…G-30, strict fal/OpenRouter matrices, Pollinations, live-price persistence, moderation-zero ledger, atomic caps, idempotency, concurrency, cancellation, multi-output, reindex equality, A1111/Comfy/XMP/GLB recovery, and no-key zero-egress are covered.
+- A subprocess is killed with `SIGKILL` during polling; restart re-polls the stored provider request and completes with zero submissions in the new process. Ambiguous submit remains single-call and user-gated.
+- Host/Origin, CSRF, request IDs, rate limits, SSRF ranges/redirects, path containment, redaction shapes, derivative IDs, and gitleaks pass. Light/dark 1440×900 Provider and Security screenshots were inspected.
 
 Resolved canon conflicts: pg-boss 12.33 rejects `:` in physical queue names, so logical `gen:<provider>` queues map internally to `gen/<provider>`. TRD-19's explicit G-17 value ($1.517) overrides its inconsistent formula result ($1.512). The owner's canonical file → sidecar → embedded metadata → database → derivatives order overrides stale chapter ordering; the sidecar is refreshed after embedding before the database write.
 
-Manual-only check: no real provider key or paid request was used. With an owner-supplied key and approval for the displayed exact spend, connect fal in Settings, run its connection test, confirm one image generation, verify media + sidecar + derivative + terminal ledger entry, then remove the key. This procedure was documented, not executed.
+Core-scope boundary: full Workspace backup/export/root-migration controls remain with their later packaging/UI work; M2 includes root validation, indexing, reindex, watcher, caches, and recovery.
+
+Manual-only check: no real key or paid request was used. With an owner-supplied key and explicit approval for the displayed spend, connect fal, test, generate one image, verify file + sidecar + derivative + ledger, then remove the key. Documented, not executed.
 
 <!-- Kilnry © 2026 Apoorv Dixit · Sustainable Use License 1.0 · See LICENSE.md. -->
