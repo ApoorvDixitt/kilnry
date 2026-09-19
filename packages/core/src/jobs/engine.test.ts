@@ -4,12 +4,12 @@
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
 import { createHash, randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { eq } from 'drizzle-orm';
 import { afterEach, describe, expect, it } from 'vitest';
-import { assets, closeDatabaseState, createDatabase, jobs, spendLedger } from '@kilnry/db';
+import { assets, budgets, closeDatabaseState, createDatabase, jobs, spendLedger } from '@kilnry/db';
 import { readEmbeddedMetadata } from '@kilnry/media';
 import { KilnryError } from '../errors.js';
 import { ProviderKeyStore } from '../security/key-store.js';
@@ -17,7 +17,7 @@ import { CanonicalRequestSchema, type CanonicalRequest } from '../types.js';
 import type { PollStatus, ProviderAdapter, ProviderResult, SubmitHandle } from '../providers/adapter.js';
 import { prepareLibraryRoot } from '../library/root.js';
 import { readSidecar } from '../library/sidecar.js';
-import { canonicalQueueName, JobEngine } from './engine.js';
+import { canonicalQueueName, JobEngine, type JobEngineOptions } from './engine.js';
 
 const tinyPng = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
@@ -32,11 +32,13 @@ afterEach(async () => {
 interface FakeState {
   submitCalls: number;
   pollCalls: number;
+  keepRunning: boolean;
   activeSubmits: number;
   maxActiveSubmits: number;
   submitFailures: KilnryError[];
   poll: PollStatus[];
   submitDelayMs: number;
+  downloadFailure?: Error;
   result: ProviderResult;
 }
 
@@ -44,6 +46,7 @@ function fakeAdapter(overrides: Partial<FakeState> = {}): { adapter: ProviderAda
   const state: FakeState = {
     submitCalls: 0,
     pollCalls: 0,
+    keepRunning: false,
     activeSubmits: 0,
     maxActiveSubmits: 0,
     submitFailures: [],
@@ -82,7 +85,7 @@ function fakeAdapter(overrides: Partial<FakeState> = {}): { adapter: ProviderAda
           status_url: `https://fixture.invalid/status/${state.submitCalls}`,
           response_url: `https://fixture.invalid/result/${state.submitCalls}`,
           submitted_at: new Date().toISOString(),
-          ...(state.poll.length === 0 ? { inline_result: state.result } : {}),
+          ...(state.poll.length === 0 && !state.keepRunning ? { inline_result: state.result } : {}),
           payload_redacted: { prompt_length: request.prompt.length },
         };
       } finally {
@@ -91,12 +94,18 @@ function fakeAdapter(overrides: Partial<FakeState> = {}): { adapter: ProviderAda
     },
     poll(): Promise<PollStatus> {
       state.pollCalls += 1;
-      return Promise.resolve(state.poll.shift() ?? { state: 'completed', result: state.result });
+      return Promise.resolve(
+        state.poll.shift() ??
+          (state.keepRunning
+            ? { state: 'running', progress: 0.1 }
+            : { state: 'completed', result: state.result }),
+      );
     },
     cancel(): Promise<{ ok: boolean }> {
       return Promise.resolve({ ok: true });
     },
     async download(result) {
+      if (state.downloadFailure) throw state.downloadFailure;
       return result.outputs.map((output, index) => {
         const bytes = output.bytes ?? Buffer.from(output.base64 ?? '', 'base64');
         return {
@@ -119,6 +128,7 @@ function fakeAdapter(overrides: Partial<FakeState> = {}): { adapter: ProviderAda
 async function harness(
   adapter: ProviderAdapter,
   withKey = true,
+  engineOptions: Partial<Pick<JobEngineOptions, 'pollScheduleMs' | 'pollTimeoutMs'>> = {},
 ): Promise<{
   engine: JobEngine;
   state: ReturnType<typeof createDatabase>;
@@ -150,9 +160,9 @@ async function harness(
     dataDir,
     libraryRoot: library,
     libraryId: prepared.marker.library_id,
-    pollScheduleMs: [0],
+    pollScheduleMs: engineOptions.pollScheduleMs ?? [0],
     submitRetryScheduleMs: [0],
-    pollTimeoutMs: 2000,
+    pollTimeoutMs: engineOptions.pollTimeoutMs ?? 2000,
     log: (_level, event) => {
       if (event.startsWith('job_finalize_')) stages.push(event.replace('job_finalize_', ''));
     },
@@ -228,6 +238,24 @@ describe('pg-boss job engine', () => {
     expect(second).toMatchObject({ job_id: first.job_id, idempotent_replay: true });
     await engine.waitForJob(first.job_id, 5000);
     expect(fake.state.submitCalls).toBe(1);
+  });
+
+  it('serializes concurrent reservations so the combined estimate cannot cross a cap', async () => {
+    const fake = fakeAdapter({ submitDelayMs: 75 });
+    const { engine, state } = await harness(fake.adapter);
+    await state.db.insert(budgets).values({
+      scope: 'daily',
+      capUsd: '0.007500',
+      behavior: 'block',
+    });
+    const outcomes = await Promise.allSettled([
+      createConfirmed(engine, 'budget-race-a'),
+      createConfirmed(engine, 'budget-race-b'),
+    ]);
+    expect(outcomes.filter((outcome) => outcome.status === 'fulfilled')).toHaveLength(1);
+    const rejected = outcomes.find((outcome) => outcome.status === 'rejected');
+    expect(rejected).toMatchObject({ status: 'rejected', reason: { code: 'BUDGET_EXCEEDED' } });
+    expect(await state.db.select().from(jobs)).toHaveLength(1);
   });
 
   it('writes a zero ledger entry for moderation', async () => {
@@ -350,6 +378,30 @@ describe('pg-boss job engine', () => {
     expect(fake.state.pollCalls).toBe(1);
   });
 
+  it('keeps an accepted job resumable across a graceful engine restart', async () => {
+    const fake = fakeAdapter({ keepRunning: true });
+    const { engine, state } = await harness(fake.adapter, true, {
+      pollScheduleMs: [100],
+      pollTimeoutMs: 10_000,
+    });
+    const created = await createConfirmed(engine, 'graceful-resume');
+    await expect
+      .poll(
+        async () =>
+          (await state.db.select().from(jobs).where(eq(jobs.id, created.job_id)))[0]?.providerRequestId,
+      )
+      .toBeTruthy();
+    await engine.stop();
+    expect((await state.db.select().from(jobs).where(eq(jobs.id, created.job_id)))[0]?.status).toBe(
+      'running',
+    );
+    fake.state.keepRunning = false;
+    fake.state.poll = [{ state: 'completed', result: fake.state.result }];
+    await engine.start();
+    expect(await engine.waitForJob(created.job_id, 5000)).toMatchObject({ status: 'completed' });
+    expect(fake.state.submitCalls).toBe(1);
+  });
+
   it('marks a crash during submit ambiguous instead of resubmitting', async () => {
     const fake = fakeAdapter();
     const { engine, state } = await harness(fake.adapter);
@@ -385,6 +437,47 @@ describe('pg-boss job engine', () => {
     );
     await Promise.all(jobsCreated.map((created) => engine.waitForJob(created.job_id, 5000)));
     expect(fake.state.maxActiveSubmits).toBeLessThanOrEqual(2);
+  });
+
+  it('finalizes every output independently and writes one ledger row for the job', async () => {
+    const fake = fakeAdapter({
+      result: {
+        outputs: [
+          { kind: 'image', bytes: tinyPng, mime: 'image/png' },
+          { kind: 'image', bytes: tinyPng, mime: 'image/png' },
+        ],
+        billing: { actual_usd: 0.0084, source: 'fixture' },
+      },
+    });
+    const { engine, state, library } = await harness(fake.adapter);
+    const created = await createConfirmed(engine, 'multi-output');
+    const terminal = await engine.waitForJob(created.job_id, 5000);
+    expect(terminal.outputAssetIds).toHaveLength(2);
+    expect(new Set(terminal.outputAssetIds).size).toBe(2);
+    expect(await state.db.select().from(assets)).toHaveLength(2);
+    const media = readdirSync(join(library, 'inbox')).filter((name) => !name.endsWith('.kilnry.json'));
+    expect(media).toHaveLength(2);
+    const outputIndexes = await Promise.all(
+      media.map(async (name) => {
+        const sidecar = await readSidecar(join(library, 'inbox', name));
+        return sidecar.ok ? sidecar.value.generation?.output_index : undefined;
+      }),
+    );
+    expect(outputIndexes.sort()).toEqual([0, 1]);
+    expect(await state.db.select().from(spendLedger)).toHaveLength(1);
+  });
+
+  it('keeps the known provider charge when a paid result cannot be downloaded', async () => {
+    const fake = fakeAdapter({ downloadFailure: new Error('fixture CDN unavailable') });
+    const { engine, state } = await harness(fake.adapter);
+    const created = await createConfirmed(engine, 'paid-download-failure');
+    expect(await engine.waitForJob(created.job_id, 5000)).toMatchObject({
+      status: 'failed',
+      actualUsd: '0.004200',
+    });
+    expect(await state.db.select().from(spendLedger)).toMatchObject([
+      { actualUsd: '0.004200', currencyNote: 'failure:charged' },
+    ]);
   });
 
   it('performs zero outbound work when no provider key is configured', async () => {

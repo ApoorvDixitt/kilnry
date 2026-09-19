@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
-import { and, desc, eq, gte, inArray } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, sql } from 'drizzle-orm';
 import { PgBoss, fromPglite, type Job } from 'pg-boss';
 import type { DatabaseState } from '@kilnry/db';
 import { jobs, providers, spendLedger } from '@kilnry/db';
@@ -57,6 +57,8 @@ interface StoredResolved {
     payload_redacted: unknown;
   };
 }
+
+const budgetLockId = 1_264_843_079;
 
 export interface JobEngineOptions {
   state: DatabaseState;
@@ -124,6 +126,11 @@ function ambiguous(error: KilnryError): boolean {
 }
 
 function delay(milliseconds: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) {
+    return Promise.reject(
+      signal.reason instanceof Error ? signal.reason : new DOMException('Aborted', 'AbortError'),
+    );
+  }
   if (milliseconds <= 0) return Promise.resolve();
   return new Promise((resolve, reject) => {
     const timer = setTimeout(resolve, milliseconds);
@@ -175,6 +182,7 @@ export class JobEngine {
   readonly #controllers = new Map<string, AbortController>();
   #boss: PgBoss | undefined;
   #started = false;
+  #stopping = false;
 
   constructor(options: JobEngineOptions) {
     this.#options = {
@@ -196,6 +204,7 @@ export class JobEngine {
 
   async start(): Promise<void> {
     if (this.#started) return;
+    this.#stopping = false;
     await this.#options.state.ready;
     await this.#options.keyStore.initialize();
     await seedRegistry(this.#options.state);
@@ -281,6 +290,7 @@ export class JobEngine {
 
   async stop(): Promise<void> {
     if (!this.#boss) return;
+    this.#stopping = true;
     for (const controller of this.#controllers.values())
       controller.abort(new DOMException('Runtime stopping', 'AbortError'));
     this.#controllers.clear();
@@ -383,13 +393,6 @@ export class JobEngine {
     }
     const prepared = await this.estimate(input.request, input.constraints);
     assertCostConfirmation(prepared.estimate, input.confirmed_cost_usd);
-    await reserveBudget(this.#options.state, {
-      estimate_usd: prepared.estimate.authoritative_usd ?? prepared.estimate.estimate_usd,
-      provider: prepared.estimate.route.provider,
-      folder: prepared.request.target_folder,
-      ...(input.override_budget === undefined ? {} : { override_budget: input.override_budget }),
-      now: this.#options.now(),
-    });
     const id = ulid();
     const row: typeof jobs.$inferInsert = {
       id,
@@ -414,7 +417,42 @@ export class JobEngine {
       createdAt: this.#options.now(),
       stepLabel: 'queued',
     };
-    await this.#options.state.db.insert(jobs).values(row);
+    const replay = await this.#options.state.db.transaction(async (transaction) => {
+      await transaction.execute(sql`select pg_advisory_xact_lock(${budgetLockId})`);
+      if (input.client_request_id) {
+        const existing = await transaction
+          .select()
+          .from(jobs)
+          .where(eq(jobs.clientRequestId, input.client_request_id))
+          .orderBy(desc(jobs.createdAt))
+          .limit(1);
+        if (existing[0]) {
+          if (this.#options.now().getTime() - existing[0].createdAt.getTime() < 86_400_000) {
+            return existing[0];
+          }
+          await transaction.update(jobs).set({ clientRequestId: null }).where(eq(jobs.id, existing[0].id));
+        }
+      }
+      await reserveBudget(transaction, {
+        estimate_usd: prepared.estimate.authoritative_usd ?? prepared.estimate.estimate_usd,
+        provider: prepared.estimate.route.provider,
+        folder: prepared.request.target_folder,
+        ...(input.override_budget === undefined ? {} : { override_budget: input.override_budget }),
+        now: this.#options.now(),
+      });
+      await transaction.insert(jobs).values(row);
+      return undefined;
+    });
+    if (replay) {
+      const provider = ProviderIdSchema.parse(replay.providerId);
+      return {
+        job_id: replay.id,
+        status: replay.status,
+        estimate: estimateFromRow(replay, CanonicalRequestSchema.parse(replay.request)),
+        route: { provider, model: replay.modelId ?? '' },
+        idempotent_replay: true,
+      };
+    }
     await this.#enqueue(id, prepared.estimate.route.provider);
     this.#options.events.emit({
       type: 'job.updated',
@@ -472,24 +510,27 @@ export class JobEngine {
     const request = CanonicalRequestSchema.parse(row.request);
     const estimate = estimateFromRow(row, request);
     assertCostConfirmation(estimate, confirmedCostUsd);
-    await reserveBudget(this.#options.state, {
-      estimate_usd: estimate.authoritative_usd ?? estimate.estimate_usd,
-      provider: ProviderIdSchema.parse(row.providerId),
-      folder: request.target_folder,
-      now: this.#options.now(),
+    await this.#options.state.db.transaction(async (transaction) => {
+      await transaction.execute(sql`select pg_advisory_xact_lock(${budgetLockId})`);
+      await reserveBudget(transaction, {
+        estimate_usd: estimate.authoritative_usd ?? estimate.estimate_usd,
+        provider: ProviderIdSchema.parse(row.providerId),
+        folder: request.target_folder,
+        now: this.#options.now(),
+      });
+      await transaction
+        .update(jobs)
+        .set({
+          status: 'queued',
+          errorCode: null,
+          errorMessage: null,
+          retryable: null,
+          finishedAt: null,
+          stepLabel: 'queued',
+          confirmedCostUsd: confirmedCostUsd.toFixed(6),
+        })
+        .where(eq(jobs.id, jobId));
     });
-    await this.#options.state.db
-      .update(jobs)
-      .set({
-        status: 'queued',
-        errorCode: null,
-        errorMessage: null,
-        retryable: null,
-        finishedAt: null,
-        stepLabel: 'queued',
-        confirmedCostUsd: confirmedCostUsd.toFixed(6),
-      })
-      .where(eq(jobs.id, jobId));
     await this.#enqueue(jobId, ProviderIdSchema.parse(row.providerId));
   }
 
@@ -534,6 +575,10 @@ export class JobEngine {
     } catch (error) {
       const row = await this.#job(jobId);
       if (row.status === 'cancelled') return;
+      if (this.#stopping) {
+        this.#options.log('info', 'job_paused_for_shutdown', { job_id: jobId, status: row.status });
+        return;
+      }
       const normalized =
         error instanceof KilnryError
           ? error
@@ -707,9 +752,23 @@ export class JobEngine {
     result: ProviderResult,
     context: AdapterContext,
   ): Promise<void> {
-    await this.#options.state.db.update(jobs).set({ stepLabel: 'downloading' }).where(eq(jobs.id, row.id));
-    const downloaded = await adapter.download(result, context);
     const actualUsd = result.billing?.actual_usd ?? estimate.authoritative_usd ?? estimate.estimate_usd;
+    await this.#options.state.db.update(jobs).set({ stepLabel: 'downloading' }).where(eq(jobs.id, row.id));
+    let downloaded: Awaited<ReturnType<ProviderAdapter['download']>>;
+    try {
+      downloaded = await adapter.download(result, context);
+    } catch (error) {
+      throw new KilnryError(
+        'PROVIDER_ERROR',
+        `The result was generated but Kilnry could not download it: ${error instanceof Error ? redactString(error.message) : 'unknown download error'}. Retry downloads the existing result without a new submission.`,
+        {
+          provider: adapter.id,
+          retryable: true,
+          details: { billed: 'yes', actual_usd: actualUsd, retry_download_only: true },
+          cause: error,
+        },
+      );
+    }
     const finalized: FinalizedAsset[] = [];
     for (const output of downloaded) {
       finalized.push(
@@ -808,11 +867,27 @@ export class JobEngine {
     billedState: 'no' | 'maybe' | 'yes' = billed(error),
   ): Promise<void> {
     if (['failed', 'moderated', 'cancelled', 'completed'].includes(row.status)) return;
-    const actualUsd = moderated && billedState === 'yes' ? numeric(row.estimateUsd) : 0;
+    const details = error.options.details;
+    const reportedActual =
+      typeof details === 'object' &&
+      details !== null &&
+      'actual_usd' in details &&
+      typeof details.actual_usd === 'number'
+        ? details.actual_usd
+        : undefined;
+    const confirmedEstimate =
+      row.authoritativeUsd === null ? numeric(row.estimateUsd) : numeric(row.authoritativeUsd);
+    const actualUsd = billedState === 'yes' ? (reportedActual ?? confirmedEstimate) : 0;
     await this.#recordLedger(
       row,
       actualUsd,
-      moderated ? (actualUsd ? 'moderation:charged' : 'moderation:refunded') : 'failed',
+      moderated
+        ? actualUsd
+          ? 'moderation:charged'
+          : 'moderation:refunded'
+        : actualUsd
+          ? 'failure:charged'
+          : 'failed',
     );
     const json = error.toJSON();
     const status =

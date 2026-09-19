@@ -17,17 +17,20 @@ function number(value: string | number | null | undefined): number {
 }
 
 export function assertCostConfirmation(estimate: Estimate, confirmedCostUsd: number | undefined): void {
-  if (estimate.estimate_usd === 0) return;
-  if (confirmedCostUsd === undefined || confirmedCostUsd < estimate.estimate_usd * 0.9) {
+  const required = estimate.authoritative_usd ?? estimate.estimate_usd;
+  if (required === 0) return;
+  if (confirmedCostUsd === undefined || confirmedCostUsd < required * 0.9) {
     throw new KilnryError(
       'CONFIRMATION_REQUIRED',
-      `Waiting for cost confirmation: ≈ $${estimate.estimate_usd.toFixed(4)}.`,
+      `Waiting for cost confirmation: ${estimate.authoritative_usd === undefined ? '≈ ' : ''}$${required.toFixed(4)}.`,
       {
-        details: { estimate },
+        details: { estimate, required_cost_usd: required },
       },
     );
   }
 }
+
+export type BudgetDatabase = Pick<DatabaseState['db'], 'select'>;
 
 function startOfDay(now: Date): Date {
   return new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -38,7 +41,7 @@ function startOfMonth(now: Date): Date {
 }
 
 async function ledgerTotal(
-  state: DatabaseState,
+  database: BudgetDatabase,
   from: Date,
   provider?: ProviderId,
   folder?: string,
@@ -46,7 +49,7 @@ async function ledgerTotal(
   const conditions = [gte(spendLedger.occurredAt, from)];
   if (provider) conditions.push(eq(spendLedger.providerId, provider));
   if (folder) conditions.push(like(spendLedger.folder, `${folder}%`));
-  const rows = await state.db
+  const rows = await database
     .select({ total: sql<string>`coalesce(sum(${spendLedger.actualUsd}), 0)` })
     .from(spendLedger)
     .where(and(...conditions));
@@ -54,14 +57,14 @@ async function ledgerTotal(
 }
 
 async function openReservations(
-  state: DatabaseState,
+  database: BudgetDatabase,
   provider?: ProviderId,
   folder?: string,
 ): Promise<number> {
   const conditions = [inArray(jobs.status, ['queued', 'running', 'waiting'])];
   if (provider) conditions.push(eq(jobs.providerId, provider));
   if (folder) conditions.push(like(jobs.targetFolder, `${folder}%`));
-  const rows = await state.db
+  const rows = await database
     .select({ total: sql<string>`coalesce(sum(${jobs.estimateUsd}), 0)` })
     .from(jobs)
     .where(and(...conditions));
@@ -77,7 +80,7 @@ interface BudgetCheck {
 }
 
 export async function reserveBudget(
-  state: DatabaseState,
+  database: BudgetDatabase,
   input: {
     estimate_usd: number;
     provider: ProviderId;
@@ -87,7 +90,7 @@ export async function reserveBudget(
   },
 ): Promise<void> {
   const now = input.now ?? new Date();
-  const capRows = await state.db.select().from(budgets);
+  const capRows = await database.select().from(budgets);
   const capMap = new Map(capRows.map((row) => [row.scope, row]));
   const checks: BudgetCheck[] = [];
   const daily = capMap.get('daily');
@@ -95,7 +98,7 @@ export async function reserveBudget(
     checks.push({
       scope: 'Daily',
       cap: number(daily.capUsd),
-      spent: (await ledgerTotal(state, startOfDay(now))) + (await openReservations(state)),
+      spent: (await ledgerTotal(database, startOfDay(now))) + (await openReservations(database)),
       reset: 'midnight',
       behavior: daily.behavior,
     });
@@ -104,7 +107,7 @@ export async function reserveBudget(
     checks.push({
       scope: 'Monthly',
       cap: number(monthly.capUsd),
-      spent: (await ledgerTotal(state, startOfMonth(now))) + (await openReservations(state)),
+      spent: (await ledgerTotal(database, startOfMonth(now))) + (await openReservations(database)),
       reset: 'the first of next month',
       behavior: monthly.behavior,
     });
@@ -118,13 +121,13 @@ export async function reserveBudget(
       scope: folder || 'Folder',
       cap: number(cap.capUsd),
       spent:
-        (await ledgerTotal(state, new Date(0), undefined, folder)) +
-        (await openReservations(state, undefined, folder)),
+        (await ledgerTotal(database, startOfMonth(now), undefined, folder)) +
+        (await openReservations(database, undefined, folder)),
       reset: 'you raise the cap',
       behavior: cap.behavior,
     });
   }
-  const providerRows = await state.db
+  const providerRows = await database
     .select({ cap: providers.monthlyCapUsd })
     .from(providers)
     .where(eq(providers.id, input.provider))
@@ -134,8 +137,8 @@ export async function reserveBudget(
       scope: `${input.provider} monthly`,
       cap: number(providerRows[0].cap),
       spent:
-        (await ledgerTotal(state, startOfMonth(now), input.provider)) +
-        (await openReservations(state, input.provider)),
+        (await ledgerTotal(database, startOfMonth(now), input.provider)) +
+        (await openReservations(database, input.provider)),
       reset: 'the first of next month',
       behavior: 'block',
     });

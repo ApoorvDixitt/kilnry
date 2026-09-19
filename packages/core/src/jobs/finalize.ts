@@ -109,6 +109,7 @@ function sidecarFor(
       actual_usd: input.actualUsd,
       unit_price: input.estimate.unit_price,
       provider_request_id: input.job.providerRequestId,
+      output_index: input.output.index,
       job_id: input.job.id,
       run_id: null,
       step_id: null,
@@ -134,12 +135,17 @@ export async function finalizeOutput(input: FinalizeInput): Promise<FinalizedAss
   const prior = await input.state.db
     .select({ id: assets.id, path: assets.path })
     .from(assets)
-    .where(eq(assets.jobId, input.job.id))
-    .limit(1);
-  if (prior[0]) {
-    const resolved = await resolveInRoot(input.libraryRoot, prior[0].path, { mustExist: true });
+    .where(eq(assets.jobId, input.job.id));
+  for (const existing of prior) {
+    const resolved = await resolveInRoot(input.libraryRoot, existing.path, { mustExist: true });
     const sidecar = await readSidecar(resolved.abs);
-    if (sidecar.ok) return { asset_id: prior[0].id, path: prior[0].path, absolute_path: resolved.abs };
+    const outputIndex = sidecar.ok ? sidecar.value.generation?.output_index : undefined;
+    if (
+      sidecar.ok &&
+      (outputIndex === input.output.index || (outputIndex === undefined && input.output.index === 0))
+    ) {
+      return { asset_id: existing.id, path: existing.path, absolute_path: resolved.abs };
+    }
   }
 
   const target = await resolveInRoot(input.libraryRoot, input.request.target_folder || 'inbox');

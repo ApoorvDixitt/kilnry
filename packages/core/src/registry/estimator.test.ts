@@ -6,7 +6,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { closeDatabaseState, createDatabase, budgets, jobs, spendLedger } from '@kilnry/db';
 import { ulid } from '../ids.js';
-import { reserveBudget } from '../budget/enforcer.js';
+import { assertCostConfirmation, reserveBudget } from '../budget/enforcer.js';
 import { CanonicalRequestSchema, type CanonicalRequest } from '../types.js';
 import { estimate, withAuthoritativeEstimate } from './estimator.js';
 import type { ModelManifest, PriceSnapshot } from './manifest.js';
@@ -375,10 +375,22 @@ describe('TRD-19 estimator goldens', () => {
       targetFolder: 'inbox',
     });
     await expect(
-      reserveBudget(state, { estimate_usd: 0.42, provider: 'fal', folder: 'inbox', now }),
+      reserveBudget(state.db, { estimate_usd: 0.42, provider: 'fal', folder: 'inbox', now }),
     ).rejects.toMatchObject({
       code: 'BUDGET_EXCEEDED',
       options: { details: expect.objectContaining({ spent_usd: 4.9, estimate_usd: 0.42 }) },
     });
+  });
+
+  it('requires confirmation against the authoritative estimate when it is available', () => {
+    const golden = goldens.find((entry) => entry.id === 'G-27')!;
+    const formula = estimate({
+      model: golden.model,
+      snapshot: freshSnapshot(golden.model),
+      request: golden.request,
+    });
+    const authoritative = withAuthoritativeEstimate(formula, 0.94);
+    expect(() => assertCostConfirmation(authoritative, formula.estimate_usd)).toThrow(/cost confirmation/i);
+    expect(() => assertCostConfirmation(authoritative, 0.94)).not.toThrow();
   });
 });
