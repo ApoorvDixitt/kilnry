@@ -7,6 +7,7 @@
 
 import { useEffect, useState } from 'react';
 import { KeyRound, ShieldCheck } from 'lucide-react';
+import { apiFetch } from '../lib/api-client';
 import { message } from '../lib/messages';
 
 interface KeyStatus {
@@ -17,32 +18,71 @@ interface KeyStatus {
   fingerprint?: string;
 }
 
+interface RecoveryConfirmation {
+  challenge_token: string;
+  group_numbers: number[];
+}
+
+interface NetworkStatus {
+  configured: boolean;
+  active: boolean;
+  restart_required: boolean;
+}
+
+interface SessionSummary {
+  id: string;
+  created_at: string;
+  expires_at: string;
+  ip_address?: string | null;
+  user_agent?: string | null;
+  current: boolean;
+}
+
 export function SecuritySettings(): React.ReactNode {
   const [status, setStatus] = useState<KeyStatus>();
   const [password, setPassword] = useState('');
   const [kit, setKit] = useState<string>();
+  const [confirmation, setConfirmation] = useState<RecoveryConfirmation>();
+  const [answers, setAnswers] = useState<Record<number, string>>({});
   const [restore, setRestore] = useState('');
+  const [network, setNetwork] = useState<NetworkStatus>();
+  const [networkPassword, setNetworkPassword] = useState('');
+  const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [error, setError] = useState<string>();
   const [pending, setPending] = useState(false);
 
   useEffect(() => {
-    void fetch('/api/security/key-store')
-      .then(async (response) => {
+    void Promise.all([
+      fetch('/api/security/key-store').then(async (response) => {
         const body = (await response.json()) as { status?: KeyStatus; error?: { message?: string } };
         if (!response.ok || !body.status)
           throw new Error(body.error?.message ?? message('settings.security.loadFailed'));
         setStatus(body.status);
-      })
-      .catch((cause: unknown) =>
-        setError(cause instanceof Error ? cause.message : message('settings.security.loadFailed')),
-      );
+      }),
+      fetch('/api/security/network').then(async (response) => {
+        const body = (await response.json()) as NetworkStatus & { error?: { message?: string } };
+        if (!response.ok) throw new Error(body.error?.message ?? message('settings.security.loadFailed'));
+        setNetwork(body);
+      }),
+      fetch('/api/security/sessions').then(async (response) => {
+        const body = (await response.json()) as {
+          sessions?: SessionSummary[];
+          error?: { message?: string };
+        };
+        if (!response.ok || !body.sessions)
+          throw new Error(body.error?.message ?? message('settings.security.loadFailed'));
+        setSessions(body.sessions);
+      }),
+    ]).catch((cause: unknown) =>
+      setError(cause instanceof Error ? cause.message : message('settings.security.loadFailed')),
+    );
   }, []);
 
   async function action(body: Record<string, unknown>): Promise<Record<string, unknown>> {
     setPending(true);
     setError(undefined);
     try {
-      const response = await fetch('/api/security/key-store', {
+      const response = await apiFetch('/api/security/key-store', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -58,11 +98,78 @@ export function SecuritySettings(): React.ReactNode {
   async function viewKit(): Promise<void> {
     try {
       const value = await action({ action: 'view', password });
-      if (typeof value.recovery_kit !== 'string') throw new Error(message('settings.security.loadFailed'));
+      if (
+        typeof value.recovery_kit !== 'string' ||
+        typeof value.confirmation !== 'object' ||
+        value.confirmation === null
+      ) {
+        throw new Error(message('settings.security.loadFailed'));
+      }
       setKit(value.recovery_kit);
+      setConfirmation(value.confirmation as unknown as RecoveryConfirmation);
+      setAnswers({});
       setPassword('');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : message('settings.security.loadFailed'));
+    }
+  }
+
+  async function confirmKit(): Promise<void> {
+    if (!confirmation) return;
+    try {
+      await action({
+        action: 'acknowledge',
+        challenge_token: confirmation.challenge_token,
+        answers: confirmation.group_numbers.map((group) => ({ group, value: answers[group] ?? '' })),
+      });
+      setKit(undefined);
+      setConfirmation(undefined);
+      setAnswers({});
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : message('settings.security.loadFailed'));
+    }
+  }
+
+  async function changeNetwork(): Promise<void> {
+    setPending(true);
+    setError(undefined);
+    try {
+      const response = await apiFetch('/api/security/network', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: !network?.configured, password: networkPassword }),
+      });
+      const body = (await response.json()) as NetworkStatus & { error?: { message?: string } };
+      if (!response.ok) throw new Error(body.error?.message ?? message('settings.security.loadFailed'));
+      setNetwork(body);
+      setNetworkPassword('');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : message('settings.security.loadFailed'));
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function revokeSession(sessionId: string, current: boolean): Promise<void> {
+    setPending(true);
+    setError(undefined);
+    try {
+      const response = await apiFetch('/api/security/sessions', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: sessionId }),
+      });
+      const body = (await response.json()) as { error?: { message?: string } };
+      if (!response.ok) throw new Error(body.error?.message ?? message('settings.security.loadFailed'));
+      if (current) {
+        window.location.assign('/login');
+        return;
+      }
+      setSessions((items) => items.filter((item) => item.id !== sessionId));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : message('settings.security.loadFailed'));
+    } finally {
+      setPending(false);
     }
   }
 
@@ -121,17 +228,37 @@ export function SecuritySettings(): React.ReactNode {
           {kit ? (
             <>
               <code>{kit}</code>
+              {confirmation ? (
+                <div className="recovery-confirm">
+                  <p>{message('settings.security.confirmGroups')}</p>
+                  <div>
+                    {confirmation.group_numbers.map((group) => (
+                      <label key={group}>
+                        {message('settings.security.groupLabel').replace('{group}', String(group))}
+                        <input
+                          maxLength={4}
+                          autoComplete="off"
+                          value={answers[group] ?? ''}
+                          onChange={(event) =>
+                            setAnswers((current) => ({
+                              ...current,
+                              [group]: event.target.value.toLowerCase().replace(/[^a-z0-9]/g, ''),
+                            }))
+                          }
+                        />
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
               <button
                 type="button"
-                onClick={() => {
-                  void action({ action: 'acknowledge' })
-                    .then(() => setKit(undefined))
-                    .catch((cause: unknown) =>
-                      setError(
-                        cause instanceof Error ? cause.message : message('settings.security.loadFailed'),
-                      ),
-                    );
-                }}
+                disabled={
+                  pending ||
+                  !confirmation ||
+                  confirmation.group_numbers.some((group) => (answers[group]?.length ?? 0) !== 4)
+                }
+                onClick={() => void confirmKit()}
               >
                 {message('settings.security.kitStored')}
               </button>
@@ -152,6 +279,66 @@ export function SecuritySettings(): React.ReactNode {
           )}
         </section>
       )}
+      <section className="security-card security-network">
+        <ShieldCheck size={22} />
+        <div>
+          <h3>{message('settings.security.networkTitle')}</h3>
+          <p>
+            {message(
+              network?.active
+                ? 'settings.security.networkActive'
+                : network?.configured
+                  ? 'settings.security.networkPending'
+                  : 'settings.security.networkOff',
+            )}
+          </p>
+          <div className="password-confirm-row">
+            <input
+              type="password"
+              aria-label={message('settings.security.networkPassword')}
+              placeholder={message('settings.security.passwordPlaceholder')}
+              value={networkPassword}
+              onChange={(event) => setNetworkPassword(event.target.value)}
+            />
+            <button
+              type="button"
+              disabled={pending || !networkPassword || !network}
+              onClick={() => void changeNetwork()}
+            >
+              {message(
+                network?.configured ? 'settings.security.disableNetwork' : 'settings.security.enableNetwork',
+              )}
+            </button>
+          </div>
+        </div>
+      </section>
+      <section className="session-card">
+        <h3>{message('settings.security.sessionsTitle')}</h3>
+        <p>{message('settings.security.sessionsBody')}</p>
+        <div className="session-list">
+          {sessions.map((session) => (
+            <div key={session.id}>
+              <div>
+                <strong>
+                  {session.current
+                    ? message('settings.security.currentSession')
+                    : message('settings.security.otherSession')}
+                </strong>
+                <span>{session.user_agent ?? message('settings.security.unknownDevice')}</span>
+                <small>
+                  {(session.ip_address ?? message('settings.security.localAddress')) +
+                    ` · ${new Date(session.expires_at).toLocaleDateString()}`}
+                </small>
+              </div>
+              <button type="button" onClick={() => void revokeSession(session.id, session.current)}>
+                {session.current
+                  ? message('settings.security.signOut')
+                  : message('settings.security.revokeSession')}
+              </button>
+            </div>
+          ))}
+        </div>
+      </section>
       {error ? <p className="form-error">{error}</p> : null}
     </div>
   );

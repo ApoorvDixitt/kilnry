@@ -7,6 +7,7 @@
 
 import { useState } from 'react';
 import { Database } from 'lucide-react';
+import { apiFetch } from '../lib/api-client';
 import { message } from '../lib/messages';
 
 export function WorkspaceSettings({ libraryRoot }: { libraryRoot: string }): React.ReactNode {
@@ -17,7 +18,7 @@ export function WorkspaceSettings({ libraryRoot }: { libraryRoot: string }): Rea
     setStatus(message('settings.workspace.reindexing'));
     setError(undefined);
     try {
-      const response = await fetch('/api/library/reindex', { method: 'POST' });
+      const response = await apiFetch('/api/library/reindex', { method: 'POST' });
       const body = (await response.json()) as {
         report?: { indexed: number; recovered_from_embedded: number };
         error?: { message?: string };

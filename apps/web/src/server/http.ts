@@ -3,9 +3,10 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
+import { headers } from 'next/headers';
 import { NextResponse } from 'next/server';
 import * as z from 'zod';
-import { KilnryError, redact } from '@kilnry/core';
+import { KilnryError, redact, ulid } from '@kilnry/core';
 import { currentSession } from './session';
 import { log } from './log';
 
@@ -29,7 +30,9 @@ export async function requireSession(): Promise<NonNullable<Awaited<ReturnType<t
   return session;
 }
 
-export function errorResponse(error: unknown): Response {
+export async function errorResponse(error: unknown): Promise<Response> {
+  const requestId = (await headers()).get('x-request-id') ?? ulid();
+  const responseHeaders: Record<string, string> = { 'X-Request-Id': requestId };
   if (error instanceof KilnryError) {
     const body = error.toJSON();
     return NextResponse.json(
@@ -40,8 +43,8 @@ export function errorResponse(error: unknown): Response {
         typeof body.details === 'object' &&
         body.details !== null &&
         'retry_after_s' in body.details
-          ? { headers: { 'Retry-After': String(body.details.retry_after_s) } }
-          : {}),
+          ? { headers: { ...responseHeaders, 'Retry-After': String(body.details.retry_after_s) } }
+          : { headers: responseHeaders }),
       },
     );
   }
@@ -55,18 +58,18 @@ export function errorResponse(error: unknown): Response {
           details: error.issues,
         },
       },
-      { status: 400 },
+      { status: 400, headers: responseHeaders },
     );
   }
-  log.error({ error: redact(error) }, 'api_unexpected_error');
+  log.error({ error: redact(error), request_id: requestId }, 'api_unexpected_error');
   return NextResponse.json(
     {
       error: {
-        code: 'PROVIDER_ERROR',
-        message: 'Unexpected error; see the local Kilnry log.',
-        retryable: true,
+        code: 'INTERNAL',
+        message: `Unexpected error; see the local Kilnry log (request ${requestId}).`,
+        retryable: false,
       },
     },
-    { status: 500 },
+    { status: 500, headers: responseHeaders },
   );
 }

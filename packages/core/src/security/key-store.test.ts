@@ -30,6 +30,13 @@ function memoryKeychain(): KeychainBridge & { value: string | undefined } {
   };
 }
 
+function unavailableKeychain(): KeychainBridge {
+  return {
+    get: () => Promise.reject(new Error('fixture keychain unavailable')),
+    set: () => Promise.reject(new Error('fixture keychain unavailable')),
+  };
+}
+
 function allBytes(root: string): Buffer {
   const chunks: Buffer[] = [];
   const walk = (path: string): void => {
@@ -71,5 +78,32 @@ describe('provider key store', () => {
       .set({ id: '01J00000000000000000000000' })
       .where(eq(providerKeys.providerId, 'fal'));
     await expect(locked.get('fal')).rejects.toThrow(/could not be opened/i);
+  });
+
+  it('binds the machine-derived fallback to the OS machine identifier', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'kilnry-machine-keys-'));
+    const state = createDatabase(dataDir, { memory: true });
+    cleanup.push(async () => {
+      await closeDatabaseState(state);
+      rmSync(dataDir, { recursive: true, force: true });
+    });
+    const warnings: string[] = [];
+    const first = new ProviderKeyStore({
+      dataDir,
+      database: state,
+      keychain: unavailableKeychain(),
+      machineId: 'machine-a',
+      onWarning: (message) => warnings.push(message),
+    });
+    expect(await first.initialize()).toMatchObject({ source: 'machine', weaker_machine_key: true });
+    await first.save('fal', 'fixture-machine-credential');
+    const copiedToAnotherMachine = new ProviderKeyStore({
+      dataDir,
+      database: state,
+      keychain: unavailableKeychain(),
+      machineId: 'machine-b',
+    });
+    expect(await copiedToAnotherMachine.initialize()).toMatchObject({ locked: true });
+    expect(warnings).toContain('OS keychain is unavailable; using the weaker machine-derived key.');
   });
 });

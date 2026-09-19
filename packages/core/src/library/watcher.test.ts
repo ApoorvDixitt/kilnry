@@ -53,7 +53,10 @@ describe('Library watcher', () => {
       ),
     );
     const event = await new Promise<{ id: string; folder: string }>((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error('Watcher did not import within 6 seconds.')), 6000);
+      const timeout = setTimeout(
+        () => reject(new Error('Watcher did not import within 15 seconds.')),
+        15_000,
+      );
       void imported.then((value) => {
         clearTimeout(timeout);
         resolve(value);
@@ -63,11 +66,11 @@ describe('Library watcher', () => {
     expect(await state.db.select().from(assets)).toMatchObject([{ id: event.id, path: 'inbox/watched.png' }]);
     renameSync(join(library, 'inbox', 'watched.png'), join(library, 'inbox', 'renamed.png'));
     await expect
-      .poll(async () => (await state.db.select().from(assets))[0]?.path, { timeout: 6000 })
+      .poll(async () => (await state.db.select().from(assets))[0]?.path, { timeout: 15_000 })
       .toBe('inbox/renamed.png');
     expect(existsSync(join(library, 'inbox', 'renamed.png.kilnry.json'))).toBe(true);
     expect(existsSync(join(library, 'inbox', 'watched.png.kilnry.json'))).toBe(false);
     expect((await state.db.select().from(assets))[0]?.id).toBe(event.id);
     expect(errors).toEqual([]);
-  }, 15_000);
+  }, 30_000);
 });

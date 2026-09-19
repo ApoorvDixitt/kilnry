@@ -14,6 +14,9 @@ const shapedSecrets = [
   /[0-9a-f]{8}-[0-9a-f-]{27}:[A-Za-z0-9_-]{20,}/gi,
   /(?:^|\b)[0-9a-f]{32}:[0-9a-f]{32}(?:\b|$)/gi,
   /sk_[A-Za-z0-9]{20,}/g,
+  /(?:key|pk)_[A-Za-z0-9]{16,}/g,
+  /xi-[0-9a-f]{32}/gi,
+  /fal_[A-Za-z0-9_-]{16,}/g,
 ];
 
 function mask(value: string): string {

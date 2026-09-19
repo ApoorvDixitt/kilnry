@@ -3,12 +3,14 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
-import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
+import { ulid } from '@kilnry/core';
 import { defaultDataDir } from '@kilnry/core/config';
+import { takeRateLimit } from './server/rate-limit';
 
 const loopback = new Set(['localhost', '127.0.0.1', '::1', '[::1]', 'kilnry.local']);
 
@@ -32,7 +34,12 @@ function scriptSource(nonce: string): string {
   return `'self' 'nonce-${nonce}' 'strict-dynamic'${development}`;
 }
 
-function addSecurityHeaders(response: NextResponse, nonce: string): NextResponse {
+function addSecurityHeaders(
+  response: NextResponse,
+  nonce: string,
+  requestId: string,
+  request?: NextRequest,
+): NextResponse {
   response.headers.set(
     'Content-Security-Policy',
     `default-src 'self'; script-src ${scriptSource(nonce)}; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self'; connect-src 'self'; worker-src 'self' blob:; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'`,
@@ -43,34 +50,77 @@ function addSecurityHeaders(response: NextResponse, nonce: string): NextResponse
   response.headers.set('Cross-Origin-Opener-Policy', 'same-origin');
   response.headers.set('Cross-Origin-Resource-Policy', 'same-origin');
   response.headers.set('X-Frame-Options', 'DENY');
+  response.headers.set('X-Request-Id', requestId);
   if (!response.headers.has('Cache-Control')) response.headers.set('Cache-Control', 'no-store');
+  if (request && !request.cookies.get('kilnry_csrf')) {
+    response.cookies.set('kilnry_csrf', randomBytes(32).toString('base64url'), {
+      httpOnly: false,
+      sameSite: 'lax',
+      secure: request.nextUrl.protocol === 'https:',
+      path: '/',
+    });
+  }
   return response;
 }
 
-function exchangeSetupToken(request: NextRequest, nonce: string): NextResponse | undefined {
+function exchangeSetupToken(request: NextRequest): NextResponse | undefined {
   const supplied = request.nextUrl.searchParams.get('t');
   if (!supplied || request.nextUrl.pathname !== '/welcome') return undefined;
   const path = join(defaultDataDir(), 'first-run.token');
-  if (!existsSync(path))
-    return addSecurityHeaders(NextResponse.redirect(new URL('/welcome', request.url)), nonce);
+  if (!existsSync(path)) return NextResponse.redirect(new URL('/welcome', request.url));
   const age = Date.now() - statSync(path).mtimeMs;
   const expected = readFileSync(path, 'utf8').trim();
   const left = Buffer.from(supplied);
   const right = Buffer.from(expected);
   const valid = age <= 10 * 60_000 && left.length === right.length && timingSafeEqual(left, right);
-  if (!valid)
-    return addSecurityHeaders(
-      new NextResponse('This setup link expired. Run pnpm dev again.', { status: 403 }),
-      nonce,
-    );
+  if (!valid) return new NextResponse('This setup link expired. Run pnpm dev again.', { status: 403 });
   const response = NextResponse.redirect(new URL('/welcome', request.url));
   response.cookies.set('kilnry_setup', '1', { httpOnly: true, sameSite: 'lax', maxAge: 30 * 60, path: '/' });
-  return addSecurityHeaders(response, nonce);
+  return response;
+}
+
+function sameSecret(left: string | undefined, right: string | null): boolean {
+  if (!left || !right) return false;
+  const first = Buffer.from(left);
+  const second = Buffer.from(right);
+  return first.length === second.length && timingSafeEqual(first, second);
+}
+
+function ratePolicy(path: string): { name: string; limit: number } {
+  if (
+    path.startsWith('/api/media/') ||
+    path.startsWith('/api/thumb/') ||
+    path.startsWith('/api/preview/') ||
+    path.startsWith('/api/sprite/')
+  )
+    return { name: 'media', limit: 2000 };
+  if (path === '/api/estimate') return { name: 'estimate', limit: 120 };
+  if (path === '/api/generate') return { name: 'spend', limit: 60 };
+  if (/^\/api\/providers\/[^/]+\/test$/.test(path)) return { name: 'provider-test', limit: 20 };
+  if (path.startsWith('/api/auth/sign-in/')) return { name: 'sign-in', limit: 10 };
+  return { name: 'default', limit: 600 };
+}
+
+function principalKey(request: NextRequest): string {
+  const session = request.cookies
+    .getAll()
+    .filter((cookie) => cookie.name !== 'kilnry_csrf')
+    .sort((left, right) => left.name.localeCompare(right.name))
+    .map((cookie) => `${cookie.name}=${cookie.value}`)
+    .join(';');
+  const fallback = `${request.headers.get('x-forwarded-for') ?? 'loopback'}:${request.headers.get('user-agent') ?? ''}`;
+  return createHash('sha256')
+    .update(session || fallback)
+    .digest('hex')
+    .slice(0, 24);
 }
 
 export function proxy(request: NextRequest): NextResponse {
+  const nonce = randomBytes(16).toString('base64');
+  const requestId = ulid();
   const host = hostOnly(request.headers.get('host'));
-  if (!allowedHost(host)) return new NextResponse('Misdirected Request', { status: 421 });
+  if (!allowedHost(host))
+    return addSecurityHeaders(new NextResponse('Misdirected Request', { status: 421 }), nonce, requestId);
 
   const origin = request.headers.get('origin');
   if (origin) {
@@ -78,9 +128,33 @@ export function proxy(request: NextRequest): NextResponse {
     try {
       originHost = hostOnly(new URL(origin).host);
     } catch {
-      return new NextResponse('Forbidden origin', { status: 403 });
+      return addSecurityHeaders(new NextResponse('Forbidden origin', { status: 403 }), nonce, requestId);
     }
-    if (!allowedHost(originHost)) return new NextResponse('Forbidden origin', { status: 403 });
+    if (!allowedHost(originHost))
+      return addSecurityHeaders(new NextResponse('Forbidden origin', { status: 403 }), nonce, requestId);
+  }
+
+  if (request.nextUrl.pathname.startsWith('/api/') && request.nextUrl.pathname !== '/api/health') {
+    const policy = ratePolicy(request.nextUrl.pathname);
+    const limited = takeRateLimit(`${policy.name}:${principalKey(request)}`, policy.limit);
+    if (!limited.allowed) {
+      return addSecurityHeaders(
+        NextResponse.json(
+          {
+            error: {
+              code: 'RATE_LIMITED',
+              message: 'Too many requests. Try again shortly.',
+              retryable: true,
+              details: { retry_after_s: limited.retry_after_s },
+            },
+          },
+          { status: 429, headers: { 'Retry-After': String(limited.retry_after_s) } },
+        ),
+        nonce,
+        requestId,
+        request,
+      );
+    }
   }
 
   const methodChangesState = !['GET', 'HEAD', 'OPTIONS'].includes(request.method);
@@ -88,17 +162,50 @@ export function proxy(request: NextRequest): NextResponse {
   if (methodChangesState && !bearer) {
     const site = request.headers.get('sec-fetch-site');
     if (site && !['same-origin', 'none'].includes(site))
-      return new NextResponse('Cross-site request blocked', { status: 403 });
-    if (!origin && !site) return new NextResponse('Origin required', { status: 403 });
+      return addSecurityHeaders(
+        new NextResponse('Cross-site request blocked', { status: 403 }),
+        nonce,
+        requestId,
+      );
+    if (!origin && !site)
+      return addSecurityHeaders(new NextResponse('Origin required', { status: 403 }), nonce, requestId);
+    const csrfExempt =
+      request.nextUrl.pathname.startsWith('/api/auth/') ||
+      request.headers.get('x-kilnry-doctor') === 'reindex';
+    if (
+      !csrfExempt &&
+      !sameSecret(request.cookies.get('kilnry_csrf')?.value, request.headers.get('x-kilnry-csrf'))
+    ) {
+      return addSecurityHeaders(
+        NextResponse.json(
+          {
+            error: {
+              code: 'INVALID_INPUT',
+              message: 'CSRF token missing or invalid.',
+              retryable: false,
+            },
+          },
+          { status: 403 },
+        ),
+        nonce,
+        requestId,
+        request,
+      );
+    }
   }
 
-  const nonce = randomBytes(16).toString('base64');
-  const setup = exchangeSetupToken(request, nonce);
-  if (setup) return setup;
+  const setup = exchangeSetupToken(request);
+  if (setup) return addSecurityHeaders(setup, nonce, requestId, request);
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set('x-nonce', nonce);
+  requestHeaders.set('x-request-id', requestId);
   requestHeaders.set('Content-Security-Policy', `script-src ${scriptSource(nonce)}`);
-  return addSecurityHeaders(NextResponse.next({ request: { headers: requestHeaders } }), nonce);
+  return addSecurityHeaders(
+    NextResponse.next({ request: { headers: requestHeaders } }),
+    nonce,
+    requestId,
+    request,
+  );
 }
 
 export const config = {

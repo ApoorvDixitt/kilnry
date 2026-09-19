@@ -10,6 +10,7 @@ import { useRouter } from 'next/navigation';
 import { Check, Eye, EyeOff, FolderOpen, KeyRound, LockKeyhole, Sparkles } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { BrandMark } from './brand-mark';
+import { apiFetch } from '../lib/api-client';
 import { message } from '../lib/messages';
 
 interface OnboardingFlowProps {
@@ -63,7 +64,7 @@ export function OnboardingFlow({
     if (password !== confirmation) return setError(message('welcome.passwordMismatch'));
     setPending(true);
     try {
-      const response = await fetch('/api/auth/sign-up/email', {
+      const response = await apiFetch('/api/auth/sign-up/email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password, name: email.split('@')[0] }),
@@ -85,7 +86,7 @@ export function OnboardingFlow({
     setError(undefined);
     setPending(true);
     try {
-      const response = await fetch('/api/onboarding/library', {
+      const response = await apiFetch('/api/onboarding/library', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ path: library }),
@@ -106,7 +107,7 @@ export function OnboardingFlow({
     setPending(true);
     try {
       const selected = detectProvider(providerKey) ?? provider;
-      const response = await fetch(`/api/providers/${selected}/key`, {
+      const response = await apiFetch(`/api/providers/${selected}/key`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ key: providerKey }),
@@ -137,7 +138,7 @@ export function OnboardingFlow({
     setError(undefined);
     setPending(true);
     try {
-      const response = await fetch('/api/onboarding/complete', { method: 'POST' });
+      const response = await apiFetch('/api/onboarding/complete', { method: 'POST' });
       const body = (await response.json()) as { error?: { message?: string } };
       if (!response.ok) throw new Error(body.error?.message ?? message('welcome.genericError'));
       setStep(4);

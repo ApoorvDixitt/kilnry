@@ -28,4 +28,5 @@ export * from './security/key-detection.js';
 export * from './security/key-store.js';
 export * from './security/recovery-kit.js';
 export * from './security/redact.js';
+export * from './security/ssrf.js';
 export * from './types.js';

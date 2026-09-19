@@ -8,7 +8,7 @@ import { stat } from 'node:fs/promises';
 import { basename } from 'node:path';
 import { Readable } from 'node:stream';
 import { eq } from 'drizzle-orm';
-import { KilnryError, resolveInRoot } from '@kilnry/core';
+import { KilnryError, parseUlid, resolveInRoot } from '@kilnry/core';
 import { assets } from '@kilnry/db';
 import { sniffMime } from '@kilnry/media';
 import { errorResponse, requireSession } from '../../../../server/http';
@@ -35,8 +35,7 @@ function parseRange(value: string | null, size: number): ByteRange {
 
 async function respond(request: Request, context: { params: Promise<{ id: string }> }): Promise<Response> {
   await requireSession();
-  const id = (await context.params).id;
-  if (!/^[0-9A-HJKMNP-TV-Z]{26}$/.test(id)) throw new KilnryError('INVALID_INPUT', 'Invalid asset id.');
+  const id = parseUlid((await context.params).id, 'asset id');
   const services = await runtimeServices();
   const rows = await services.database.db.select().from(assets).where(eq(assets.id, id)).limit(1);
   const row = rows[0];

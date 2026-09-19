@@ -680,6 +680,7 @@ kbd {
 .provider-card footer button,
 .security-card button,
 .recovery-card button,
+.session-card button,
 .workspace-card button {
   align-items: center;
   background: var(--background);
@@ -704,6 +705,7 @@ kbd {
 .provider-card footer button:hover,
 .security-card button:hover,
 .recovery-card button:hover,
+.session-card button:hover,
 .workspace-card button:hover {
   background: var(--surface-2);
 }
@@ -714,6 +716,7 @@ kbd {
 .provider-card footer button:active,
 .security-card button:active,
 .recovery-card button:active,
+.session-card button:active,
 .workspace-card button:active {
   transform: scale(0.98);
 }
@@ -724,6 +727,7 @@ kbd {
 .provider-card footer button:disabled,
 .security-card button:disabled,
 .recovery-card button:disabled,
+.session-card button:disabled,
 .workspace-card button:disabled {
   cursor: not-allowed;
   opacity: 0.45;
@@ -1410,6 +1414,88 @@ kbd {
 
 .password-confirm-row input {
   min-width: 280px;
+}
+
+.recovery-confirm {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin: 12px 0;
+  padding: 14px;
+}
+
+.recovery-confirm > div {
+  display: flex;
+  gap: 10px;
+}
+
+.recovery-confirm label {
+  color: var(--text-muted);
+  display: grid;
+  font-size: 12px;
+  gap: 6px;
+}
+
+.recovery-confirm input {
+  background: var(--background);
+  border: 1px solid var(--border-control);
+  border-radius: 6px;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 14px;
+  letter-spacing: 0.18em;
+  padding: 8px 10px;
+  text-transform: lowercase;
+  width: 96px;
+}
+
+.security-network > div {
+  flex: 1;
+}
+
+.session-card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin-bottom: 14px;
+  padding: 18px;
+}
+
+.session-card > h3 {
+  font-size: 15px;
+  font-weight: 500;
+  margin: 0 0 5px;
+}
+
+.session-card > p {
+  color: var(--text-muted);
+  margin: 0 0 12px;
+}
+
+.session-list {
+  display: grid;
+}
+
+.session-list > div {
+  align-items: center;
+  border-top: 1px solid var(--border);
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  padding: 12px 0;
+}
+
+.session-list > div:last-child {
+  padding-bottom: 0;
+}
+
+.session-list > div > div {
+  display: grid;
+  gap: 3px;
+}
+
+.session-list span,
+.session-list small {
+  color: var(--text-muted);
+  font-size: 12px;
 }
 
 .workspace-card code {

@@ -8,7 +8,7 @@ import { stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { eq } from 'drizzle-orm';
-import { KilnryError, loadConfig, resolveInRoot } from '@kilnry/core';
+import { KilnryError, loadConfig, parseUlid, resolveInRoot } from '@kilnry/core';
 import { assets } from '@kilnry/db';
 import { createThumbnail } from '@kilnry/media';
 import { errorResponse, requireSession } from '../../../../server/http';
@@ -20,7 +20,7 @@ export async function GET(
 ): Promise<Response> {
   try {
     await requireSession();
-    const id = (await context.params).id;
+    const id = parseUlid((await context.params).id, 'asset id');
     const services = await runtimeServices();
     const path = join(loadConfig().data_dir, 'cache', 'thumbs', `${id}.webp`);
     if (!existsSync(path)) {

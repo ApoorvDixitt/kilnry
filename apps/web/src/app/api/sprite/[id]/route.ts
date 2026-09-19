@@ -7,7 +7,7 @@ import { createReadStream, existsSync, readFileSync } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
-import { KilnryError, loadConfig } from '@kilnry/core';
+import { KilnryError, loadConfig, parseUlid } from '@kilnry/core';
 import { errorResponse, requireSession } from '../../../../server/http';
 
 export async function GET(
@@ -16,7 +16,7 @@ export async function GET(
 ): Promise<Response> {
   try {
     await requireSession();
-    const id = (await context.params).id;
+    const id = parseUlid((await context.params).id, 'asset id');
     const path = join(loadConfig().data_dir, 'cache', 'sprites', `${id}.webp`);
     if (!existsSync(path)) throw new KilnryError('NOT_FOUND', 'Sprite is not available.');
     const file = await stat(path);
@@ -30,6 +30,7 @@ export async function GET(
         'Content-Length': String(file.size),
         'Cache-Control': 'private, max-age=31536000, immutable',
         'X-Kilnry-Sprite': metadata,
+        'Cross-Origin-Resource-Policy': 'same-origin',
       },
     });
   } catch (error) {

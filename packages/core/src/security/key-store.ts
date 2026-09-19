@@ -4,9 +4,11 @@
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
 import { createCipheriv, createDecipheriv, createHash, hkdfSync, randomBytes } from 'node:crypto';
+import { execFile } from 'node:child_process';
 import { chmod, mkdir, open, readFile, rename } from 'node:fs/promises';
 import { hostname, userInfo } from 'node:os';
 import { join } from 'node:path';
+import { promisify } from 'node:util';
 import { AsyncEntry } from '@napi-rs/keyring';
 import { and, desc, eq } from 'drizzle-orm';
 import * as z from 'zod';
@@ -56,6 +58,42 @@ interface ResolvedKek {
   key: Buffer;
   source: 'keychain' | 'env' | 'file' | 'machine';
   salt?: Buffer;
+}
+
+const execFileAsync = promisify(execFile);
+
+async function systemMachineId(): Promise<string> {
+  if (process.platform === 'linux') {
+    const errors: unknown[] = [];
+    for (const path of ['/etc/machine-id', '/var/lib/dbus/machine-id']) {
+      try {
+        const value = (await readFile(path, 'utf8')).trim();
+        if (value) return value;
+      } catch (error) {
+        errors.push(error);
+      }
+    }
+    throw new AggregateError(errors, 'Linux machine id is unavailable.');
+  }
+  if (process.platform === 'darwin') {
+    const { stdout } = await execFileAsync('ioreg', ['-rd1', '-c', 'IOPlatformExpertDevice'], {
+      encoding: 'utf8',
+    });
+    const value = /"IOPlatformUUID"\s*=\s*"([^"]+)"/.exec(stdout)?.[1];
+    if (!value) throw new Error('IOPlatformUUID was not present in ioreg output.');
+    return value;
+  }
+  if (process.platform === 'win32') {
+    const { stdout } = await execFileAsync(
+      'reg',
+      ['query', 'HKLM\\SOFTWARE\\Microsoft\\Cryptography', '/v', 'MachineGuid'],
+      { encoding: 'utf8' },
+    );
+    const value = /MachineGuid\s+REG_SZ\s+([^\r\n]+)/i.exec(stdout)?.[1]?.trim();
+    if (!value) throw new Error('MachineGuid was not present in registry output.');
+    return value;
+  }
+  throw new Error(`Machine-derived provider-key protection is unsupported on ${process.platform}.`);
 }
 
 function fingerprint(key: Uint8Array): string {
@@ -148,7 +186,19 @@ export class ProviderKeyStore {
   }
 
   async #machineKey(salt: Buffer): Promise<Buffer> {
-    const identity = this.#options.machineId ?? `${hostname()}\0${userInfo().username}`;
+    let machineId = this.#options.machineId;
+    if (!machineId) {
+      try {
+        machineId = await systemMachineId();
+      } catch (error) {
+        this.#options.onWarning?.(
+          'The OS machine identifier is unavailable; machine-derived key protection is using the weaker hostname fallback.',
+          error,
+        );
+        machineId = hostname();
+      }
+    }
+    const identity = `${machineId}\0${userInfo().username}`;
     return Buffer.from(hkdfSync('sha256', Buffer.from(identity), salt, Buffer.from('kilnry-kek-v1'), 32));
   }
 

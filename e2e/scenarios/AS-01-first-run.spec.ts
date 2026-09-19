@@ -20,6 +20,12 @@ test('@smoke AS-01 first run creates a protected local account and Library', asy
 
   const rejectedHost = await request.get('/api/health', { headers: { Host: 'attacker.example' } });
   expect(rejectedHost.status()).toBe(421);
+  expect(rejectedHost.headers()['x-request-id']).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/);
+  const rejectedOrigin = await request.post('/api/estimate', {
+    headers: { Host: '127.0.0.1:3123', Origin: 'https://attacker.example' },
+    data: { kind: 'image', prompt: 'blocked cross-origin request', model: 'auto' },
+  });
+  expect(rejectedOrigin.status()).toBe(403);
 
   await page.goto(`/welcome?t=${token}`);
   await expect(page).toHaveURL('/welcome');
@@ -39,19 +45,53 @@ test('@smoke AS-01 first run creates a protected local account and Library', asy
 
   await expect(page.getByRole('heading', { name: 'Add one key to generate for real' })).toBeVisible();
   const noProviderStatus = await page.evaluate(async () => {
-    const response = await fetch('/api/estimate', {
+    const requestBody = JSON.stringify({ kind: 'image', prompt: 'zero egress check', model: 'auto' });
+    const missingCsrf = await fetch('/api/estimate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ kind: 'image', prompt: 'zero egress check', model: 'auto' }),
+      body: requestBody,
     });
-    return response.status;
+    const csrf = document.cookie
+      .split(';')
+      .map((part) => part.trim())
+      .find((part) => part.startsWith('kilnry_csrf='))
+      ?.slice('kilnry_csrf='.length);
+    const response = await fetch('/api/estimate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Kilnry-CSRF': decodeURIComponent(csrf ?? '') },
+      body: requestBody,
+    });
+    return { missing_csrf: missingCsrf.status, no_provider: response.status };
   });
-  expect(noProviderStatus).toBe(424);
+  expect(noProviderStatus).toEqual({ missing_csrf: 403, no_provider: 424 });
   const providerKey = ['sk-or-v1-', '0'.repeat(64)].join('');
   await page.getByLabel('Provider key').fill(providerKey);
   await expect(page.getByText('openrouter detected', { exact: false })).toBeVisible();
   await page.getByRole('button', { name: 'Test and save key' }).click();
   await expect(page.getByText(/Connected · \d+ ms/)).toBeVisible();
+  const providerTestStatuses = await page.evaluate(async () => {
+    const csrf = decodeURIComponent(
+      document.cookie
+        .split(';')
+        .map((part) => part.trim())
+        .find((part) => part.startsWith('kilnry_csrf='))
+        ?.slice('kilnry_csrf='.length) ?? '',
+    );
+    const statuses: number[] = [];
+    for (let index = 0; index < 21; index += 1) {
+      statuses.push(
+        (
+          await fetch('/api/providers/openrouter/test', {
+            method: 'POST',
+            headers: { 'X-Kilnry-CSRF': csrf },
+          })
+        ).status,
+      );
+    }
+    return statuses;
+  });
+  expect(providerTestStatuses.slice(0, 20).every((status) => status === 200)).toBe(true);
+  expect(providerTestStatuses[20]).toBe(429);
   await page.getByRole('button', { name: 'Continue' }).click();
   await expect(page.getByRole('heading', { name: 'Your studio is ready' })).toBeVisible();
   await page.getByRole('button', { name: 'Open Kilnry' }).click();
@@ -92,6 +132,7 @@ test('@smoke AS-01 first run creates a protected local account and Library', asy
   }, sidecar.asset_id);
   expect(rangeStatus).toMatchObject({ status: 206, length: 16 });
   expect(rangeStatus.range).toMatch(/^bytes 0-15\//);
+  expect(await page.evaluate(async () => (await fetch('/api/preview/not-an-id')).status)).toBe(400);
 
   const accessibility = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag22aa']).analyze();
   expect(accessibility.violations).toEqual([]);
@@ -99,10 +140,47 @@ test('@smoke AS-01 first run creates a protected local account and Library', asy
   await page.screenshot({ path: join(root, 'test-results', 'm1-create-light.png'), fullPage: true });
   await page.goto('/settings/security');
   await expect(page.getByRole('heading', { name: 'Security', exact: true })).toBeVisible();
-  await page.getByLabel('Current password').fill('Kilnry-local-test-42!');
+  await expect(page.getByRole('heading', { name: 'LAN access' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Signed-in sessions' })).toBeVisible();
+  await expect(page.getByText('This browser')).toBeVisible();
+  const invalidRecoveryStatus = await page.evaluate(async () => {
+    const csrf = decodeURIComponent(
+      document.cookie
+        .split(';')
+        .map((part) => part.trim())
+        .find((part) => part.startsWith('kilnry_csrf='))
+        ?.slice('kilnry_csrf='.length) ?? '',
+    );
+    return (
+      await fetch('/api/security/key-store', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Kilnry-CSRF': csrf },
+        body: JSON.stringify({
+          action: 'acknowledge',
+          challenge_token: 'invalid-recovery-challenge',
+          answers: [
+            { group: 1, value: 'aaaa' },
+            { group: 2, value: 'bbbb' },
+          ],
+        }),
+      })
+    ).status;
+  });
+  expect(invalidRecoveryStatus).toBe(400);
+  await page.getByLabel('Current password', { exact: true }).fill('Kilnry-local-test-42!');
   await page.getByRole('button', { name: 'View recovery kit' }).click();
   await expect(page.locator('.recovery-card code')).toContainText('kilnry1');
+  const recoveryKit = (await page.locator('.recovery-card code').textContent())?.replace(/[\s-]/g, '') ?? '';
+  const recoveryGroups = recoveryKit.slice('kilnry1'.length).match(/.{1,4}/g) ?? [];
+  const confirmationLabels = page.locator('.recovery-confirm label');
+  for (let index = 0; index < (await confirmationLabels.count()); index += 1) {
+    const label = confirmationLabels.nth(index);
+    const group = Number(/group (\d+)/i.exec((await label.textContent()) ?? '')?.[1]);
+    await label.locator('input').fill(recoveryGroups[group - 1] ?? '');
+  }
   await page.getByRole('button', { name: "I've stored it safely" }).click();
+  await expect(page.locator('.recovery-card code')).toHaveCount(0);
+  await page.screenshot({ path: join(root, 'test-results', 'm2-security-light.png'), fullPage: true });
   await page.goto('/settings/providers');
   await expect(page.getByRole('heading', { name: 'Providers', exact: true })).toBeVisible();
   const openRouterCard = page.locator('.provider-card').filter({ hasText: 'OpenRouter' });
@@ -122,6 +200,10 @@ test('@smoke AS-01 first run creates a protected local account and Library', asy
     )
     .toBe('rgb(238, 242, 240)');
   await page.screenshot({ path: join(root, 'test-results', 'm2-providers-dark.png'), fullPage: true });
+  await page.goto('/settings/security');
+  await expect(page.getByText('This browser')).toBeVisible();
+  await expect(page.getByText(/master key source: (?!not initialized)/)).toBeVisible();
+  await page.screenshot({ path: join(root, 'test-results', 'm2-security-dark.png'), fullPage: true });
   await page.goto('/create');
   await expect(page.getByRole('heading', { name: 'The M2 engine is ready' })).toBeVisible();
   await page.screenshot({ path: join(root, 'test-results', 'm1-create-dark.png'), fullPage: true });

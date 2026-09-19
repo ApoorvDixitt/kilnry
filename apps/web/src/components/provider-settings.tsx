@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Check, KeyRound, RefreshCw, Trash2 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
+import { apiFetch } from '../lib/api-client';
 import { message } from '../lib/messages';
 
 type ProviderId = 'fal' | 'openrouter' | 'pollinations';
@@ -74,7 +75,7 @@ export function ProviderSettings({
     setPending(true);
     try {
       const selected = detected ?? provider;
-      const response = await fetch(`/api/providers/${selected}/key`, {
+      const response = await apiFetch(`/api/providers/${selected}/key`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ key }),
@@ -104,7 +105,7 @@ export function ProviderSettings({
     setPending(true);
     try {
       const body = await responseJson<{ ok: boolean; latency_ms?: number }>(
-        await fetch(`/api/providers/${id}/test`, { method: 'POST' }),
+        await apiFetch(`/api/providers/${id}/test`, { method: 'POST' }),
       );
       if (!body.ok) throw new Error(message('settings.providers.testFailed'));
       setNotice(message('settings.providers.testPassed').replace('{latency}', String(body.latency_ms ?? 0)));
@@ -120,7 +121,7 @@ export function ProviderSettings({
     setError(undefined);
     setPending(true);
     try {
-      await responseJson(await fetch(`/api/providers/${id}/key`, { method: 'DELETE' }));
+      await responseJson(await apiFetch(`/api/providers/${id}/key`, { method: 'DELETE' }));
       setNotice(message('settings.providers.removed'));
       await load();
     } catch (cause) {
@@ -135,7 +136,7 @@ export function ProviderSettings({
     setPending(true);
     try {
       const body = await responseJson<{ models: number }>(
-        await fetch('/api/models/refresh', {
+        await apiFetch('/api/models/refresh', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ provider: id }),

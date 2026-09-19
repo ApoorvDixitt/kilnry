@@ -9,6 +9,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { Image as ImageIcon, LoaderCircle, Sparkles } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
+import { apiFetch } from '../lib/api-client';
 import { message } from '../lib/messages';
 
 interface Estimate {
@@ -57,7 +58,7 @@ export function CreateFoundation(): React.ReactNode {
 
   async function price(): Promise<Estimate> {
     const body = await json<Estimate>(
-      await fetch('/api/estimate', {
+      await apiFetch('/api/estimate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -96,7 +97,7 @@ export function CreateFoundation(): React.ReactNode {
     try {
       const priced = estimate ?? (await price());
       const body = await json<{ jobs: Array<{ job_id: string; status: string }> }>(
-        await fetch('/api/generate', {
+        await apiFetch('/api/generate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

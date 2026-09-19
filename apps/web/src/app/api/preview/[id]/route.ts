@@ -7,12 +7,13 @@ import { createReadStream, existsSync } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
-import { loadConfig } from '@kilnry/core';
+import { loadConfig, parseUlid } from '@kilnry/core';
 import { errorResponse, requireSession } from '../../../../server/http';
 
 async function respond(request: Request, id: string): Promise<Response> {
   await requireSession();
-  const path = join(loadConfig().data_dir, 'cache', 'previews', `${id}.mp4`);
+  const assetId = parseUlid(id, 'asset id');
+  const path = join(loadConfig().data_dir, 'cache', 'previews', `${assetId}.mp4`);
   if (!existsSync(path)) return new Response(null, { status: 202, headers: { 'Retry-After': '2' } });
   const file = await stat(path);
   const range = request.headers.get('range');
@@ -41,6 +42,7 @@ async function respond(request: Request, id: string): Promise<Response> {
         'Content-Length': String(end - start + 1),
         ...(range ? { 'Content-Range': `bytes ${start}-${end}/${file.size}` } : {}),
         'Cache-Control': 'private, max-age=31536000, immutable',
+        'Cross-Origin-Resource-Policy': 'same-origin',
       },
     },
   );

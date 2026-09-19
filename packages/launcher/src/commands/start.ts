@@ -46,10 +46,16 @@ export async function startServer(options: { port: number; noOpen: boolean }): P
     }
   }
   const entry = serverEntry();
+  const configPath = join(dataDir, 'config.json');
+  const config = existsSync(configPath)
+    ? (JSON.parse(readFileSync(configPath, 'utf8')) as { lan_enabled?: boolean })
+    : {};
+  const lanEnabled = process.env.KILNRY_LAN === '1' || config.lan_enabled === true;
   const child = spawn(process.execPath, [entry], {
     env: {
       ...process.env,
-      HOSTNAME: process.env.KILNRY_LAN === '1' ? '0.0.0.0' : '127.0.0.1',
+      HOSTNAME: lanEnabled ? '0.0.0.0' : '127.0.0.1',
+      KILNRY_LAN: lanEnabled ? '1' : '0',
       KILNRY_PORT: String(options.port),
       PORT: String(options.port),
     },

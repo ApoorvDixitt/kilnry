@@ -18,6 +18,10 @@ describe('redaction', () => {
         'f'.repeat(32),
       ].join(':'),
       ['sk_', 'P'.repeat(30)].join(''),
+      ['key_', 'K'.repeat(30)].join(''),
+      ['pk_', 'P'.repeat(30)].join(''),
+      ['xi-', 'a'.repeat(32)].join(''),
+      ['fal_', 'F'.repeat(30)].join(''),
       ['kmcp_', 'x'.repeat(60)].join(''),
       ['kilnry1', 'q'.repeat(60)].join(''),
     ];
