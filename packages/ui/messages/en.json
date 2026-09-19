@@ -398,6 +398,16 @@
     "title": "This room is warming up.",
     "body": "The foundation is live. This workspace arrives in its scheduled milestone."
   },
+  "onboarding": {
+    "checklistTitle": "Get started",
+    "checklistProgress": "{done} of {total}",
+    "generate": "Generate something",
+    "organise": "Save into a folder",
+    "workflow": "Run a workflow",
+    "mcp": "Connect Claude Code",
+    "allSet": "All set. Enjoy Kilnry.",
+    "hide": "Hide"
+  },
   "jobs": {
     "title": "Jobs",
     "tabAll": "All",

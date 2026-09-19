@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { BrandMark } from './brand-mark';
+import { ChecklistWidget } from './checklist-widget';
 import { ThemeSwitcher } from './theme-switcher';
 import { message } from '../lib/messages';
 
@@ -123,20 +124,7 @@ export function AppShell({ children }: { children: ReactNode }): React.ReactNode
           })}
         </nav>
         <div className="sidebar-spacer" />
-        <div className="getting-started sidebar-label">
-          <p>{message('shell.checklistTitle')}</p>
-          {[
-            message('shell.checklistGenerate'),
-            message('shell.checklistFolder'),
-            message('shell.checklistWorkflow'),
-            message('shell.checklistMcp'),
-          ].map((item) => (
-            <span key={item}>
-              <i />
-              {item}
-            </span>
-          ))}
-        </div>
+        <ChecklistWidget />
         <Link
           href="/settings"
           className={activeFor(pathname, '/settings') ? 'nav-item is-active' : 'nav-item'}

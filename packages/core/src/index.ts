@@ -10,6 +10,7 @@ export * from './ids.js';
 export * from './events/hub.js';
 export * from './jobs/engine.js';
 export * from './jobs/finalize.js';
+export * from './onboarding/checklist.js';
 export * from './library/root.js';
 export * from './library/assets.js';
 export * from './library/containment.js';

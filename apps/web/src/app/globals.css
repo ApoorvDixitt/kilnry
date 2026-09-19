@@ -221,6 +221,42 @@ textarea:disabled {
   width: 12px;
 }
 
+.checklist-item {
+  align-items: center;
+  color: var(--text);
+  display: flex;
+  font-size: 12px;
+  gap: 8px;
+  text-decoration: none;
+}
+
+.checklist-item i {
+  align-items: center;
+  display: inline-flex;
+  justify-content: center;
+}
+
+.checklist-item.is-done {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+
+.checklist-item.is-done i {
+  background: var(--teal, #2f9e78);
+  border-color: var(--teal, #2f9e78);
+  color: #fff;
+}
+
+.checklist-hide {
+  background: transparent;
+  border: 0;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 11px;
+  justify-self: start;
+  padding: 2px 0 0;
+}
+
 .collapse-button {
   color: var(--text-muted);
   cursor: pointer;
