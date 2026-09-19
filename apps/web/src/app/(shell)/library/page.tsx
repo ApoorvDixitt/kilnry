@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
-import { PlaceholderPage } from '../../../components/placeholder-page';
+import { LibraryBrowser } from '../../../components/library-browser';
 export default function LibraryPage(): React.ReactNode {
-  return <PlaceholderPage />;
+  return <LibraryBrowser />;
 }

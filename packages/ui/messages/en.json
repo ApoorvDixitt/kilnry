@@ -382,6 +382,20 @@
     "title": "This room is warming up.",
     "body": "The foundation is live. This workspace arrives in its scheduled milestone."
   },
+  "library": {
+    "title": "Library",
+    "treeLabel": "Folders",
+    "newFolder": "New folder",
+    "newFolderName": "Folder name",
+    "rename": "Rename",
+    "move": "Move to…",
+    "delete": "Delete folder",
+    "unreachableTitle": "Your Library isn't reachable.",
+    "unreachableBody": "Reconnect the drive, or choose another folder in Settings › Workspace.",
+    "emptyGrid": "Nothing here yet. Drop files or generate into this folder.",
+    "generateHere": "Generate here",
+    "confirmDelete": "Move this folder and its files to Trash?"
+  },
   "health": {
     "ready": "Ready"
   }
