@@ -1314,6 +1314,54 @@ kbd {
   margin-left: 6px;
 }
 
+.composer {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0 auto;
+  max-width: 760px;
+  padding: 14px;
+  width: 100%;
+}
+
+.composer-prompt {
+  background: var(--background);
+  border: 1px solid var(--border-control);
+  border-radius: 10px;
+  color: var(--text);
+  font-size: 14px;
+  line-height: 20px;
+  min-height: 56px;
+  padding: 10px 12px;
+  resize: none;
+  width: 100%;
+}
+
+.composer-prompt:focus-visible {
+  border-color: var(--ring);
+  outline: none;
+}
+
+.composer-model {
+  position: relative;
+}
+
+.composer-picker-anchor {
+  bottom: calc(100% + 8px);
+  left: 0;
+  position: absolute;
+  z-index: 50;
+}
+
+.generate-button.is-disabled {
+  background: var(--surface-2);
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
 .composer-spacer {
   flex: 1;
 }

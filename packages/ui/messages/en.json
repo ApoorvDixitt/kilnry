@@ -96,6 +96,15 @@
     "estimate": "≈ $0.00",
     "generate": "Generate",
     "generateDisabled": "Connect a provider before generating.",
+    "plan": "Plan",
+    "workflowLater": "Workflows arrive in a later milestone.",
+    "generateDisabledReason": {
+      "noKey": "Add a provider key or start the demo.",
+      "empty": "Type a prompt first.",
+      "noModel": "Add a fal or OpenRouter key for this mode.",
+      "unpriced": "Kilnry can't price this yet. Refresh prices in Settings › Providers.",
+      "budget": "Daily cap reached. Raise the cap or wait until midnight."
+    },
     "keylessTitle": "Paste one key to generate for real",
     "keylessBody": "Connect fal or OpenRouter, or use a free Pollinations key for the image demo.",
     "useDemo": "Get a free demo key",
