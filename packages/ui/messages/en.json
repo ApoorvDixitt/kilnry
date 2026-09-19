@@ -129,6 +129,18 @@
       "snapResolution": "{from} isn't offered here; using {to}.",
       "snapDuration": "{from} s isn't offered here; using {to} s."
     },
+    "cost": {
+      "image": "{n} image",
+      "images": "{n} images",
+      "chars": "{n} chars",
+      "unpriced": "Kilnry can't price this yet. Refresh prices in Settings › Providers.",
+      "stale": "Price is out of date",
+      "formulaEstimate": "Formula estimate {amount}",
+      "providerEstimate": "Provider estimate {amount}",
+      "priceAge": "Price fetched {days} days ago",
+      "budgetLine": "{label} {spent} of {cap}",
+      "overBudget": "Daily cap {cap} reached ({spent} spent). Raise the cap or wait until midnight."
+    },
     "proof": {
       "examplePrompt": "A small ceramic kiln arch on warm handmade paper, soft studio light",
       "readyTitle": "The M2 engine is ready",

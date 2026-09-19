@@ -1273,6 +1273,47 @@ kbd {
   border-color: var(--ring);
 }
 
+.cost-strip {
+  align-items: center;
+  color: var(--accent-text);
+  display: inline-flex;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  gap: 5px;
+}
+
+.cost-strip .cost-strip-sep,
+.cost-strip .cost-strip-size,
+.cost-strip .cost-strip-eta {
+  color: var(--text-muted);
+}
+
+.cost-strip-figure {
+  font-weight: 500;
+}
+
+.cost-strip.is-unpriced,
+.cost-strip[data-status='unpriced'] {
+  color: var(--text-muted);
+  font-family: inherit;
+}
+
+.cost-strip.is-over-budget,
+.cost-strip.is-over-budget .cost-strip-figure {
+  color: var(--danger);
+}
+
+.cost-strip-stale {
+  color: var(--warning, #b7791f);
+}
+
+.cost-strip-block {
+  color: var(--danger);
+  font-family: inherit;
+  margin-left: 6px;
+}
+
 .composer-spacer {
   flex: 1;
 }
