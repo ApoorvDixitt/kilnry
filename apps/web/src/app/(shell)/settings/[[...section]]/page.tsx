@@ -4,6 +4,7 @@
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
 import { loadConfig } from '@kilnry/core';
+import { AppearanceSettings } from '../../../../components/appearance-settings';
 import { ProviderSettings } from '../../../../components/provider-settings';
 import { SecuritySettings } from '../../../../components/security-settings';
 import { SettingsLayout } from '../../../../components/settings-layout';
@@ -15,12 +16,23 @@ export default async function SettingsPage({
   params: Promise<{ section?: string[] }>;
 }): Promise<React.ReactNode> {
   const requested = (await params).section?.[0] ?? 'providers';
-  const section = ['providers', 'workspace', 'security'].includes(requested) ? requested : 'providers';
+  const section = ['providers', 'workspace', 'security', 'appearance'].includes(requested)
+    ? requested
+    : 'providers';
+  const config = loadConfig();
   const content =
-    section === 'security' ? (
+    section === 'appearance' ? (
+      <AppearanceSettings
+        initialValue={{
+          theme: config.theme,
+          density: config.density,
+          reduced_motion: config.reduced_motion,
+        }}
+      />
+    ) : section === 'security' ? (
       <SecuritySettings />
     ) : section === 'workspace' ? (
-      <WorkspaceSettings libraryRoot={loadConfig().library_root ?? ''} />
+      <WorkspaceSettings libraryRoot={config.library_root ?? ''} />
     ) : (
       <ProviderSettings />
     );

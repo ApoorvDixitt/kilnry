@@ -252,4 +252,22 @@ test('@smoke AS-01 first run creates a protected local account and Library', asy
   await privatePage.getByRole('button', { name: 'Sign in' }).click();
   await expect(privatePage).toHaveURL(/\/create$/);
   await privateContext.close();
+
+  await page.goto('/settings/appearance');
+  await expect(page.getByRole('heading', { name: 'Appearance', exact: true })).toBeVisible();
+  await page.getByRole('radio', { name: /Compact/ }).check();
+  await page.getByRole('radio', { name: /Always reduce/ }).check();
+  await page.getByRole('radio', { name: /Light/ }).check();
+  await expect(page.getByRole('status')).toContainText('Appearance saved.');
+  await page.reload();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  await expect(page.locator('html')).toHaveAttribute('data-density', 'compact');
+  await expect(page.locator('html')).toHaveAttribute('data-motion', 'reduced');
+  await expect(page.getByRole('radio', { name: /Compact/ })).toBeChecked();
+  await expect(page.getByRole('radio', { name: /Always reduce/ })).toBeChecked();
+  expect(JSON.parse(readFileSync(join(dataDir, 'config.json'), 'utf8'))).toMatchObject({
+    theme: 'light',
+    density: 'compact',
+    reduced_motion: 'reduce',
+  });
 });
