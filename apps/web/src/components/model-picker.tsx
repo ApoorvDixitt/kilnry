@@ -32,7 +32,7 @@ export interface PickerModel {
   supports: { audio: boolean; references_max: number };
   deprecated_at: string | null;
   connected: boolean;
-  price?: { unit: string; amount_usd: number; fetched_at: string };
+  price?: { unit: string; amount_usd: number; fetched_at: string } | undefined;
 }
 
 const PROVIDER_NAMES: Record<string, string> = {
