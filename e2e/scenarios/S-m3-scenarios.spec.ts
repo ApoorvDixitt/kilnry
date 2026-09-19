@@ -29,6 +29,9 @@ import { distinctPng } from './distinct-pngs';
 
 const root = process.cwd();
 const library = join(root, '.dev', 'e2e-library');
+function libraryDir(): string {
+  return library;
+}
 const EMAIL = 'owner@example.test';
 const PASSWORD = 'Kilnry-local-test-42!';
 const OPENROUTER_KEY = ['sk-or-v1-', '0'.repeat(64)].join('');
@@ -126,13 +129,13 @@ async function pickModel(page: Page, name: string | RegExp): Promise<void> {
 }
 
 function inboxFiles(extension: string): string[] {
-  return readdirSync(join(library, 'inbox')).filter((file) => file.endsWith(extension));
+  return readdirSync(join(libraryDir(), 'inbox')).filter((file) => file.endsWith(extension));
 }
 
 // The newest media file of a kind in the inbox, by modification time, so a test
 // reads the file it just generated rather than an earlier one.
 function newestInboxFile(extension: string): string | undefined {
-  const dir = join(library, 'inbox');
+  const dir = join(libraryDir(), 'inbox');
   return readdirSync(dir)
     .filter((file) => file.endsWith(extension))
     .map((file) => ({ file, mtime: statSync(join(dir, file)).mtimeMs }))
@@ -160,7 +163,7 @@ test('@m3 S-02 demo tier with a free Pollinations key', async ({ page }) => {
   await expect(page.locator('.result-tile-demo').first()).toBeVisible();
   await expect.poll(() => inboxFiles('.png').length, { timeout: 10_000 }).toBeGreaterThan(before);
   const png = newestInboxFile('.png') as string;
-  const sidecar = JSON.parse(readFileSync(join(library, 'inbox', `${png}.kilnry.json`), 'utf8')) as {
+  const sidecar = JSON.parse(readFileSync(join(libraryDir(), 'inbox', `${png}.kilnry.json`), 'utf8')) as {
     generation?: { provider?: string; actual_usd?: number };
     tags?: string[];
   };
@@ -247,21 +250,19 @@ test('@m3 S-09 moderation rejection is free and recoverable', async ({ page }) =
   await expect.poll(() => inboxFiles('.png').length, { timeout: 10_000 }).toBeGreaterThan(before);
 });
 
-// S-13's rename-outside-Kilnry detection is verified by the core watcher unit
-// test (packages/core/src/library/watcher.test.ts: "indexes a stable file in
-// place and reports its real folder", which renames watched.png to renamed.png
-// and asserts the sidecar and assets.path follow). The end-to-end variant is
-// marked fixme because the chokidar watcher does not emit filesystem events
-// under the Next.js development server used by this harness, even with polling,
-// so the file is never indexed here; the behaviour itself is exercised at the
-// unit level against a real database.
-test.fixme('@m3 S-13 rename and move a file outside Kilnry updates the Library', async ({ page }) => {
+// S-13 runs against the production project (next standalone build), the way a
+// user runs Kilnry, where the filesystem watcher emits events. The watcher's
+// ignore rule was fixed (F-LIB-04) to run relative to the Library root, so a
+// root under a dot-directory such as the harness's .dev path no longer has every
+// file ignored. The file is dropped into the watched inbox, indexed with a
+// sidecar, then renamed on disk; the Library follows the rename.
+test('@m3 S-13 rename and move a file outside Kilnry updates the Library', async ({ page }) => {
   await ensureSignedIn(page, '/library');
   // Seed a real media file into the inbox (watched from startup), let the watcher
   // index it and write a sidecar, then rename it on disk and confirm the Library
   // follows the rename with the sidecar beside it.
   const stamp = Date.now();
-  const inbox = join(library, 'inbox');
+  const inbox = join(libraryDir(), 'inbox');
   const original = join(inbox, `clip_${stamp}.png`);
   writeFileSync(original, distinctPng(0));
   // The watcher waits for write-stability (about 2 s) then debounces before
@@ -293,7 +294,7 @@ test('@m3 S-14 import a folder of legacy renders through the interface', async (
   // Library. The Import folder control imports the folder currently selected in
   // the tree, indexing its media in place and writing a sidecar beside each file.
   const name = `Legacy_${Date.now()}`;
-  const source = join(library, name);
+  const source = join(libraryDir(), name);
   mkdirSync(source, { recursive: true });
   const IMPORT_COUNT = 20;
   for (let index = 0; index < IMPORT_COUNT; index += 1) {
@@ -352,5 +353,5 @@ test('@m3 M3-VID generate a video against the fal video fixture', async ({ page 
   await expect(page.getByText(/^Saved · \$/)).toBeVisible({ timeout: 30_000 });
   await expect.poll(() => inboxFiles('.mp4').length, { timeout: 15_000 }).toBeGreaterThan(before);
   const mp4 = newestInboxFile('.mp4') as string;
-  expect(existsSync(join(library, 'inbox', `${mp4}.kilnry.json`))).toBe(true);
+  expect(existsSync(join(libraryDir(), 'inbox', `${mp4}.kilnry.json`))).toBe(true);
 });

@@ -16,13 +16,14 @@ test('@smoke @m3 S-01 AS-01 first run creates a protected local account and Libr
   const root = process.cwd();
   const dataDir = join(root, '.dev', 'e2e-data');
   const library = join(root, '.dev', 'e2e-library');
+  const hostPort = '127.0.0.1:3123';
   const token = readFileSync(join(dataDir, 'first-run.token'), 'utf8').trim();
 
   const rejectedHost = await request.get('/api/health', { headers: { Host: 'attacker.example' } });
   expect(rejectedHost.status()).toBe(421);
   expect(rejectedHost.headers()['x-request-id']).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/);
   const rejectedOrigin = await request.post('/api/estimate', {
-    headers: { Host: '127.0.0.1:3123', Origin: 'https://attacker.example' },
+    headers: { Host: hostPort, Origin: 'https://attacker.example' },
     data: { kind: 'image', prompt: 'blocked cross-origin request', model: 'auto' },
   });
   expect(rejectedOrigin.status()).toBe(403);
@@ -249,7 +250,7 @@ test('@smoke @m3 S-01 AS-01 first run creates a protected local account and Libr
 
   const privateContext = await browser.newContext();
   const privatePage = await privateContext.newPage();
-  await privatePage.goto('http://127.0.0.1:3123/create');
+  await privatePage.goto(`http://${hostPort}/create`);
   await expect(privatePage).toHaveURL(/\/login$/);
   await privatePage.getByLabel('Email').fill('owner@example.test');
   await privatePage.getByLabel('Password').fill('Kilnry-local-test-42!');
