@@ -382,6 +382,36 @@
     "title": "This room is warming up.",
     "body": "The foundation is live. This workspace arrives in its scheduled milestone."
   },
+  "jobs": {
+    "title": "Jobs",
+    "tabAll": "All",
+    "tabRunning": "Running",
+    "tabQueued": "Queued",
+    "tabWaiting": "Waiting",
+    "tabFailed": "Failed",
+    "tabDone": "Done",
+    "tabBlocked": "Blocked",
+    "colStatus": "Status",
+    "colPrompt": "Prompt",
+    "colModel": "Model",
+    "colCost": "Cost",
+    "colStarted": "Started",
+    "empty": "No jobs yet. Generate something.",
+    "filteredEmpty": "No jobs match these filters.",
+    "cancel": "Cancel",
+    "retry": "Retry",
+    "checkStatus": "Check status",
+    "refunded": "refunded",
+    "status": {
+      "queued": "Queued",
+      "running": "Running",
+      "waiting": "Waiting",
+      "completed": "Done",
+      "failed": "Failed",
+      "cancelled": "Cancelled",
+      "moderated": "Blocked"
+    }
+  },
   "library": {
     "title": "Library",
     "treeLabel": "Folders",
