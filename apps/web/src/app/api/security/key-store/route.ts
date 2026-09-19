@@ -68,11 +68,12 @@ export async function POST(request: Request): Promise<Response> {
           .replace(/[\s-]/g, '')
           .slice('kilnry1'.length)
           .match(/.{1,4}/g) ?? [];
-      if (groups.length < 2) throw new Error('Recovery kit did not contain enough confirmation groups.');
-      const first = randomInt(groups.length);
-      let second = randomInt(groups.length - 1);
+      const eligible = groups.flatMap((group, index) => (group.length === 4 ? [index] : []));
+      if (eligible.length < 2) throw new Error('Recovery kit did not contain enough confirmation groups.');
+      const first = randomInt(eligible.length);
+      let second = randomInt(eligible.length - 1);
       if (second >= first) second += 1;
-      const required = [first, second].sort((left, right) => left - right);
+      const required = [eligible[first]!, eligible[second]!].sort((left, right) => left - right);
       const challengeToken = randomBytes(24).toString('base64url');
       challenges.set(challengeToken, {
         session_id: session.session.id,
