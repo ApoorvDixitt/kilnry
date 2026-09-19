@@ -7,17 +7,11 @@
 
 import { AlertTriangle } from 'lucide-react';
 import { message } from '../lib/messages';
+import type { ApiEstimate } from '../lib/composer-types';
 
-// The estimate as the /api/estimate route returns it. Kilnry never computes a
-// price in the interface; this is the authoritative shape the engine produced.
-export interface CostEstimate {
-  estimate_usd: number;
-  authoritative_usd?: number | undefined;
-  source: 'formula' | 'provider';
-  unit_price: { unit: string; amount_usd: number; fetched_at: string };
-  breakdown: Array<{ label: string; usd: number }>;
-  eta_s: number;
-}
+// The estimate as the /api/estimate route returns it, straight from the core
+// engine. Kilnry never computes a price in the interface.
+export type CostEstimate = ApiEstimate;
 
 // A cap the generation would draw down. When spending the estimate would pass
 // the cap, the strip turns coral and Generate is blocked (F-PRV-04 supplies

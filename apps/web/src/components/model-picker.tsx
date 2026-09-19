@@ -8,6 +8,7 @@
 import { useMemo, useState } from 'react';
 import { AlertTriangle, Check, Search } from 'lucide-react';
 import { message } from '../lib/messages';
+import type { ApiModel } from '../lib/composer-types';
 
 // The composer modes and the capabilities each one can route to. F-CRE-03 shows
 // only the models whose capabilities overlap the current mode.
@@ -20,20 +21,9 @@ const MODE_CAPABILITIES: Record<ComposerMode, string[]> = {
   workflow: [],
 };
 
-// A registry model as the /api/models route returns it: the manifest fields plus
-// whether its provider is connected and the latest price snapshot when one exists.
-export interface PickerModel {
-  provider: string;
-  model_id: string;
-  display_name: string;
-  capabilities: string[];
-  quality_tier: 'draft' | 'standard' | 'premium';
-  tags: string[];
-  supports: { audio: boolean; references_max: number };
-  deprecated_at: string | null;
-  connected: boolean;
-  price?: { unit: string; amount_usd: number; fetched_at: string } | undefined;
-}
+// A registry model as the /api/models route returns it, derived from the core
+// manifest so the picker never drifts from the engine's registry.
+export type PickerModel = ApiModel;
 
 const PROVIDER_NAMES: Record<string, string> = {
   fal: 'fal',

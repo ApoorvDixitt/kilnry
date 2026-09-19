@@ -170,6 +170,14 @@
         "source": "Source"
       }
     },
+    "saved": "Saved · {amount}",
+    "tile": {
+      "queued": "Queued at {provider}",
+      "rendering": "Rendering · {elapsed}",
+      "downloading": "Downloading",
+      "saving": "Saving",
+      "readyBody": "Describe what you want above. Press the command key with Enter to generate."
+    },
     "proof": {
       "examplePrompt": "A small ceramic kiln arch on warm handmade paper, soft studio light",
       "readyTitle": "The M2 engine is ready",

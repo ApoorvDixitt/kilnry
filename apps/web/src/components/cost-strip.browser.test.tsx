@@ -14,6 +14,7 @@ import {
   type BudgetLine,
   type CostEstimate,
 } from './cost-strip';
+import { makeEstimate } from '../test/composer-fixtures';
 
 let root: Root | undefined;
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -21,14 +22,7 @@ let root: Root | undefined;
 const NOW = new Date('2026-09-19T00:00:00.000Z').getTime();
 
 function estimate(overrides: Partial<CostEstimate> = {}): CostEstimate {
-  return {
-    estimate_usd: 0.84,
-    source: 'formula',
-    unit_price: { unit: 'second', amount_usd: 0.168, fetched_at: '2026-09-17T00:00:00.000Z' },
-    breakdown: [{ label: '$0.168/s x 5 s x 1', usd: 0.84 }],
-    eta_s: 90,
-    ...overrides,
-  };
+  return makeEstimate(overrides);
 }
 
 afterEach(async () => {
@@ -85,7 +79,12 @@ describe('costStripState', () => {
   it('marks a price older than thirty days as stale but does not block', () => {
     const state = costStripState({
       estimate: estimate({
-        unit_price: { unit: 'second', amount_usd: 0.1, fetched_at: '2026-07-01T00:00:00.000Z' },
+        unit_price: {
+          unit: 'second',
+          amount_usd: 0.1,
+          fetched_at: '2026-07-01T00:00:00.000Z',
+          source_url: 'https://example.com/price',
+        },
       }),
       now: NOW,
     });

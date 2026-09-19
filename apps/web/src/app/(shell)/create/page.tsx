@@ -3,8 +3,8 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
-import { CreateFoundation } from '../../../components/create-foundation';
+import { CreateComposer } from '../../../components/create-composer';
 
 export default function CreatePage(): React.ReactNode {
-  return <CreateFoundation />;
+  return <CreateComposer />;
 }

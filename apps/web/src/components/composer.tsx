@@ -93,6 +93,7 @@ export function Composer({
   estimate = null,
   now = Date.now(),
   onGenerate,
+  onStateChange,
 }: {
   models: PickerModel[];
   budgets?: BudgetLine[];
@@ -103,6 +104,13 @@ export function Composer({
     prompt: string;
     model: string;
     params: ComposerParams;
+  }) => void;
+  onStateChange?: (state: {
+    mode: ComposerMode;
+    prompt: string;
+    model: string;
+    params: ComposerParams;
+    ready: boolean;
   }) => void;
 }): React.ReactNode {
   const [mode, setMode] = useState<ComposerMode>('image');
@@ -139,6 +147,17 @@ export function Composer({
     setSelectedModel('auto');
     setParams({ count: 1 });
   }, []);
+
+  // Let the page re-price whenever an input that affects the estimate changes.
+  useEffect(() => {
+    onStateChange?.({
+      mode,
+      prompt,
+      model: selectedModel,
+      params,
+      ready: hasAnyKey && hasModelForMode && prompt.trim().length > 0 && mode !== 'workflow',
+    });
+  }, [mode, prompt, selectedModel, params, hasAnyKey, hasModelForMode, onStateChange]);
 
   useEffect(() => {
     function onKey(event: KeyboardEvent): void {

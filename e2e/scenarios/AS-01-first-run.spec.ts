@@ -120,10 +120,12 @@ test('@smoke AS-01 first run creates a protected local account and Library', asy
   expect(existsSync(join(library, 'Trash'))).toBe(true);
   expect(existsSync(join(dataDir, 'first-run.token'))).toBe(false);
 
-  await page.getByRole('button', { name: 'Auto · estimate route' }).click();
-  await expect(page.getByText(/^≈ \$0\.\d{4}$/)).toBeVisible();
+  await page
+    .getByRole('textbox', { name: 'Describe what you want to make…' })
+    .fill('a small ceramic kiln arch on warm handmade paper, soft studio light');
+  await expect(page.locator('.cost-strip .cost-strip-figure')).toBeVisible({ timeout: 15_000 });
   await page.getByRole('button', { name: 'Generate' }).click();
-  await expect(page.getByText('Saved to the Library')).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText(/^Saved · \$/)).toBeVisible({ timeout: 15_000 });
   const files = readdirSync(join(library, 'inbox'));
   const image = files.find((file) => file.endsWith('.png'));
   expect(image).toBeDefined();
@@ -234,13 +236,15 @@ test('@smoke AS-01 first run creates a protected local account and Library', asy
   await openRouterCard.getByRole('button', { name: 'Remove' }).click();
   await expect(openRouterCard).toContainText('Not connected');
   await page.goto('/create');
-  await expect(page.getByRole('heading', { name: 'The M2 engine is ready' })).toBeVisible();
-  await expect(page.getByText(/Pollinations demo is connected/)).toBeVisible();
-  await page.getByRole('button', { name: 'Auto · estimate route' }).click();
-  await expect(page.locator('.cost-zero')).toContainText('$0.0000');
+  await expect(page.getByRole('heading', { name: 'Create', exact: true })).toBeVisible();
+  await page
+    .getByRole('textbox', { name: 'Describe what you want to make…' })
+    .fill('a paper crane on a windowsill at dawn');
+  await expect(page.locator('.cost-strip .cost-strip-figure')).toContainText('$0.00', {
+    timeout: 15_000,
+  });
   await page.getByRole('button', { name: 'Generate' }).click();
-  await expect(page.getByText('Saved to the Library')).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByText('Demo', { exact: true })).toBeVisible();
+  await expect(page.getByText(/^Saved · \$/)).toBeVisible({ timeout: 15_000 });
   await page.screenshot({ path: join(root, 'test-results', 'm1-create-dark.png'), fullPage: true });
 
   const privateContext = await browser.newContext();

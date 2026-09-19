@@ -1459,6 +1459,81 @@ kbd {
   margin: 0;
 }
 
+.create-composer {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  height: 100%;
+  justify-content: flex-end;
+  padding: 24px;
+}
+
+.create-results {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.create-results-empty {
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: 32px 0;
+  text-align: center;
+}
+
+.result-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.result-tile {
+  align-items: center;
+  aspect-ratio: 1;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  overflow: hidden;
+  padding: 12px;
+  text-align: center;
+}
+
+.result-tile figure {
+  height: 100%;
+  margin: 0;
+  width: 100%;
+}
+
+.result-tile img {
+  border-radius: 8px;
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}
+
+.result-tile figcaption {
+  color: var(--accent-text);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 12px;
+  margin-top: 6px;
+}
+
+.result-tile-step {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.result-tile-error {
+  color: var(--danger);
+  font-size: 12px;
+  margin: 0;
+}
+
 .composer-spacer {
   flex: 1;
 }

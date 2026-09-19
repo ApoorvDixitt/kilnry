@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { Composer, ModeSegment, generateState } from './composer';
 import type { PickerModel } from './model-picker';
 import type { CostEstimate } from './cost-strip';
+import { makeEstimate, makeModel } from '../test/composer-fixtures';
 
 let root: Root | undefined;
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -16,28 +17,25 @@ let root: Root | undefined;
 const NOW = new Date('2026-09-19T00:00:00.000Z').getTime();
 
 function imageModel(overrides: Partial<PickerModel> = {}): PickerModel {
-  return {
-    provider: 'fal',
+  return makeModel({
     model_id: 'fal-ai/flux',
     display_name: 'FLUX',
-    capabilities: ['text2image'],
-    quality_tier: 'standard',
-    tags: [],
-    supports: { audio: false, references_max: 0 },
-    deprecated_at: null,
-    connected: true,
     price: { unit: 'image', amount_usd: 0.05, fetched_at: '2026-09-18T00:00:00.000Z' },
     ...overrides,
-  };
+  });
 }
 
-const estimate: CostEstimate = {
+const estimate: CostEstimate = makeEstimate({
   estimate_usd: 0.05,
-  source: 'formula',
-  unit_price: { unit: 'image', amount_usd: 0.05, fetched_at: '2026-09-18T00:00:00.000Z' },
+  unit_price: {
+    unit: 'image',
+    amount_usd: 0.05,
+    fetched_at: '2026-09-18T00:00:00.000Z',
+    source_url: 'https://example.com/price',
+  },
   breakdown: [{ label: '$0.05/img x 1', usd: 0.05 }],
   eta_s: 12,
-};
+});
 
 afterEach(async () => {
   await act(async () => root?.unmount());

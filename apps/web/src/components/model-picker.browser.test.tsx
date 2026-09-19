@@ -7,6 +7,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ModelPicker, formatPrice, isOfferable, priceAgeDays, type PickerModel } from './model-picker';
+import { makeModel } from '../test/composer-fixtures';
 
 let root: Root | undefined;
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -14,19 +15,7 @@ let root: Root | undefined;
 const NOW = new Date('2026-09-19T00:00:00.000Z').getTime();
 
 function model(overrides: Partial<PickerModel>): PickerModel {
-  return {
-    provider: 'fal',
-    model_id: 'fal-ai/example',
-    display_name: 'Example',
-    capabilities: ['text2image'],
-    quality_tier: 'standard',
-    tags: [],
-    supports: { audio: false, references_max: 0 },
-    deprecated_at: null,
-    connected: true,
-    price: { unit: 'image', amount_usd: 0.15, fetched_at: '2026-09-17T00:00:00.000Z' },
-    ...overrides,
-  };
+  return makeModel(overrides);
 }
 
 afterEach(async () => {
