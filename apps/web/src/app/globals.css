@@ -1362,6 +1362,103 @@ kbd {
   cursor: not-allowed;
 }
 
+.attachment-tray {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.attachment-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.attachment-item {
+  align-items: center;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  display: flex;
+  gap: 6px;
+  padding: 6px 8px;
+}
+
+.attachment-thumb {
+  background: var(--background);
+  border-radius: 6px;
+  flex: none;
+  height: 48px;
+  width: 48px;
+}
+
+.attachment-item select {
+  background: var(--background);
+  border: 1px solid var(--border-control);
+  border-radius: 7px;
+  color: var(--text);
+  font-size: 12px;
+  padding: 4px 6px;
+}
+
+.attachment-pin,
+.attachment-remove {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: inline-flex;
+  height: 26px;
+  justify-content: center;
+  width: 26px;
+}
+
+.attachment-pin.is-pinned {
+  color: var(--accent-text);
+}
+
+.attachment-intake {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.attachment-attach {
+  align-items: center;
+  background: var(--background);
+  border: 1px solid var(--border-control);
+  border-radius: 999px;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 12px;
+  gap: 5px;
+  height: 29px;
+  padding: 0 12px;
+}
+
+.attachment-url {
+  background: var(--background);
+  border: 1px solid var(--border-control);
+  border-radius: 999px;
+  color: var(--text);
+  flex: 1;
+  font-size: 12px;
+  height: 29px;
+  padding: 0 12px;
+}
+
+.attachment-error {
+  color: var(--danger);
+  font-size: 12px;
+  margin: 0;
+}
+
 .composer-spacer {
   flex: 1;
 }

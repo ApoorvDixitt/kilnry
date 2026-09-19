@@ -150,6 +150,26 @@
       "budgetLine": "{label} {spent} of {cap}",
       "overBudget": "Daily cap {cap} reached ({spent} spent). Raise the cap or wait until midnight."
     },
+    "tray": {
+      "title": "Attachments",
+      "attach": "Attach",
+      "urlPlaceholder": "Paste an image or video URL…",
+      "roleLabel": "Role for {name}",
+      "pin": "Keep across generations",
+      "remove": "Remove attachment",
+      "blockedUrl": "That address points at a private network. Kilnry only imports public URLs.",
+      "role": {
+        "start_frame": "Start frame",
+        "end_frame": "End frame",
+        "reference": "Reference",
+        "style": "Style",
+        "product": "Product",
+        "audio": "Audio",
+        "video": "Video",
+        "mask": "Mask",
+        "source": "Source"
+      }
+    },
     "proof": {
       "examplePrompt": "A small ceramic kiln arch on warm handmade paper, soft studio light",
       "readyTitle": "The M2 engine is ready",
