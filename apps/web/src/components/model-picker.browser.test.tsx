@@ -156,6 +156,28 @@ describe('ModelPicker', () => {
     expect(host.querySelector('.model-row-stale')).not.toBeNull();
   });
 
+  it('marks the keyless demo model with a Demo badge', async () => {
+    const host = await render({
+      mode: 'image',
+      models: [
+        model({
+          provider: 'pollinations',
+          model_id: 'flux',
+          display_name: 'FLUX (demo)',
+          tags: ['demo'],
+          price: { unit: 'image', amount_usd: 0, fetched_at: '2026-09-18T00:00:00.000Z' },
+        }),
+      ],
+      selectedId: 'auto',
+      autoWhy: '',
+      onSelect: () => {},
+      now: NOW,
+    });
+    const badge = host.querySelector('.model-row-demo');
+    expect(badge).not.toBeNull();
+    expect(badge?.textContent).toBe('Demo');
+  });
+
   it('selects Auto and a model through the callback', async () => {
     const picks: Array<string> = [];
     const host = await render({

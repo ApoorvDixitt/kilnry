@@ -224,6 +224,11 @@ export function CreateComposer(): React.ReactNode {
                     <figure>
                       {/* Served by the authenticated, Range-capable media route. */}
                       <img src={`/api/media/${tile.assetId}`} alt="" />
+                      {tile.provider === 'pollinations' ? (
+                        <span className="result-tile-demo" data-demo="true">
+                          {message('create.demoBadge')}
+                        </span>
+                      ) : null}
                       <figcaption data-money="true">
                         {message('create.saved').replace(
                           '{amount}',

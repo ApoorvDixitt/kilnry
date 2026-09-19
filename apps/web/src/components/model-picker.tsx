@@ -88,6 +88,12 @@ function tagsFor(model: PickerModel): string[] {
   return tags;
 }
 
+// A keyless demo model (Pollinations FLUX) is marked so the row and its result
+// tile read clearly as the free demo rather than a paid route (F-CRE-13).
+function isDemoModel(model: PickerModel): boolean {
+  return model.tags.includes('demo');
+}
+
 interface ModelRow {
   model: PickerModel;
   priceLabel: string | null;
@@ -251,6 +257,11 @@ function ModelRowButton({
       {selected ? <motion.span layoutId="model-hl" className="model-row-hl" aria-hidden /> : null}
       <span className="model-row-head">
         <strong>{row.model.display_name}</strong>
+        {isDemoModel(row.model) ? (
+          <span className="model-row-demo" data-demo="true">
+            {message('create.demoBadge')}
+          </span>
+        ) : null}
         <span className="model-row-price" data-money="true">
           {row.stale ? (
             <AlertTriangle

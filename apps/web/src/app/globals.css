@@ -1219,6 +1219,27 @@ kbd {
   padding: 1px 7px;
 }
 
+.model-row-demo,
+.result-tile-demo {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  margin-right: auto;
+  padding: 1px 8px;
+  text-transform: uppercase;
+}
+
+.result-tile-demo {
+  background: color-mix(in srgb, var(--surface) 80%, transparent);
+  left: 8px;
+  position: absolute;
+  top: 8px;
+}
+
 .model-picker-why {
   color: var(--text-muted);
   font-size: 12px;
@@ -1571,6 +1592,7 @@ kbd {
 .result-tile figure {
   height: 100%;
   margin: 0;
+  position: relative;
   width: 100%;
 }
 
