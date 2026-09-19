@@ -394,7 +394,23 @@
     "unreachableBody": "Reconnect the drive, or choose another folder in Settings › Workspace.",
     "emptyGrid": "Nothing here yet. Drop files or generate into this folder.",
     "generateHere": "Generate here",
-    "confirmDelete": "Move this folder and its files to Trash?"
+    "confirmDelete": "Move this folder and its files to Trash?",
+    "grid": {
+      "sort": "Sort",
+      "sortNewest": "Newest",
+      "sortOldest": "Oldest",
+      "sortName": "Name",
+      "sortCost": "Cost",
+      "sortDuration": "Duration",
+      "viewGrid": "Grid",
+      "viewList": "List",
+      "count": "{n} items",
+      "colName": "Name",
+      "colType": "Type",
+      "colModel": "Model",
+      "colCost": "Cost",
+      "colCreated": "Created"
+    }
   },
   "health": {
     "ready": "Ready"

@@ -4,6 +4,7 @@
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
 import type { Estimate, ModelManifest } from '@kilnry/core';
+export type { AssetListItem, AssetSort } from '@kilnry/core';
 
 // A model as the /api/models route returns it: the registry manifest plus
 // whether its provider is connected and a normalised price the interface can

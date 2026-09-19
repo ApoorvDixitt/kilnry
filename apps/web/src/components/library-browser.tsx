@@ -6,9 +6,12 @@
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
 import { useCallback, useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { apiFetch } from '../lib/api-client';
 import { message } from '../lib/messages';
+import type { AssetListItem, AssetSort } from '../lib/composer-types';
 import { FolderTree, type FolderNode } from './folder-tree';
+import { AssetGrid } from './asset-grid';
 
 async function json<T>(response: Response): Promise<T> {
   const body = (await response.json()) as T & { error?: { message?: string } };
@@ -17,8 +20,12 @@ async function json<T>(response: Response): Promise<T> {
 }
 
 export function LibraryBrowser(): React.ReactNode {
+  const router = useRouter();
   const [folders, setFolders] = useState<FolderNode[]>([]);
   const [selected, setSelected] = useState('inbox');
+  const [assets, setAssets] = useState<AssetListItem[]>([]);
+  const [sort, setSort] = useState<AssetSort>('newest');
+  const [view, setView] = useState<'grid' | 'list'>('grid');
   const [error, setError] = useState<string>();
 
   const load = useCallback(async () => {
@@ -34,6 +41,23 @@ export function LibraryBrowser(): React.ReactNode {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Load the selected folder's assets whenever the folder or sort changes, and
+  // remember the grid or list choice per folder across restarts.
+  useEffect(() => {
+    const stored = window.localStorage.getItem(`kilnry-library-view:${selected}`);
+    if (stored === 'grid' || stored === 'list') setView(stored);
+    const params = new URLSearchParams({ folder: selected, sort });
+    void fetch(`/api/library/assets?${params.toString()}`)
+      .then((response) => json<{ assets: AssetListItem[] }>(response))
+      .then((body) => setAssets(body.assets))
+      .catch(() => setAssets([]));
+  }, [selected, sort]);
+
+  function changeView(next: 'grid' | 'list'): void {
+    setView(next);
+    window.localStorage.setItem(`kilnry-library-view:${selected}`, next);
+  }
 
   const mutate = useCallback(async (url: string, body: string) => {
     try {
@@ -74,7 +98,18 @@ export function LibraryBrowser(): React.ReactNode {
         }
       />
       <div className="library-grid-area">
-        <p className="library-empty">{message('library.emptyGrid')}</p>
+        {assets.length === 0 ? (
+          <p className="library-empty">{message('library.emptyGrid')}</p>
+        ) : (
+          <AssetGrid
+            assets={assets}
+            sort={sort}
+            view={view}
+            onSortChange={setSort}
+            onViewChange={changeView}
+            onOpen={(id) => router.push(`/library/asset/${id}`)}
+          />
+        )}
       </div>
     </section>
   );

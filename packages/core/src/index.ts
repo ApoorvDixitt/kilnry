@@ -11,6 +11,7 @@ export * from './events/hub.js';
 export * from './jobs/engine.js';
 export * from './jobs/finalize.js';
 export * from './library/root.js';
+export * from './library/assets.js';
 export * from './library/containment.js';
 export * from './library/folders.js';
 export * from './library/index.js';
