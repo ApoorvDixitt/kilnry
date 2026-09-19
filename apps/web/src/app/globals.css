@@ -1708,6 +1708,22 @@ kbd {
   padding: 24px;
 }
 
+.library-search {
+  background: var(--background);
+  border: 1px solid var(--border-control);
+  border-radius: 999px;
+  color: var(--text);
+  font-size: 13px;
+  margin-bottom: 16px;
+  padding: 8px 14px;
+  width: 100%;
+}
+
+.library-search:focus-visible {
+  border-color: var(--ring);
+  outline: none;
+}
+
 .library-empty {
   color: var(--text-muted);
   font-size: 13px;

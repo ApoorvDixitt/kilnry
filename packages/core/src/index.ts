@@ -16,6 +16,7 @@ export * from './library/containment.js';
 export * from './library/folders.js';
 export * from './library/index.js';
 export * from './library/reindex.js';
+export * from './library/search.js';
 export * from './library/sidecar.js';
 export * from './library/watcher.js';
 export * from './budget/enforcer.js';

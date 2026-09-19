@@ -26,6 +26,8 @@ export function LibraryBrowser(): React.ReactNode {
   const [sort, setSort] = useState<AssetSort>('newest');
   const [view, setView] = useState<'grid' | 'list'>('grid');
   const [detail, setDetail] = useState<AssetDetail | null>(null);
+  const [query, setQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<AssetListItem[] | null>(null);
   const [error, setError] = useState<string>();
 
   const openInspector = useCallback(async (id: string) => {
@@ -80,6 +82,25 @@ export function LibraryBrowser(): React.ReactNode {
     window.localStorage.setItem(`kilnry-library-view:${selected}`, next);
   }
 
+  // Run a search whenever the query changes; an empty query returns to the
+  // folder listing.
+  useEffect(() => {
+    const term = query.trim();
+    if (!term) {
+      setSearchResults(null);
+      return;
+    }
+    const handle = setTimeout(() => {
+      void fetch(`/api/library/search?q=${encodeURIComponent(term)}`)
+        .then((response) => json<{ assets: AssetListItem[] }>(response))
+        .then((body) => setSearchResults(body.assets))
+        .catch(() => setSearchResults([]));
+    }, 200);
+    return () => clearTimeout(handle);
+  }, [query]);
+
+  const shownAssets = searchResults ?? assets;
+
   const mutate = useCallback(async (url: string, body: string) => {
     try {
       const parsed = await json<{ folders: FolderNode[] }>(
@@ -119,11 +140,21 @@ export function LibraryBrowser(): React.ReactNode {
         }
       />
       <div className="library-grid-area">
-        {assets.length === 0 ? (
-          <p className="library-empty">{message('library.emptyGrid')}</p>
+        <input
+          type="search"
+          className="library-search"
+          value={query}
+          placeholder={message('library.searchPlaceholder')}
+          aria-label={message('library.search')}
+          onChange={(event) => setQuery(event.target.value)}
+        />
+        {shownAssets.length === 0 ? (
+          <p className="library-empty">
+            {searchResults !== null ? message('library.searchNoResults') : message('library.emptyGrid')}
+          </p>
         ) : (
           <AssetGrid
-            assets={assets}
+            assets={shownAssets}
             sort={sort}
             view={view}
             onSortChange={setSort}

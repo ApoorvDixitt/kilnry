@@ -394,6 +394,9 @@
     "unreachableBody": "Reconnect the drive, or choose another folder in Settings › Workspace.",
     "emptyGrid": "Nothing here yet. Drop files or generate into this folder.",
     "generateHere": "Generate here",
+    "search": "Search",
+    "searchPlaceholder": "Search prompts, files, tags…  try @maya type:video cost>0.5",
+    "searchNoResults": "No files match that search. Try widening the date or removing a filter.",
     "confirmDelete": "Move this folder and its files to Trash?",
     "grid": {
       "sort": "Sort",
