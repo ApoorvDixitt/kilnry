@@ -120,4 +120,49 @@ describe('Composer', () => {
     const host = await render(<Composer models={[imageModel()]} estimate={estimate} now={NOW} />);
     expect([...host.querySelectorAll('button')].some((b) => b.textContent === 'Generate')).toBe(true);
   });
+
+  it('disables Generate when an over-budget cap is set to block', async () => {
+    const host = await render(
+      <Composer
+        models={[imageModel()]}
+        estimate={estimate}
+        budgets={[{ scope: 'daily', label: 'Today', cap_usd: 1, spent_usd: 0.99, behavior: 'block' }]}
+        now={NOW}
+      />,
+    );
+    const generate = [...host.querySelectorAll('button')].find(
+      (b) => b.textContent === 'Generate',
+    ) as HTMLButtonElement;
+    expect(generate.disabled).toBe(true);
+    expect(host.querySelector('.budget-approval')).toBeNull();
+  });
+
+  it('offers "Allow this once" when an over-budget cap is set to ask and overrides on click', async () => {
+    const calls: Array<{ override_budget?: boolean }> = [];
+    const host = await render(
+      <Composer
+        models={[imageModel()]}
+        estimate={estimate}
+        budgets={[{ scope: 'daily', label: 'Today', cap_usd: 1, spent_usd: 0.99, behavior: 'ask' }]}
+        onGenerate={(payload) => calls.push(payload)}
+        now={NOW}
+      />,
+    );
+    // Type a prompt so Generate is otherwise enabled.
+    const textarea = host.querySelector('textarea') as HTMLTextAreaElement;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
+      setter?.call(textarea, 'a small brass bell');
+      textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    const approval = host.querySelector('.budget-approval');
+    expect(approval).not.toBeNull();
+    const generate = [...host.querySelectorAll('button')].find(
+      (b) => b.textContent === 'Generate',
+    ) as HTMLButtonElement;
+    expect(generate.disabled).toBe(false);
+    const allow = host.querySelector('.budget-approval-allow') as HTMLButtonElement;
+    await act(async () => allow.click());
+    expect(calls.at(-1)?.override_budget).toBe(true);
+  });
 });

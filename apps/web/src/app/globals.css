@@ -2162,7 +2162,7 @@ kbd {
 }
 
 .status-completed {
-  color: var(--teal, #2f9e78);
+  color: var(--text);
 }
 
 .status-completed::before {
@@ -2170,7 +2170,7 @@ kbd {
 }
 
 .status-failed {
-  color: var(--danger);
+  color: var(--text);
 }
 
 .status-failed::before {
@@ -3168,6 +3168,67 @@ kbd {
   margin: 0 0 5px;
 }
 
+.audit-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin-bottom: 14px;
+  padding: 18px;
+}
+
+.audit-card-head {
+  align-items: start;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.audit-card-head h3 {
+  font-size: 15px;
+  font-weight: 500;
+  margin: 0 0 5px;
+}
+
+.audit-card-head p {
+  color: var(--text-muted);
+  margin: 0 0 12px;
+}
+
+.audit-card-head button {
+  background: var(--surface-2);
+  border: 1px solid var(--border-control);
+  border-radius: 8px;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 6px 12px;
+  white-space: nowrap;
+}
+
+.audit-empty {
+  color: var(--text-muted);
+  font-size: 13px;
+  margin: 0;
+}
+
+.audit-table {
+  border-collapse: collapse;
+  font-size: 12px;
+  width: 100%;
+}
+
+.audit-table th {
+  color: var(--text-muted);
+  font-weight: 500;
+  padding: 6px 8px;
+  text-align: left;
+}
+
+.audit-table td {
+  border-top: 1px solid var(--border);
+  padding: 6px 8px;
+}
+
 .session-card > p {
   color: var(--text-muted);
   margin: 0 0 12px;
@@ -3338,6 +3399,54 @@ kbd {
   background: var(--surface-2);
   color: var(--text-muted);
   cursor: not-allowed;
+}
+
+.budget-approval {
+  align-items: center;
+  background: var(--danger-bg);
+  border: 1px solid color-mix(in srgb, var(--danger) 40%, var(--border));
+  border-radius: 10px;
+  display: flex;
+  gap: 12px;
+  padding: 8px 12px;
+}
+
+.budget-approval-line {
+  color: var(--text);
+  font-size: 12px;
+  margin: 0;
+}
+
+.budget-approval-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.budget-approval-allow {
+  background: var(--surface-2);
+  border: 1px solid var(--border-control);
+  border-radius: 8px;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 5px 12px;
+}
+
+.budget-approval-raise {
+  align-self: center;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.budget-approval-cancel {
+  background: transparent;
+  border: 0;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 5px 8px;
 }
 
 @media (max-width: 900px) {

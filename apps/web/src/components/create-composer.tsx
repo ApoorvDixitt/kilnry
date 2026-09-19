@@ -152,7 +152,7 @@ export function CreateComposer(): React.ReactNode {
     }
   }
 
-  async function generate(): Promise<void> {
+  async function generate(overrideBudget = false): Promise<void> {
     const payload = lastState.current;
     const priced = estimate;
     if (!payload || !priced) return;
@@ -179,6 +179,7 @@ export function CreateComposer(): React.ReactNode {
             ...payload,
             confirmed_cost_usd: priced.authoritative_usd ?? priced.estimate_usd,
             client_request_id: crypto.randomUUID(),
+            ...(overrideBudget ? { override_budget: true } : {}),
           }),
         }),
       );
@@ -286,7 +287,7 @@ export function CreateComposer(): React.ReactNode {
         estimate={estimate}
         budgets={budgets}
         onStateChange={onStateChange}
-        onGenerate={() => void generate()}
+        onGenerate={(payload) => void generate(payload.override_budget)}
         seed={seed}
       />
     </section>

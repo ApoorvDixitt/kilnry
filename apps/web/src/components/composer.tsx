@@ -105,6 +105,7 @@ export function Composer({
     prompt: string;
     model: string;
     params: ComposerParams;
+    override_budget?: boolean;
   }) => void;
   onStateChange?: (state: {
     mode: ComposerMode;
@@ -120,6 +121,7 @@ export function Composer({
   const [selectedModel, setSelectedModel] = useState<string | 'auto'>('auto');
   const [params, setParams] = useState<ComposerParams>({ count: 1 });
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [budgetAskDismissed, setBudgetAskDismissed] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // When a result tile asks to reuse its prompt, the page bumps the seed token
@@ -138,11 +140,16 @@ export function Composer({
 
   const activeSchema: ParamsSchema = useMemo(() => buildAutoSchema(mode), [mode]);
 
-  const overBudget = useMemo(() => {
-    if (!estimate) return false;
+  const overBudgetLine = useMemo(() => {
+    if (!estimate) return null;
     const amount = estimate.authoritative_usd ?? estimate.estimate_usd;
-    return budgets.some((line) => line.spent_usd + amount > line.cap_usd + 1e-9);
+    return budgets.find((line) => line.spent_usd + amount > line.cap_usd + 1e-9) ?? null;
   }, [estimate, budgets]);
+
+  // A cap set to "ask" does not block Generate; instead the composer offers an
+  // "Allow this once" approval that overrides the cap for a single generation.
+  const overBudgetAsks = overBudgetLine?.behavior === 'ask';
+  const overBudget = overBudgetLine !== null && !overBudgetAsks;
 
   const state = generateState({
     hasAnyKey,
@@ -200,9 +207,9 @@ export function Composer({
       ? message('create.picker.auto')
       : (available.find((m) => m.model_id === selectedModel)?.display_name ?? selectedModel);
 
-  function fire(): void {
+  function fire(override = false): void {
     if (state.disabled) return;
-    onGenerate?.({ mode, prompt, model: selectedModel, params });
+    onGenerate?.({ mode, prompt, model: selectedModel, params, override_budget: override });
   }
 
   return (
@@ -258,12 +265,36 @@ export function Composer({
           budgets={budgets}
           now={now}
         />
+        {overBudgetAsks && overBudgetLine && !budgetAskDismissed ? (
+          <div className="budget-approval" role="alertdialog" aria-label={message('create.budgetAsk.title')}>
+            <p className="budget-approval-line">
+              {message('create.budgetAsk.line')
+                .replace('{cap}', `$${overBudgetLine.cap_usd.toFixed(2)}`)
+                .replace('{spent}', `$${overBudgetLine.spent_usd.toFixed(2)}`)}
+            </p>
+            <div className="budget-approval-actions">
+              <button type="button" className="budget-approval-allow" onClick={() => fire(true)}>
+                {message('create.budgetAsk.allowOnce')}
+              </button>
+              <a href="/settings/budget" className="budget-approval-raise">
+                {message('create.budgetAsk.raiseCap')}
+              </a>
+              <button
+                type="button"
+                className="budget-approval-cancel"
+                onClick={() => setBudgetAskDismissed(true)}
+              >
+                {message('create.budgetAsk.cancel')}
+              </button>
+            </div>
+          </div>
+        ) : null}
         <button
           type="button"
           className={`generate-button${state.disabled ? ' is-disabled' : ''}`}
           disabled={state.disabled}
           title={state.reason ?? undefined}
-          onClick={fire}
+          onClick={() => fire(false)}
         >
           {mode === 'workflow' ? message('create.plan') : message('create.generate')}
         </button>

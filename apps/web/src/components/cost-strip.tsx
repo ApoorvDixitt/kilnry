@@ -23,6 +23,7 @@ export interface BudgetLine {
   label: string;
   cap_usd: number;
   spent_usd: number;
+  behavior?: 'block' | 'ask' | undefined;
 }
 
 const STALE_PRICE_DAYS = 30;

@@ -4,16 +4,30 @@
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
 import { NextResponse } from 'next/server';
+import { ulid } from '@kilnry/core';
+import { auditEvents } from '@kilnry/db';
 import { errorResponse, requireSession } from '../../../server/http';
 import { canonicalGeneration, GenerationInput } from '../../../server/generation-input';
-import { ensureRuntimeEngine } from '../../../server/runtime';
+import { ensureRuntimeEngine, runtimeServices } from '../../../server/runtime';
 
 export async function POST(request: Request): Promise<Response> {
   try {
-    await requireSession();
+    const session = await requireSession();
     const input = GenerationInput.parse(await request.json());
     const canonical = canonicalGeneration(input);
     const engine = await ensureRuntimeEngine();
+    // A one-time budget override is recorded so it is visible in the security
+    // audit log: the user chose "Allow this once" past a cap set to ask.
+    if (input.override_budget) {
+      const services = await runtimeServices();
+      await services.database.db.insert(auditEvents).values({
+        id: ulid(),
+        actor: `user:${session.user.id}`,
+        action: 'budget.override',
+        target: input.model ?? 'auto',
+        meta: { confirmed_cost_usd: input.confirmed_cost_usd ?? null },
+      });
+    }
     const result = await engine.createJob({
       request: canonical.request,
       constraints: canonical.constraints,
