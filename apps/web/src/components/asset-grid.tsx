@@ -91,6 +91,7 @@ function AssetTile({
         type="button"
         className={`asset-tile${item.sidecar_ok ? '' : ' is-orphan'}`}
         data-kind={item.kind}
+        aria-label={item.path.split('/').at(-1) ?? item.id}
         onMouseEnter={enter}
         onMouseLeave={leave}
         onClick={() => onOpen(item.id)}
