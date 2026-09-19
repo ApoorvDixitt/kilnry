@@ -13,6 +13,7 @@ import type { ApiEstimate, ApiModel } from '../lib/composer-types';
 import { Composer } from './composer';
 import type { ComposerMode } from './model-picker';
 import type { ComposerParams } from './param-chips';
+import { ResultTileActions, type TileCapabilities } from './result-tile-actions';
 
 interface ResultTile {
   id: string;
@@ -20,6 +21,7 @@ interface ResultTile {
   status: string;
   stepLabel: string;
   provider: string;
+  prompt: string;
   assetId?: string | undefined;
   actualUsd?: string | null | undefined;
   error?: string | undefined;
@@ -60,7 +62,10 @@ export function CreateComposer(): React.ReactNode {
   const [estimate, setEstimate] = useState<ApiEstimate | null>(null);
   const [tiles, setTiles] = useState<ResultTile[]>([]);
   const [loadError, setLoadError] = useState<string>();
+  const [capabilities, setCapabilities] = useState<TileCapabilities>({ reveal: false });
+  const [seed, setSeed] = useState<{ token: number; prompt: string }>();
   const lastState = useRef<ReturnType<typeof toEstimatePayload> | null>(null);
+  const lastPrompt = useRef('');
   const debounce = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   useEffect(() => {
@@ -70,6 +75,12 @@ export function CreateComposer(): React.ReactNode {
       .catch((cause: unknown) =>
         setLoadError(cause instanceof Error ? cause.message : message('create.proof.requestFailed')),
       );
+    void fetch('/api/capabilities')
+      .then((response) => (response.ok ? (response.json() as Promise<{ reveal?: boolean }>) : null))
+      .then((body) => {
+        if (body) setCapabilities({ reveal: Boolean(body.reveal) });
+      })
+      .catch(() => setCapabilities({ reveal: false }));
   }, []);
 
   // Re-price on every composer change, debounced, using the engine's estimate
@@ -89,6 +100,7 @@ export function CreateComposer(): React.ReactNode {
       }
       const payload = toEstimatePayload(state);
       lastState.current = payload;
+      lastPrompt.current = state.prompt;
       if (debounce.current) clearTimeout(debounce.current);
       debounce.current = setTimeout(() => {
         void apiFetch('/api/estimate', {
@@ -139,7 +151,14 @@ export function CreateComposer(): React.ReactNode {
     const provider = priced.route.provider;
     // The queued tile appears immediately, before the provider responds.
     setTiles((prior) => [
-      { id: tileId, jobId: '', status: 'queued', stepLabel: stepFor('queued', provider), provider },
+      {
+        id: tileId,
+        jobId: '',
+        status: 'queued',
+        stepLabel: stepFor('queued', provider),
+        provider,
+        prompt: lastPrompt.current,
+      },
       ...prior,
     ]);
     try {
@@ -202,9 +221,31 @@ export function CreateComposer(): React.ReactNode {
                           tile.actualUsd ? `$${Number(tile.actualUsd).toFixed(2)}` : '$0.00',
                         )}
                       </figcaption>
+                      <ResultTileActions
+                        status="completed"
+                        capabilities={capabilities}
+                        handlers={{
+                          onUsePrompt: () => setSeed({ token: Date.now(), prompt: tile.prompt }),
+                          onRerun: () => void generate(),
+                          onCopyPath: () => void navigator.clipboard?.writeText(`/api/media/${tile.assetId}`),
+                          onCopyParams: () => void navigator.clipboard?.writeText(tile.prompt),
+                          onDelete: () => setTiles((prior) => prior.filter((t) => t.id !== tile.id)),
+                        }}
+                      />
                     </figure>
                   ) : tile.error ? (
-                    <p className="result-tile-error">{tile.error}</p>
+                    <>
+                      <p className="result-tile-error">{tile.error}</p>
+                      <ResultTileActions
+                        status="failed"
+                        capabilities={capabilities}
+                        handlers={{
+                          onRetry: () => void generate(),
+                          onEditPrompt: () => setSeed({ token: Date.now(), prompt: tile.prompt }),
+                          onCopyError: () => void navigator.clipboard?.writeText(tile.error ?? ''),
+                        }}
+                      />
+                    </>
                   ) : (
                     <span className="result-tile-step">{tile.stepLabel}</span>
                   )}
@@ -220,6 +261,7 @@ export function CreateComposer(): React.ReactNode {
         estimate={estimate}
         onStateChange={onStateChange}
         onGenerate={() => void generate()}
+        seed={seed}
       />
     </section>
   );

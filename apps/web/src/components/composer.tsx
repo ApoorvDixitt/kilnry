@@ -94,6 +94,7 @@ export function Composer({
   now = Date.now(),
   onGenerate,
   onStateChange,
+  seed,
 }: {
   models: PickerModel[];
   budgets?: BudgetLine[];
@@ -112,6 +113,7 @@ export function Composer({
     params: ComposerParams;
     ready: boolean;
   }) => void;
+  seed?: { token: number; prompt: string } | undefined;
 }): React.ReactNode {
   const [mode, setMode] = useState<ComposerMode>('image');
   const [prompt, setPrompt] = useState('');
@@ -119,6 +121,16 @@ export function Composer({
   const [params, setParams] = useState<ComposerParams>({ count: 1 });
   const [pickerOpen, setPickerOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // When a result tile asks to reuse its prompt, the page bumps the seed token
+  // and the composer adopts that prompt text once per new token.
+  const appliedSeed = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    if (seed && seed.token !== appliedSeed.current) {
+      appliedSeed.current = seed.token;
+      setPrompt(seed.prompt);
+    }
+  }, [seed]);
 
   const available = useMemo(() => modelsForMode(models, mode), [models, mode]);
   const hasAnyKey = models.some((model) => model.connected);

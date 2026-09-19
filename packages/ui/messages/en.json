@@ -171,6 +171,23 @@
       }
     },
     "saved": "Saved · {amount}",
+    "actions": {
+      "row": "Result actions",
+      "usePrompt": "Use prompt",
+      "useReference": "Use as reference",
+      "openLibrary": "Open in Library",
+      "rerun": "Re-run",
+      "copyPath": "Copy path",
+      "copyParams": "Copy params",
+      "reveal": "Reveal in Finder",
+      "move": "Move to…",
+      "delete": "Delete",
+      "retry": "Retry",
+      "editPrompt": "Edit prompt",
+      "copyError": "Copy error",
+      "pathCopied": "Path copied",
+      "rerunConfirm": "This now costs {new} instead of {old}. Re-run anyway?"
+    },
     "tile": {
       "queued": "Queued at {provider}",
       "rendering": "Rendering · {elapsed}",
