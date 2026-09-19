@@ -72,7 +72,13 @@ export async function buildMinimalSidecar(input: {
     created_at: probe.mtime.toISOString(),
     source: input.source ?? 'import',
     kind: kindForMime(probe.mime),
-    generation: generation ? { ...generation, recovered_from: 'embedded' } : null,
+    generation: generation
+      ? {
+          ...generation,
+          recovered_from:
+            typeof generation.recovered_from === 'string' ? generation.recovered_from : 'embedded',
+        }
+      : null,
     lineage: { made_from: [], used_in: [] },
     tags: generation ? [] : ['needs_prompt'],
     label: null,
@@ -202,14 +208,24 @@ export async function indexAsset(
         typeof generation?.params === 'object' && generation.params !== null
           ? (generation.params as Record<string, unknown>)
           : null,
+      seed: typeof generation?.seed === 'number' ? generation.seed : null,
       estimateUsd: typeof generation?.estimate_usd === 'number' ? generation.estimate_usd.toFixed(6) : null,
       actualUsd: typeof generation?.actual_usd === 'number' ? generation.actual_usd.toFixed(6) : null,
       jobId: typeof generation?.job_id === 'string' ? generation.job_id : null,
+      runId: typeof generation?.run_id === 'string' ? generation.run_id : null,
+      stepId: typeof generation?.step_id === 'string' ? generation.step_id : null,
       providerRequestId:
         typeof generation?.provider_request_id === 'string' ? generation.provider_request_id : null,
+      moderation:
+        typeof generation?.moderation === 'object' && generation.moderation !== null
+          ? (generation.moderation as Record<string, unknown>)
+          : null,
+      retentionUntil:
+        typeof generation?.retention_until === 'string' ? new Date(generation.retention_until) : null,
       label: sidecar.label,
       rating: sidecar.rating,
       userNotes: sidecar.user_notes,
+      consistency: sidecar.consistency,
       sidecarOk: true,
       sidecarMtime: (await stat(`${resolved.abs}.kilnry.json`)).mtime,
       fileMtime: probe.mtime,
@@ -224,7 +240,41 @@ export async function indexAsset(
         mime: sidecar.file.mime,
         bytes: sidecar.file.bytes,
         sha256: sidecar.file.sha256,
+        width: sidecar.file.width,
+        height: sidecar.file.height,
+        durationS: sidecar.file.duration_s?.toFixed(3),
+        fps: sidecar.file.fps?.toFixed(2),
+        hasAudio: sidecar.file.has_audio,
+        source: sidecar.source,
+        providerId: typeof generation?.provider === 'string' ? generation.provider : null,
+        modelId: typeof generation?.model === 'string' ? generation.model : null,
+        prompt: typeof generation?.prompt === 'string' ? generation.prompt : null,
+        resolvedPrompt: typeof generation?.resolved_prompt === 'string' ? generation.resolved_prompt : null,
+        negativePrompt: typeof generation?.negative_prompt === 'string' ? generation.negative_prompt : null,
+        params:
+          typeof generation?.params === 'object' && generation.params !== null
+            ? (generation.params as Record<string, unknown>)
+            : null,
+        seed: typeof generation?.seed === 'number' ? generation.seed : null,
+        estimateUsd: typeof generation?.estimate_usd === 'number' ? generation.estimate_usd.toFixed(6) : null,
+        actualUsd: typeof generation?.actual_usd === 'number' ? generation.actual_usd.toFixed(6) : null,
+        jobId: typeof generation?.job_id === 'string' ? generation.job_id : null,
+        runId: typeof generation?.run_id === 'string' ? generation.run_id : null,
+        stepId: typeof generation?.step_id === 'string' ? generation.step_id : null,
+        providerRequestId:
+          typeof generation?.provider_request_id === 'string' ? generation.provider_request_id : null,
+        moderation:
+          typeof generation?.moderation === 'object' && generation.moderation !== null
+            ? (generation.moderation as Record<string, unknown>)
+            : null,
+        retentionUntil:
+          typeof generation?.retention_until === 'string' ? new Date(generation.retention_until) : null,
+        label: sidecar.label,
+        rating: sidecar.rating,
+        userNotes: sidecar.user_notes,
+        consistency: sidecar.consistency,
         sidecarOk: true,
+        sidecarMtime: (await stat(`${resolved.abs}.kilnry.json`)).mtime,
         fileMtime: probe.mtime,
         indexedAt: new Date(),
       },

@@ -4,10 +4,12 @@
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
 import chokidar, { type FSWatcher } from 'chokidar';
+import { existsSync } from 'node:fs';
 import { dirname, relative } from 'node:path';
 import { eq } from 'drizzle-orm';
 import type { DatabaseState } from '@kilnry/db';
 import { assets } from '@kilnry/db';
+import { createDerivatives } from '@kilnry/media';
 import { indexAsset } from './index.js';
 
 export interface LibraryWatcher {
@@ -28,6 +30,7 @@ export function watchLibrary(input: {
   state: DatabaseState;
   root: string;
   libraryId: string;
+  dataDir?: string;
   polling?: boolean;
   stabilityThresholdMs?: number;
   debounceMs?: number;
@@ -62,12 +65,23 @@ export function watchLibrary(input: {
       setTimeout(() => {
         pending.delete(mediaPath);
         void indexAsset(input.state, input.root, mediaPath, input.libraryId)
-          .then((result) =>
+          .then(async (result) => {
+            if (input.dataDir) {
+              await createDerivatives({
+                source: mediaPath,
+                dataDir: input.dataDir,
+                assetId: result.sidecar.asset_id,
+                mime: result.sidecar.file.mime,
+                ...(result.sidecar.file.duration_s === undefined
+                  ? {}
+                  : { durationS: result.sidecar.file.duration_s }),
+              });
+            }
             input.onImported?.(
               result.sidecar.asset_id,
               relative(input.root, dirname(mediaPath)).split('\\').join('/'),
-            ),
-          )
+            );
+          })
           .catch(input.onError);
       }, input.debounceMs ?? 500),
     );
@@ -88,7 +102,8 @@ export function watchLibrary(input: {
   };
   watcher.on('ready', () => readyResolve());
   watcher.on('add', (path) => {
-    if (!path.endsWith('.kilnry.json')) schedule(path);
+    const mediaPath = path.endsWith('.kilnry.json') ? path.slice(0, -'.kilnry.json'.length) : path;
+    if (!path.endsWith('.kilnry.json') || existsSync(mediaPath)) schedule(path);
   });
   watcher.on('change', schedule);
   watcher.on('unlink', markMissing);

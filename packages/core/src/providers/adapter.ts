@@ -63,8 +63,17 @@ export interface AdapterContext {
   key: string;
   fetch: typeof fetch;
   signal: AbortSignal;
+  temp_dir?: string;
   price?: PriceSnapshot;
   log: (level: 'debug' | 'info' | 'warn', event: string, meta?: Record<string, unknown>) => void;
+}
+
+export interface DownloadedOutput {
+  index: number;
+  bytes?: Uint8Array;
+  path?: string;
+  mime: string;
+  sha256: string;
 }
 
 export interface ProviderPriceUpdate {
@@ -106,10 +115,7 @@ export interface ProviderAdapter {
   submit(request: CanonicalRequest, context: AdapterContext): Promise<SubmitHandle>;
   poll(handle: SubmitHandle, context: AdapterContext): Promise<PollStatus>;
   cancel(handle: SubmitHandle, context: AdapterContext): Promise<{ ok: boolean; reason?: string }>;
-  download(
-    result: ProviderResult,
-    context: AdapterContext,
-  ): Promise<Array<{ index: number; bytes: Uint8Array; mime: string; sha256: string }>>;
+  download(result: ProviderResult, context: AdapterContext): Promise<DownloadedOutput[]>;
   normalizeError(error: unknown): KilnryError;
 }
 

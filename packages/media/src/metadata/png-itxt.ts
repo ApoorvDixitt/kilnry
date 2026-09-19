@@ -56,15 +56,25 @@ function keyword(chunk: Chunk): string | undefined {
   return chunk.data.subarray(0, end < 0 ? chunk.data.length : end).toString('latin1');
 }
 
-export function writePngMetadata(bytes: Uint8Array, payload: unknown, parameters?: string): Uint8Array {
-  const chunks = parse(bytes).filter((chunk) => !['kilnry', 'parameters'].includes(keyword(chunk) ?? ''));
-  const body = Buffer.from(JSON.stringify(payload), 'utf8');
-  if (body.byteLength > 65_536) throw new Error('Kilnry PNG metadata exceeds 64 KiB.');
+export function writePngMetadata(
+  bytes: Uint8Array,
+  payload: unknown,
+  parameters?: string,
+  additionalText: Record<string, string> = {},
+): Uint8Array {
+  const replaced = new Set(['kilnry', 'parameters', ...Object.keys(additionalText)]);
+  const chunks = parse(bytes).filter((chunk) => !replaced.has(keyword(chunk) ?? ''));
+  const body = payload === undefined ? undefined : Buffer.from(JSON.stringify(payload), 'utf8');
+  if (body && body.byteLength > 65_536) throw new Error('Kilnry PNG metadata exceeds 64 KiB.');
   const metadata: Chunk[] = [
-    {
-      type: 'iTXt',
-      data: Buffer.concat([Buffer.from('kilnry\0', 'latin1'), Buffer.from([0, 0, 0, 0]), body]),
-    },
+    ...(body
+      ? [
+          {
+            type: 'iTXt',
+            data: Buffer.concat([Buffer.from('kilnry\0', 'latin1'), Buffer.from([0, 0, 0, 0]), body]),
+          },
+        ]
+      : []),
     ...(parameters
       ? [
           {
@@ -73,14 +83,26 @@ export function writePngMetadata(bytes: Uint8Array, payload: unknown, parameters
           },
         ]
       : []),
+    ...Object.entries(additionalText).map(([name, value]) => ({
+      type: 'tEXt',
+      data: Buffer.concat([Buffer.from(`${name}\0`, 'latin1'), Buffer.from(value, 'utf8')]),
+    })),
   ];
   const end = chunks.findIndex((chunk) => chunk.type === 'IEND');
   chunks.splice(end, 0, ...metadata);
   return Buffer.concat([signature, ...chunks.map(encodeChunk)]);
 }
 
-export function readPngMetadata(bytes: Uint8Array): { payload?: unknown; parameters?: string } {
-  const output: { payload?: unknown; parameters?: string } = {};
+export function readPngMetadata(bytes: Uint8Array): {
+  payload?: unknown;
+  parameters?: string;
+  comfy?: { prompt?: unknown; workflow?: unknown };
+} {
+  const output: {
+    payload?: unknown;
+    parameters?: string;
+    comfy?: { prompt?: unknown; workflow?: unknown };
+  } = {};
   for (const chunk of parse(bytes)) {
     const name = keyword(chunk);
     if (chunk.type === 'iTXt' && name === 'kilnry') {
@@ -95,6 +117,15 @@ export function readPngMetadata(bytes: Uint8Array): { payload?: unknown; paramet
     if (chunk.type === 'tEXt' && name === 'parameters') {
       const first = chunk.data.indexOf(0);
       output.parameters = chunk.data.subarray(first + 1).toString('utf8');
+    }
+    if (chunk.type === 'tEXt' && (name === 'prompt' || name === 'workflow')) {
+      const first = chunk.data.indexOf(0);
+      try {
+        output.comfy ??= {};
+        output.comfy[name] = JSON.parse(chunk.data.subarray(first + 1).toString('utf8')) as unknown;
+      } catch (error) {
+        throw new Error(`ComfyUI PNG ${name} metadata contains invalid JSON.`, { cause: error });
+      }
     }
   }
   return output;

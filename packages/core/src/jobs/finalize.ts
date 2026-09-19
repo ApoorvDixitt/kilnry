@@ -3,7 +3,8 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
-import { access, mkdir, open, rename, stat } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { access, copyFile, mkdir, open, rename, stat } from 'node:fs/promises';
 import { join, posix } from 'node:path';
 import { eq } from 'drizzle-orm';
 import type { DatabaseState } from '@kilnry/db';
@@ -13,6 +14,7 @@ import {
   embedMetadata,
   extensionForMime,
   probeMedia,
+  sniffMime,
   sniffMimeBytes,
   type EmbeddedPayload,
 } from '@kilnry/media';
@@ -38,7 +40,7 @@ export interface FinalizeInput {
   request: CanonicalRequest;
   estimate: Estimate;
   actualUsd: number;
-  output: { index: number; bytes: Uint8Array; mime: string; sha256: string };
+  output: { index: number; bytes?: Uint8Array; path?: string; mime: string; sha256: string };
   onStage?: (stage: 'file' | 'sidecar' | 'embedded' | 'database' | 'thumbnail') => void;
 }
 
@@ -150,7 +152,11 @@ export async function finalizeOutput(input: FinalizeInput): Promise<FinalizedAss
 
   const target = await resolveInRoot(input.libraryRoot, input.request.target_folder || 'inbox');
   await mkdir(target.abs, { recursive: true, mode: 0o700 });
-  const sniffed = sniffMimeBytes(input.output.bytes);
+  const sniffed = input.output.bytes
+    ? sniffMimeBytes(input.output.bytes)
+    : input.output.path
+      ? await sniffMime(input.output.path)
+      : 'application/octet-stream';
   const mime = sniffed === 'application/octet-stream' ? input.output.mime : sniffed;
   const extension = extensionForMime(mime);
   const timestamp = new Date().toISOString().replace(/[-:]/g, '').slice(0, 13);
@@ -161,19 +167,31 @@ export async function finalizeOutput(input: FinalizeInput): Promise<FinalizedAss
   );
   const absolute = join(/* turbopackIgnore: true */ target.abs, name);
   const partial = `${absolute}.part`;
-  const file = await open(partial, 'wx', 0o600);
-  try {
-    await file.writeFile(input.output.bytes);
-    await file.sync();
-  } finally {
-    await file.close();
+  if (input.output.path) {
+    await copyFile(input.output.path, partial, constants.COPYFILE_EXCL);
+    const file = await open(partial, 'r+');
+    try {
+      await file.sync();
+    } finally {
+      await file.close();
+    }
+  } else if (input.output.bytes) {
+    const file = await open(partial, 'wx', 0o600);
+    try {
+      await file.writeFile(input.output.bytes);
+      await file.sync();
+    } finally {
+      await file.close();
+    }
+  } else {
+    throw new Error('Downloaded output has neither a file path nor bytes.');
   }
   await rename(partial, absolute);
   input.onStage?.('file');
 
   const assetId = ulid();
   let hash = await sha256File(absolute);
-  let sidecar = sidecarFor(input, assetId, name, mime, hash, input.output.bytes.byteLength);
+  let sidecar = sidecarFor(input, assetId, name, mime, hash, (await stat(absolute)).size);
   await writeSidecar(absolute, sidecar);
   input.onStage?.('sidecar');
 

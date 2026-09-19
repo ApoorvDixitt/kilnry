@@ -160,6 +160,14 @@ export async function ensureRuntimeEngine(): Promise<JobEngine> {
     const marker = await libraryMarker(config.library_root);
     await reindexLibrary(services.database, config.library_root, marker.library_id, {
       reportDir: join(config.data_dir, 'logs'),
+      dataDir: config.data_dir,
+      onProgress: (done, total) =>
+        eventHub.emit({
+          type: 'library.reindex.progress',
+          done,
+          total,
+          ts: new Date().toISOString(),
+        }),
     });
     global.__kilnryRuntimeStatus = { stage: 'starting_workers' };
     const engine = new JobEngine({
@@ -177,6 +185,7 @@ export async function ensureRuntimeEngine(): Promise<JobEngine> {
       state: services.database,
       root: config.library_root,
       libraryId: marker.library_id,
+      dataDir: config.data_dir,
       polling: process.env.CHOKIDAR_USEPOLLING === '1' || process.env.KILNRY_DOCKER === '1',
       onImported: (assetId, folder) =>
         eventHub.emit({

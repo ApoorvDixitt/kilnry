@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, opendir, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import sharp from 'sharp';
 import { runMediaProcess } from './process.js';
@@ -12,6 +12,7 @@ export async function createThumbnail(
   input: string,
   output: string,
   mime: string,
+  durationS?: number,
 ): Promise<{ created: boolean; reason?: string }> {
   await mkdir(dirname(output), { recursive: true, mode: 0o700 });
   if (mime.startsWith('image/')) {
@@ -32,7 +33,7 @@ export async function createThumbnail(
           '-nostdin',
           '-y',
           '-ss',
-          '0.5',
+          String(Math.max(0.5, (durationS ?? 5) * 0.1)),
           '-i',
           input,
           '-frames:v',
@@ -77,6 +78,42 @@ export async function createThumbnail(
   return { created: false, reason: `thumbnail_not_implemented:${mime}` };
 }
 
+export async function enforceCacheLimit(
+  dataDir: string,
+  limitBytes = 5 * 1024 * 1024 * 1024,
+): Promise<{ removed: number; bytes: number }> {
+  const root = join(dataDir, 'cache');
+  const files: Array<{ path: string; bytes: number; atime: number }> = [];
+  const walk = async (directory: string): Promise<void> => {
+    let handle: Awaited<ReturnType<typeof opendir>>;
+    try {
+      handle = await opendir(directory);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
+      throw error;
+    }
+    for await (const entry of handle) {
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) await walk(path);
+      else if (entry.isFile()) {
+        const value = await stat(path);
+        files.push({ path, bytes: value.size, atime: value.atimeMs || value.mtimeMs });
+      }
+    }
+  };
+  await walk(root);
+  files.sort((left, right) => left.atime - right.atime);
+  let bytes = files.reduce((total, file) => total + file.bytes, 0);
+  let removed = 0;
+  while (bytes > limitBytes && files.length > 1) {
+    const oldest = files.shift()!;
+    await rm(oldest.path, { force: true });
+    bytes -= oldest.bytes;
+    removed += 1;
+  }
+  return { removed, bytes };
+}
+
 export async function createDerivatives(input: {
   source: string;
   dataDir: string;
@@ -92,7 +129,7 @@ export async function createDerivatives(input: {
   const adjustments: string[] = [];
   const thumbnail = join(input.dataDir, 'cache', 'thumbs', `${input.assetId}.webp`);
   try {
-    const result = await createThumbnail(input.source, thumbnail, input.mime);
+    const result = await createThumbnail(input.source, thumbnail, input.mime, input.durationS);
     if (!result.created && result.reason) adjustments.push(result.reason);
   } catch (error) {
     adjustments.push(
@@ -100,6 +137,7 @@ export async function createDerivatives(input: {
     );
   }
   if (!input.mime.startsWith('video/')) {
+    await enforceCacheLimit(input.dataDir);
     return {
       ...(adjustments.some((value) => value.startsWith('thumbnail_')) ? {} : { thumbnail }),
       adjustments,
@@ -122,7 +160,7 @@ export async function createDerivatives(input: {
         '-i',
         input.source,
         '-t',
-        '10',
+        input.durationS !== undefined && input.durationS < 8 ? '5' : '10',
         '-an',
         '-vf',
         "scale=-2:'min(480,ih)',fps=30,format=yuv420p",
@@ -146,6 +184,7 @@ export async function createDerivatives(input: {
   try {
     const duration = Math.max(input.durationS ?? 1, 1);
     const sheet = `${sprite}.png`;
+    let height: number | undefined;
     try {
       await runMediaProcess(
         ffmpeg,
@@ -163,18 +202,20 @@ export async function createDerivatives(input: {
         ],
         { timeoutMs: 180_000 },
       );
+      height = (await sharp(sheet).metadata()).height;
       await sharp(sheet).webp({ quality: 70 }).toFile(sprite);
     } finally {
       await rm(sheet, { force: true });
     }
     await writeFile(
       `${sprite}.json`,
-      `${JSON.stringify({ frames: 10, w: 160, duration_s: duration }, null, 2)}\n`,
+      `${JSON.stringify({ frames: 10, w: 160, h: height, duration_s: duration }, null, 2)}\n`,
       { mode: 0o600 },
     );
   } catch (error) {
     adjustments.push(`sprite_failed:${error instanceof Error ? error.message.slice(0, 120) : String(error)}`);
   }
+  await enforceCacheLimit(input.dataDir);
   return {
     thumbnail,
     ...(adjustments.some((value) => value.startsWith('preview_failed')) ? {} : { preview }),

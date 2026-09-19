@@ -4,7 +4,7 @@
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -70,5 +70,10 @@ describe('video metadata and derivatives', () => {
     expect(existsSync(derivatives.preview!)).toBe(true);
     expect(existsSync(derivatives.sprite!)).toBe(true);
     expect(existsSync(`${derivatives.sprite}.json`)).toBe(true);
+    expect(JSON.parse(readFileSync(`${derivatives.sprite}.json`, 'utf8'))).toMatchObject({
+      frames: 10,
+      w: 160,
+      h: expect.any(Number),
+    });
   });
 });

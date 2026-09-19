@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
+import { mkdir, rm } from 'node:fs/promises';
+import { join } from 'node:path';
 import { and, desc, eq, gte, inArray, sql } from 'drizzle-orm';
 import { PgBoss, fromPglite, type Job } from 'pg-boss';
 import type { DatabaseState } from '@kilnry/db';
@@ -509,6 +511,7 @@ export class JobEngine {
       }
     }
     await this.#recordLedger(row, 0, 'cancelled');
+    await rm(join(this.#options.dataDir, 'tmp', jobId), { recursive: true, force: true });
     return { status: 'cancelled', provider_acknowledged: acknowledged };
   }
 
@@ -567,11 +570,17 @@ export class JobEngine {
     if (!result) this.#options.log('debug', 'queue_singleton_reused', { job_id: jobId, provider });
   }
 
-  #adapterContext(adapter: ProviderAdapter, key: string, signal: AbortSignal): AdapterContext {
+  #adapterContext(
+    adapter: ProviderAdapter,
+    key: string,
+    signal: AbortSignal,
+    tempDir?: string,
+  ): AdapterContext {
     return {
       key,
       fetch: this.#options.fetch,
       signal,
+      ...(tempDir ? { temp_dir: tempDir } : {}),
       log: (level, event, meta) => this.#options.log(level, event, { provider: adapter.id, ...(meta ?? {}) }),
     };
   }
@@ -613,7 +622,9 @@ export class JobEngine {
     const estimate = estimateFromRow(row, request);
     const controller = new AbortController();
     this.#controllers.set(jobId, controller);
-    const context = this.#adapterContext(adapter, key, controller.signal);
+    const tempDir = join(this.#options.dataDir, 'tmp', jobId);
+    await mkdir(tempDir, { recursive: true, mode: 0o700 });
+    const context = this.#adapterContext(adapter, key, controller.signal, tempDir);
     if (!resume && row.status === 'queued') {
       await this.#options.state.db
         .update(jobs)
@@ -835,6 +846,7 @@ export class JobEngine {
       duration_ms: this.#options.now().getTime() - (row.startedAt ?? row.createdAt).getTime(),
       ts: this.#options.now().toISOString(),
     });
+    if (context.temp_dir) await rm(context.temp_dir, { recursive: true, force: true });
   }
 
   async #recordLedger(row: JobRow, actualUsd: number, note: string): Promise<void> {
@@ -916,6 +928,14 @@ export class JobEngine {
         stepLabel: status,
       })
       .where(eq(jobs.id, row.id));
+    const keepPartial =
+      typeof details === 'object' &&
+      details !== null &&
+      'retry_download_only' in details &&
+      details.retry_download_only === true;
+    if (!keepPartial) {
+      await rm(join(this.#options.dataDir, 'tmp', row.id), { recursive: true, force: true });
+    }
     if (status === 'moderated') {
       this.#options.events.emit({
         type: 'job.moderated',

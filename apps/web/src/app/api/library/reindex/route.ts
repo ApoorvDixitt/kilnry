@@ -24,6 +24,7 @@ export async function POST(request: Request): Promise<Response> {
     const marker = await libraryMarker(config.library_root);
     const report = await reindexLibrary(services.database, config.library_root, marker.library_id, {
       reportDir: `${config.data_dir}/logs`,
+      dataDir: config.data_dir,
     });
     return NextResponse.json({ ok: true, report });
   } catch (error) {

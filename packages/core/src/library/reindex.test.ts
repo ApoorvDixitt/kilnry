@@ -3,12 +3,12 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
-import { mkdtempSync, mkdirSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { assets, closeDatabaseState, createDatabase } from '@kilnry/db';
-import { embedMetadata } from '@kilnry/media';
+import { embedMetadata, writePngMetadata } from '@kilnry/media';
 import { prepareLibraryRoot } from './root.js';
 import { buildMinimalSidecar, indexAsset } from './index.js';
 import { libraryMarker, reindexLibrary } from './reindex.js';
@@ -60,12 +60,18 @@ describe('Library reindex', () => {
     const before = stableRows(
       (await state.db.select().from(assets)) as unknown as Array<Record<string, unknown>>,
     );
-    const report = await reindexLibrary(state, library, prepared.marker.library_id);
+    const progress: Array<[number, number]> = [];
+    const report = await reindexLibrary(state, library, prepared.marker.library_id, {
+      dataDir,
+      onProgress: (done, total) => progress.push([done, total]),
+    });
     const after = stableRows(
       (await state.db.select().from(assets)) as unknown as Array<Record<string, unknown>>,
     );
     expect(report).toMatchObject({ scanned: 1, indexed: 1, skipped: 0 });
     expect(after).toEqual(before);
+    expect(progress).toEqual([[1, 1]]);
+    expect(existsSync(join(dataDir, 'cache', 'thumbs', `${sidecar.asset_id}.webp`))).toBe(true);
   });
 
   it('recovers a missing sidecar from embedded PNG metadata with the same asset id', async () => {
@@ -101,5 +107,42 @@ describe('Library reindex', () => {
     const rows = await state.db.select().from(assets);
     expect(report.recovered_from_embedded).toBe(1);
     expect(rows[0]).toMatchObject({ id: sidecar.asset_id, prompt: 'recover me', sidecarOk: true });
+  });
+
+  it('recovers A1111 prompt, negative prompt, seed, and model into a new sidecar', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'kilnry-a1111-recovery-'));
+    const dataDir = join(root, 'data');
+    const library = join(root, 'library');
+    mkdirSync(dataDir);
+    const prepared = prepareLibraryRoot(library, dataDir);
+    const state = createDatabase(dataDir, { memory: true });
+    disposers.push(async () => {
+      await closeDatabaseState(state);
+      rmSync(root, { recursive: true, force: true });
+    });
+    await state.ready;
+    const file = join(library, 'inbox', 'a1111.png');
+    writeFileSync(
+      file,
+      writePngMetadata(
+        Buffer.from(
+          'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+          'base64',
+        ),
+        undefined,
+        'a ceramic kiln\nNegative prompt: smoke\nSteps: 20, Seed: 42, Model: kiln-v1',
+      ),
+    );
+    const report = await reindexLibrary(state, library, prepared.marker.library_id);
+    expect(report.recovered_from_embedded).toBe(1);
+    expect(await state.db.select().from(assets)).toMatchObject([
+      {
+        prompt: 'a ceramic kiln',
+        negativePrompt: 'smoke',
+        seed: 42,
+        modelId: 'kiln-v1',
+        sidecarOk: true,
+      },
+    ]);
   });
 });

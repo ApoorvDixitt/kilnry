@@ -7,6 +7,7 @@ import { opendir, readFile, writeFile, mkdir } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 import type { DatabaseState } from '@kilnry/db';
 import { assetCharacters, assetLineage, assets, assetTags, folders } from '@kilnry/db';
+import { createDerivatives } from '@kilnry/media';
 import { indexAsset } from './index.js';
 
 async function mediaFiles(root: string): Promise<string[]> {
@@ -42,7 +43,11 @@ export async function reindexLibrary(
   state: DatabaseState,
   root: string,
   libraryId: string,
-  options: { reportDir?: string } = {},
+  options: {
+    reportDir?: string;
+    dataDir?: string;
+    onProgress?: (done: number, total: number) => void;
+  } = {},
 ): Promise<ReindexReport> {
   const started = Date.now();
   await state.ready;
@@ -60,6 +65,17 @@ export async function reindexLibrary(
   for (const file of files) {
     try {
       const result = await indexAsset(state, root, file, libraryId);
+      if (options.dataDir) {
+        await createDerivatives({
+          source: file,
+          dataDir: options.dataDir,
+          assetId: result.sidecar.asset_id,
+          mime: result.sidecar.file.mime,
+          ...(result.sidecar.file.duration_s === undefined
+            ? {}
+            : { durationS: result.sidecar.file.duration_s }),
+        });
+      }
       indexed += 1;
       if (result.recovered) recovered += 1;
     } catch (error) {
@@ -68,6 +84,7 @@ export async function reindexLibrary(
         message: error instanceof Error ? error.message : String(error),
       });
     }
+    options.onProgress?.(indexed + errors.length, files.length);
   }
   const report: ReindexReport = {
     scanned: files.length,

@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { assets, closeDatabaseState, createDatabase } from '@kilnry/db';
 import { prepareLibraryRoot } from './root.js';
+import { readSidecar, writeSidecar } from './sidecar.js';
 import { watchLibrary } from './watcher.js';
 
 const disposers: Array<() => Promise<void>> = [];
@@ -34,6 +35,7 @@ describe('Library watcher', () => {
       state,
       root: library,
       libraryId: prepared.marker.library_id,
+      dataDir,
       stabilityThresholdMs: 100,
       debounceMs: 25,
       onImported: (id, folder) => importedResolve({ id, folder }),
@@ -64,6 +66,7 @@ describe('Library watcher', () => {
     });
     expect(event.folder).toBe('inbox');
     expect(await state.db.select().from(assets)).toMatchObject([{ id: event.id, path: 'inbox/watched.png' }]);
+    expect(existsSync(join(dataDir, 'cache', 'thumbs', `${event.id}.webp`))).toBe(true);
     renameSync(join(library, 'inbox', 'watched.png'), join(library, 'inbox', 'renamed.png'));
     await expect
       .poll(async () => (await state.db.select().from(assets))[0]?.path, { timeout: 15_000 })
@@ -71,6 +74,15 @@ describe('Library watcher', () => {
     expect(existsSync(join(library, 'inbox', 'renamed.png.kilnry.json'))).toBe(true);
     expect(existsSync(join(library, 'inbox', 'watched.png.kilnry.json'))).toBe(false);
     expect((await state.db.select().from(assets))[0]?.id).toBe(event.id);
+    const renamed = join(library, 'inbox', 'renamed.png');
+    const sidecar = await readSidecar(renamed);
+    if (!sidecar.ok) throw new Error(`Expected renamed sidecar, got ${sidecar.reason}.`);
+    sidecar.value.generation = { prompt: 'edited outside Kilnry', seed: 42 };
+    await writeSidecar(renamed, sidecar.value);
+    await expect
+      .poll(async () => (await state.db.select().from(assets))[0]?.prompt, { timeout: 15_000 })
+      .toBe('edited outside Kilnry');
+    expect((await state.db.select().from(assets))[0]?.seed).toBe(42);
     expect(errors).toEqual([]);
   }, 30_000);
 });
