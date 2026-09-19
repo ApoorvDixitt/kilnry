@@ -37,4 +37,21 @@ Deferred by canonical milestone: provider key onboarding F-ONB-04 to M2; checkli
 
 Defaults (adjustable): production builds use isolated in-memory PGlite while collecting routes so parallel build workers never touch the live data directory. With a `src/` App Router, `src/proxy.ts` is used because the root location was not executed by Next 16.3. FFmpeg major versions newer than 7 satisfy the doctor check.
 
+## M2 · Providers, Library core, Job engine · 2026-09-19
+
+Status: complete. Local gates and GitHub [`ci` run 35411204214](https://github.com/ApoorvDixitt/kilnry/actions/runs/35411204214) passed.
+
+Completed F-ONB-04; F-CRE-13; F-LIB-03, F-LIB-04, F-LIB-10, F-LIB-11; F-PRV-01, F-PRV-02, F-PRV-03, F-PRV-07; F-JOB-02, F-JOB-03, F-JOB-04; F-SET-01, F-SET-02, F-SET-08. This includes envelope-encrypted provider keys and recovery, redaction, fal/OpenRouter/Pollinations setup, canonical model and price registries, authoritative estimation, constrained Auto routing, provider adapters, durable jobs on shared PGlite, canonical media finalization, Library indexing and recovery, Range media delivery, SSE events, secured generation routes, and the minimal M2 proof UI.
+
+Gate results:
+
+- `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm test:browser`, `pnpm e2e --grep @smoke`, all canon/header/provenance/i18n/size checks, `pnpm audit --prod`, and `pnpm build`: pass.
+- TRD-19 G-01…G-30 estimator goldens and staleness paths: pass. Strict MSW fal/OpenRouter matrices cover success, moderation, 429, 5xx, timeout, insufficient funds, and ambiguous submit without paid egress.
+- Crash-resume polls accepted work without resubmission; mid-submit crash becomes ambiguous. Reindex equality, sidecar recovery, moderation-zero ledger, idempotency, cancellation, concurrency, and no-key zero-egress: pass.
+- `gitleaks` found no secrets. Light and dark 1440×900 M2 route screenshots were visually checked for clipping, overlap, states, accent use, and minimum text size.
+
+Resolved canon conflicts: pg-boss 12.33 rejects `:` in physical queue names, so logical `gen:<provider>` queues map internally to `gen/<provider>`. TRD-19's explicit G-17 value ($1.517) overrides its inconsistent formula result ($1.512). The owner's canonical file → sidecar → embedded metadata → database → derivatives order overrides stale chapter ordering; the sidecar is refreshed after embedding before the database write.
+
+Manual-only check: no real provider key or paid request was used. With an owner-supplied key and approval for the displayed exact spend, connect fal in Settings, run its connection test, confirm one image generation, verify media + sidecar + derivative + terminal ledger entry, then remove the key. This procedure was documented, not executed.
+
 <!-- Kilnry © 2026 Apoorv Dixit · Sustainable Use License 1.0 · See LICENSE.md. -->
