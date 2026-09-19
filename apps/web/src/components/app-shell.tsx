@@ -35,9 +35,9 @@ import { message } from '../lib/messages';
 const navigation = [
   { href: '/create', label: 'nav.create', icon: Plus, chord: 'C' },
   { href: '/library', label: 'nav.library', icon: Images, chord: 'L' },
-  { href: '/characters', label: 'nav.characters', icon: UserRound, chord: 'H' },
   { href: '/presets', label: 'nav.presets', icon: LayoutGrid, chord: 'P' },
   { href: '/workflows', label: 'nav.workflows', icon: Workflow, chord: 'W' },
+  { href: '/characters', label: 'nav.characters', icon: UserRound, chord: 'H' },
   { href: '/chat', label: 'nav.chat', icon: MessageCircle, chord: 'A' },
   { href: '/jobs', label: 'nav.jobs', icon: ListTodo, chord: 'J' },
   { href: '/settings', label: 'nav.settings', icon: Settings, chord: 'S' },
