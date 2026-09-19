@@ -15,6 +15,7 @@ const bannedPaths = [
   /^\.cursorrules$/,
   /^\.claude(?:\/|$)/,
   /^\.codex(?:\/|$)/,
+  /^\.kiro(?:\/|$)/,
   /^\.github\/copilot-instructions\.md$/,
   /^\.windsurfrules$/,
   /^\.aider/,
