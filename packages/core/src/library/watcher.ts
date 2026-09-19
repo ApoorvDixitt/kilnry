@@ -25,7 +25,7 @@ export interface LibraryWatcher {
 function ignored(path: string, root: string): boolean {
   const rel = relative(root, path);
   // A path outside the root (empty or starting with "..") is never watched here.
-  if (rel === '' ) return false;
+  if (rel === '') return false;
   return (
     /(^|[/\\])\.[^/\\]+/.test(rel) ||
     /(^|[/\\])Trash(?:[/\\]|$)/.test(rel) ||

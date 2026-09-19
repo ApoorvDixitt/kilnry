@@ -125,7 +125,10 @@ describe('Library watcher', () => {
       ),
     );
     const event = await new Promise<{ id: string; folder: string }>((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error('Watcher did not import within 15 seconds.')), 15_000);
+      const timeout = setTimeout(
+        () => reject(new Error('Watcher did not import within 15 seconds.')),
+        15_000,
+      );
       void imported.then((value) => {
         clearTimeout(timeout);
         resolve(value);
