@@ -4,6 +4,10 @@ All notable changes to Kilnry are documented here. The format follows Keep a Cha
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-09-20
+
+Kilnry v0.1.0 · first usable build (M1–M3).
+
 ### Added
 
 - Create composer with Image, Video and Audio modes that keeps your prompt when you switch (F-CRE-01).

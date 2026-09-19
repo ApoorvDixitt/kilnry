@@ -78,8 +78,9 @@ Notes and decisions:
 
 - S-13 (rename outside Kilnry) failed until a real bug was fixed: the watcher ignored files whenever the Library root sat under a hidden folder; it now decides relative to the root (F-LIB-04). The scenario runs in the acceptance suite.
 - The audit log was built to complete F-SET-08, promised in M2 but never implemented.
-- The visual baseline is capture-only for now; a `toHaveScreenshot` comparison with masked dynamic areas, captured on the continuous-integration platform, is the M4 follow-up. The video scenario is skipped in continuous integration for the same machine-dependent reasons as the performance and visual suites.
-- The commit-subject check bans the word "updates"; it will need an exemption when the Updates page is built (noted, not changed).
+- The visual baseline is capture-only; a `toHaveScreenshot` comparison with masked dynamic areas, captured on the continuous-integration platform, is the M4 follow-up. The video scenario is skipped in continuous integration for the same machine-dependent reasons as the performance and visual suites.
+- The commit-subject check bans "updates"; it will need an exemption when the Updates page is built.
+- v0.1.0 was tagged by hand, not with `pnpm release minor`, because `commit-and-tag-version` rewrites the changelog into its own format and would discard the plain-English feature list.
 - M3 was completed across two agent sessions; no tracked file depends on either agent.
 
 <!-- Kilnry © 2026 Apoorv Dixit · Sustainable Use License 1.0 · See LICENSE.md. -->
