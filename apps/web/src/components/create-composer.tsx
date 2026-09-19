@@ -14,6 +14,7 @@ import { Composer } from './composer';
 import type { ComposerMode } from './model-picker';
 import type { ComposerParams } from './param-chips';
 import { ResultTileActions, type TileCapabilities } from './result-tile-actions';
+import { ModeratedTile } from './moderated-tile';
 
 interface ResultTile {
   id: string;
@@ -233,6 +234,17 @@ export function CreateComposer(): React.ReactNode {
                         }}
                       />
                     </figure>
+                  ) : tile.status === 'moderated' ? (
+                    <ModeratedTile
+                      info={{
+                        provider: tile.provider,
+                        reason: tile.error,
+                        computeUsd: tile.actualUsd ? Number(tile.actualUsd) : 0,
+                      }}
+                      onEditPrompt={() => setSeed({ token: Date.now(), prompt: tile.prompt })}
+                      onTryAnother={() => setSeed({ token: Date.now(), prompt: tile.prompt })}
+                      onDismiss={() => setTiles((prior) => prior.filter((t) => t.id !== tile.id))}
+                    />
                   ) : tile.error ? (
                     <>
                       <p className="result-tile-error">{tile.error}</p>

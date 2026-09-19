@@ -188,6 +188,13 @@
       "pathCopied": "Path copied",
       "rerunConfirm": "This now costs {new} instead of {old}. Re-run anyway?"
     },
+    "moderated": {
+      "title": "Blocked by the provider's content filter. Not charged.",
+      "compute": "Blocked by the provider's content filter. {provider} may charge for compute used: {amount}.",
+      "editPrompt": "Edit prompt",
+      "tryAnother": "Try another model",
+      "dismiss": "Dismiss"
+    },
     "tile": {
       "queued": "Queued at {provider}",
       "rendering": "Rendering · {elapsed}",
