@@ -40,18 +40,6 @@ async function ensureSignedIn(page: Page, path: string): Promise<void> {
   }
 }
 
-async function csrf(page: Page): Promise<string> {
-  return page.evaluate(() =>
-    decodeURIComponent(
-      document.cookie
-        .split(';')
-        .map((part) => part.trim())
-        .find((part) => part.startsWith('kilnry_csrf='))
-        ?.slice('kilnry_csrf='.length) ?? '',
-    ),
-  );
-}
-
 async function ensureOpenRouter(page: Page): Promise<void> {
   await ensureSignedIn(page, '/settings/providers');
   const connected = await page.evaluate(async () => {
