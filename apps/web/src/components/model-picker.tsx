@@ -7,6 +7,7 @@
 
 import { useMemo, useState } from 'react';
 import { AlertTriangle, Check, Search } from 'lucide-react';
+import { LayoutGroup, motion } from 'motion/react';
 import { message } from '../lib/messages';
 import type { ApiModel } from '../lib/composer-types';
 
@@ -167,57 +168,64 @@ export function ModelPicker({
         />
       </div>
       <div className="model-picker-list" role="listbox" aria-label={message('create.picker.title')}>
-        <button
-          type="button"
-          role="option"
-          aria-selected={selectedId === 'auto'}
-          className={`model-row model-row-auto${selectedId === 'auto' ? ' is-selected' : ''}`}
-          onClick={() => onSelect('auto')}
-        >
-          <span className="model-row-head">
-            <strong>{message('create.picker.auto')}</strong>
-            {selectedId === 'auto' ? <Check aria-hidden size={16} strokeWidth={1.75} /> : null}
-          </span>
-          <small className="model-picker-why">{autoWhy}</small>
-        </button>
-
-        {recommended.length > 0 ? (
-          <p className="model-picker-group">{message('create.picker.recommended')}</p>
-        ) : null}
-        {recommended.map((row) => (
-          <ModelRowButton
-            key={`${row.model.provider}:${row.model.model_id}`}
-            row={row}
-            selected={selectedId === row.model.model_id}
-            onSelect={onSelect}
-          />
-        ))}
-
-        {rest.length > 0 ? <p className="model-picker-group">{message('create.picker.allModels')}</p> : null}
-        {rest.map((row) => (
-          <ModelRowButton
-            key={`${row.model.provider}:${row.model.model_id}`}
-            row={row}
-            selected={selectedId === row.model.model_id}
-            onSelect={onSelect}
-          />
-        ))}
-
-        {missingProviders.length > 0 ? (
-          <p className="model-picker-group">{message('create.picker.addKeyGroup')}</p>
-        ) : null}
-        {missingProviders.map((provider) => (
-          <a
-            key={provider}
-            href="/settings/providers"
-            className="model-row model-row-missing"
-            data-provider={provider}
+        <LayoutGroup id="model-picker-highlight">
+          <button
+            type="button"
+            role="option"
+            aria-selected={selectedId === 'auto'}
+            className={`model-row model-row-auto${selectedId === 'auto' ? ' is-selected' : ''}`}
+            onClick={() => onSelect('auto')}
           >
-            <span>{message('create.picker.addKey').replace('{provider}', providerLabel(provider))}</span>
-          </a>
-        ))}
+            {selectedId === 'auto' ? (
+              <motion.span layoutId="model-hl" className="model-row-hl" aria-hidden />
+            ) : null}
+            <span className="model-row-head">
+              <strong>{message('create.picker.auto')}</strong>
+              {selectedId === 'auto' ? <Check aria-hidden size={16} strokeWidth={1.75} /> : null}
+            </span>
+            <small className="model-picker-why">{autoWhy}</small>
+          </button>
 
-        {empty ? <p className="model-picker-empty">{message('create.picker.noMatch')}</p> : null}
+          {recommended.length > 0 ? (
+            <p className="model-picker-group">{message('create.picker.recommended')}</p>
+          ) : null}
+          {recommended.map((row) => (
+            <ModelRowButton
+              key={`${row.model.provider}:${row.model.model_id}`}
+              row={row}
+              selected={selectedId === row.model.model_id}
+              onSelect={onSelect}
+            />
+          ))}
+
+          {rest.length > 0 ? (
+            <p className="model-picker-group">{message('create.picker.allModels')}</p>
+          ) : null}
+          {rest.map((row) => (
+            <ModelRowButton
+              key={`${row.model.provider}:${row.model.model_id}`}
+              row={row}
+              selected={selectedId === row.model.model_id}
+              onSelect={onSelect}
+            />
+          ))}
+
+          {missingProviders.length > 0 ? (
+            <p className="model-picker-group">{message('create.picker.addKeyGroup')}</p>
+          ) : null}
+          {missingProviders.map((provider) => (
+            <a
+              key={provider}
+              href="/settings/providers"
+              className="model-row model-row-missing"
+              data-provider={provider}
+            >
+              <span>{message('create.picker.addKey').replace('{provider}', providerLabel(provider))}</span>
+            </a>
+          ))}
+
+          {empty ? <p className="model-picker-empty">{message('create.picker.noMatch')}</p> : null}
+        </LayoutGroup>
       </div>
     </div>
   );
@@ -240,6 +248,7 @@ function ModelRowButton({
       className={`model-row${selected ? ' is-selected' : ''}`}
       onClick={() => onSelect(row.model.model_id)}
     >
+      {selected ? <motion.span layoutId="model-hl" className="model-row-hl" aria-hidden /> : null}
       <span className="model-row-head">
         <strong>{row.model.display_name}</strong>
         <span className="model-row-price" data-money="true">

@@ -299,6 +299,9 @@ importers:
       '@kilnry/ui':
         specifier: workspace:*
         version: link:../../packages/ui
+      '@number-flow/react':
+        specifier: 0.6.2
+        version: 0.6.2(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       '@tailwindcss/postcss':
         specifier: 4.3.3
         version: 4.3.3
@@ -1522,6 +1525,15 @@ packages:
       {
         integrity: sha512-8L9xFeTYKhm49xfIypoe2W5wV1m/3Z58kT+7kR9A8OyFxcPduI4VmxaUMQyKYrRjUoLLSXv6EKKID5Tvj9cUVw==,
       }
+
+  '@number-flow/react@0.6.2':
+    resolution:
+      {
+        integrity: sha512-WjZuV4aA+vhRCgCF+adGLgFVVAJ8vdvq6EchRT2FiBIgElTXtDOA3YgkcMr9UHpvpS9v4H70AB5wZv0D9jc3QA==,
+      }
+    peerDependencies:
+      react: 19.3.0
+      react-dom: 19.3.0
 
   '@open-draft/deferred-promise@2.2.0':
     resolution:
@@ -3143,6 +3155,12 @@ packages:
       jiti:
         optional: true
 
+  esm-env@1.2.2:
+    resolution:
+      {
+        integrity: sha512-Epxrv+Nr/CaL4ZcFGPJIYLWFom+YeV1DqMLHJoEd9SYRxNbaFruBwfEX/kkHUJf55j2+TUbmDcmuilbP1TmXHA==,
+      }
+
   espree@11.2.0:
     resolution:
       {
@@ -4192,6 +4210,12 @@ packages:
         integrity: sha512-p2W1sgqij3zMMyRC067Dg16bfzVH+w7hyegmpIvZ4JNjqtGOVAIvLmjBx3yP7YTe9vKJgkoNOPjwQGogDoMXFA==,
       }
     engines: { node: '>=10' }
+
+  number-flow@0.6.2:
+    resolution:
+      {
+        integrity: sha512-MCnImG4Q5vPwhSXnov56nOuyyKn6LC+Qd7II1UiKc+ACRtug5iAtn0+CwXNxM38AC5lSowEY+oYEtZX2qMnUyw==,
+      }
 
   obug@2.2.1:
     resolution:
@@ -5960,6 +5984,13 @@ snapshots:
 
   '@nodable/entities@3.0.0': {}
 
+  '@number-flow/react@0.6.2(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+    dependencies:
+      esm-env: 1.2.2
+      number-flow: 0.6.2
+      react: 19.3.0
+      react-dom: 19.3.0(react@19.3.0)
+
   '@open-draft/deferred-promise@2.2.0': {}
 
   '@open-draft/deferred-promise@3.0.0': {}
@@ -6834,6 +6865,8 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
+  esm-env@1.2.2: {}
+
   espree@11.2.0:
     dependencies:
       acorn: 8.18.0
@@ -7377,6 +7410,10 @@ snapshots:
       is-core-module: 2.17.0
       semver: 7.8.5
       validate-npm-package-license: 3.0.4
+
+  number-flow@0.6.2:
+    dependencies:
+      esm-env: 1.2.2
 
   obug@2.2.1: {}
 

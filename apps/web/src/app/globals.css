@@ -1147,10 +1147,26 @@ kbd {
   display: grid;
   gap: 4px;
   padding: 9px 10px;
+  position: relative;
   text-align: left;
   transition:
     background var(--dur-150) var(--ease-out),
     border-color var(--dur-150) var(--ease-out);
+}
+
+.model-row-hl {
+  background: var(--accent-subtle-bg);
+  border: 1px solid var(--ring);
+  border-radius: 8px;
+  inset: 0;
+  position: absolute;
+  z-index: 0;
+}
+
+.model-row-head,
+.model-row-meta {
+  position: relative;
+  z-index: 1;
 }
 
 .model-row:hover {
@@ -1338,6 +1354,22 @@ kbd {
 .cost-strip.is-over-budget,
 .cost-strip.is-over-budget .cost-strip-figure {
   color: var(--danger);
+}
+
+.cost-strip.is-over-budget {
+  animation: cost-over-budget var(--dur-200) var(--ease-out);
+}
+
+@keyframes cost-over-budget {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.04);
+  }
+  100% {
+    transform: scale(1);
+  }
 }
 
 .cost-strip-stale {

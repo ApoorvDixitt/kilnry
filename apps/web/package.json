@@ -21,6 +21,7 @@
     "@kilnry/media": "workspace:*",
     "@kilnry/providers": "workspace:*",
     "@kilnry/ui": "workspace:*",
+    "@number-flow/react": "0.6.2",
     "@tailwindcss/postcss": "4.3.3",
     "@tanstack/react-virtual": "3.14.13",
     "better-auth": "1.7.5",

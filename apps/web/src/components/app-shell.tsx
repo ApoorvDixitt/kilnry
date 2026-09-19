@@ -28,6 +28,7 @@ import {
 import { AnimatePresence, motion } from 'motion/react';
 import { BrandMark } from './brand-mark';
 import { ChecklistWidget } from './checklist-widget';
+import NumberFlow from '@number-flow/react';
 import { ThemeSwitcher } from './theme-switcher';
 import { message } from '../lib/messages';
 
@@ -52,8 +53,33 @@ export function AppShell({ children }: { children: ReactNode }): React.ReactNode
   const [collapsed, setCollapsed] = useState(false);
   const [palette, setPalette] = useState(false);
   const [pendingChord, setPendingChord] = useState(false);
+  const [activeJobs, setActiveJobs] = useState(0);
 
   useEffect(() => setCollapsed(localStorage.getItem('kilnry-sidebar') === 'collapsed'), []);
+
+  // Keep the Jobs badge showing how many jobs are running or queued, refreshed
+  // from the server-sent-events stream so it ticks as jobs change.
+  useEffect(() => {
+    const refresh = (): void => {
+      void fetch('/api/jobs')
+        .then((response) =>
+          response.ok ? (response.json() as Promise<{ jobs: Array<{ status: string }> }>) : null,
+        )
+        .then((body) => {
+          if (!body) return;
+          setActiveJobs(
+            body.jobs.filter((job) => ['running', 'queued', 'waiting'].includes(job.status)).length,
+          );
+        })
+        .catch(() => setActiveJobs(0));
+    };
+    refresh();
+    if (typeof EventSource === 'undefined') return;
+    const source = new EventSource('/api/events');
+    source.addEventListener('message', refresh);
+    source.addEventListener('error', () => source.close());
+    return () => source.close();
+  }, []);
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -118,7 +144,11 @@ export function AppShell({ children }: { children: ReactNode }): React.ReactNode
               >
                 <Icon size={19} strokeWidth={1.75} />
                 <span className="sidebar-label">{message(item.label)}</span>
-                {item.href === '/jobs' ? <span className="live-badge">0</span> : null}
+                {item.href === '/jobs' ? (
+                  <span className="live-badge">
+                    <NumberFlow value={activeJobs} respectMotionPreference />
+                  </span>
+                ) : null}
               </Link>
             );
           })}
