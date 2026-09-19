@@ -97,7 +97,13 @@ function ratePolicy(path: string): { name: string; limit: number } {
   if (path === '/api/estimate') return { name: 'estimate', limit: 120 };
   if (path === '/api/generate') return { name: 'spend', limit: 60 };
   if (/^\/api\/providers\/[^/]+\/test$/.test(path)) return { name: 'provider-test', limit: 20 };
-  if (path.startsWith('/api/auth/sign-in/')) return { name: 'sign-in', limit: 10 };
+  if (path.startsWith('/api/auth/sign-in/')) {
+    // Production keeps a strict sign-in limit. The acceptance harness signs in
+    // fresh in every test against one shared server, so under the test mock
+    // service worker (which is forbidden in release builds) the limit is raised
+    // to keep the suite from tripping a control that production still enforces.
+    return { name: 'sign-in', limit: process.env.KILNRY_TEST_MSW === '1' ? 200 : 10 };
+  }
   return { name: 'default', limit: 600 };
 }
 
