@@ -2087,6 +2087,81 @@ kbd {
   padding: 4px 9px;
 }
 
+.budget-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  max-width: 520px;
+}
+
+.budget-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.budget-field > span {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.budget-input {
+  align-items: center;
+  background: var(--background);
+  border: 1px solid var(--border-control);
+  border-radius: 10px;
+  display: flex;
+  gap: 4px;
+  padding: 0 12px;
+}
+
+.budget-input span {
+  color: var(--text-muted);
+}
+
+.budget-input input {
+  background: transparent;
+  border: 0;
+  color: var(--text);
+  flex: 1;
+  font-size: 14px;
+  height: 40px;
+  outline: none;
+}
+
+.budget-field select {
+  background: var(--background);
+  border: 1px solid var(--border-control);
+  border-radius: 10px;
+  color: var(--text);
+  font-size: 14px;
+  height: 40px;
+  padding: 0 10px;
+}
+
+.budget-actions {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+}
+
+.budget-save {
+  background: var(--surface-2);
+  border: 1px solid var(--border-control);
+  border-radius: 999px;
+  color: var(--text);
+  cursor: pointer;
+  font-weight: 500;
+  height: 38px;
+  padding: 0 18px;
+}
+
+.budget-status {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin: 0;
+}
+
 .asset-tile.is-orphan {
   outline: 2px dashed var(--warning, #b7791f);
   outline-offset: -2px;

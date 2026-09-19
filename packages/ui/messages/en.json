@@ -232,12 +232,13 @@
   "settings": {
     "navLabel": "Settings sections",
     "navTitle": "Settings",
-    "m2Scope": "Providers, Workspace, Security, and Appearance are available.",
+    "m2Scope": "Providers, Workspace, Budget, Security, and Appearance are available.",
     "nav": {
       "providers": "Providers",
       "workspace": "Workspace",
       "security": "Security",
-      "appearance": "Appearance"
+      "appearance": "Appearance",
+      "budget": "Budget"
     },
     "providers": {
       "eyebrow": "Bring your own keys",
@@ -376,6 +377,21 @@
         "title": "Kilnry green",
         "body": "Green means money in Kilnry, so the accent is not customisable."
       }
+    },
+    "budget": {
+      "eyebrow": "Spending caps",
+      "title": "Budget",
+      "subtitle": "Set caps so Kilnry blocks or asks before a generation would spend more than you want.",
+      "dailyCap": "Daily cap",
+      "monthlyCap": "Monthly cap",
+      "capPlaceholder": "No cap",
+      "behavior": "When a cap is reached",
+      "behaviorBlock": "Block new spends",
+      "behaviorAsk": "Ask me each time",
+      "save": "Save caps",
+      "saved": "Budget caps saved.",
+      "saveFailed": "Kilnry could not save the budget caps.",
+      "spent": "{spent} of {cap} used"
     }
   },
   "placeholder": {

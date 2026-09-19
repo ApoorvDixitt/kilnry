@@ -4,12 +4,13 @@
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
 import Link from 'next/link';
-import { LockKeyhole, Palette, ServerCog, Settings2 } from 'lucide-react';
+import { LockKeyhole, Palette, ServerCog, Settings2, Wallet } from 'lucide-react';
 import { message } from '../lib/messages';
 
 const sections = [
   { id: 'providers', icon: ServerCog },
   { id: 'workspace', icon: Settings2 },
+  { id: 'budget', icon: Wallet },
   { id: 'security', icon: LockKeyhole },
   { id: 'appearance', icon: Palette },
 ] as const;
