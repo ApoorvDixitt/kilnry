@@ -38,6 +38,14 @@ interface SessionSummary {
   current: boolean;
 }
 
+interface AuditEvent {
+  id: string;
+  actor: string | null;
+  action: string;
+  target: string | null;
+  created_at: string;
+}
+
 export function SecuritySettings(): React.ReactNode {
   const [status, setStatus] = useState<KeyStatus>();
   const [password, setPassword] = useState('');
@@ -48,6 +56,7 @@ export function SecuritySettings(): React.ReactNode {
   const [network, setNetwork] = useState<NetworkStatus>();
   const [networkPassword, setNetworkPassword] = useState('');
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
+  const [auditLog, setAuditLog] = useState<AuditEvent[]>([]);
   const [error, setError] = useState<string>();
   const [pending, setPending] = useState(false);
 
@@ -73,10 +82,26 @@ export function SecuritySettings(): React.ReactNode {
           throw new Error(body.error?.message ?? message('settings.security.loadFailed'));
         setSessions(body.sessions);
       }),
+      fetch('/api/security/audit').then(async (response) => {
+        const body = (await response.json()) as { events?: AuditEvent[]; error?: { message?: string } };
+        if (!response.ok || !body.events)
+          throw new Error(body.error?.message ?? message('settings.security.loadFailed'));
+        setAuditLog(body.events);
+      }),
     ]).catch((cause: unknown) =>
       setError(cause instanceof Error ? cause.message : message('settings.security.loadFailed')),
     );
   }, []);
+
+  function exportAudit(): void {
+    const blob = new Blob([JSON.stringify(auditLog, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = 'kilnry-audit-log.json';
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
 
   async function action(body: Record<string, unknown>): Promise<Record<string, unknown>> {
     setPending(true);
@@ -338,6 +363,41 @@ export function SecuritySettings(): React.ReactNode {
             </div>
           ))}
         </div>
+      </section>
+      <section className="audit-card">
+        <div className="audit-card-head">
+          <div>
+            <h3>{message('settings.security.auditTitle')}</h3>
+            <p>{message('settings.security.auditBody')}</p>
+          </div>
+          <button type="button" disabled={auditLog.length === 0} onClick={exportAudit}>
+            {message('settings.security.auditExport')}
+          </button>
+        </div>
+        {auditLog.length === 0 ? (
+          <p className="audit-empty">{message('settings.security.auditEmpty')}</p>
+        ) : (
+          <table className="audit-table">
+            <thead>
+              <tr>
+                <th>{message('settings.security.auditAction')}</th>
+                <th>{message('settings.security.auditActor')}</th>
+                <th>{message('settings.security.auditTarget')}</th>
+                <th>{message('settings.security.auditTime')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {auditLog.map((event) => (
+                <tr key={event.id} data-action={event.action}>
+                  <td>{event.action}</td>
+                  <td>{event.actor ?? '—'}</td>
+                  <td>{event.target ?? '—'}</td>
+                  <td>{new Date(event.created_at).toLocaleString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </section>
       {error ? <p className="form-error">{error}</p> : null}
     </div>
