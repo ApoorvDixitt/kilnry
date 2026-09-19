@@ -6,12 +6,12 @@
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
 import { useCallback, useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { apiFetch } from '../lib/api-client';
 import { message } from '../lib/messages';
-import type { AssetListItem, AssetSort } from '../lib/composer-types';
+import type { AssetDetail, AssetListItem, AssetSort, MetadataPatch } from '../lib/composer-types';
 import { FolderTree, type FolderNode } from './folder-tree';
 import { AssetGrid } from './asset-grid';
+import { InspectorDrawer } from './inspector-drawer';
 
 async function json<T>(response: Response): Promise<T> {
   const body = (await response.json()) as T & { error?: { message?: string } };
@@ -20,13 +20,34 @@ async function json<T>(response: Response): Promise<T> {
 }
 
 export function LibraryBrowser(): React.ReactNode {
-  const router = useRouter();
   const [folders, setFolders] = useState<FolderNode[]>([]);
   const [selected, setSelected] = useState('inbox');
   const [assets, setAssets] = useState<AssetListItem[]>([]);
   const [sort, setSort] = useState<AssetSort>('newest');
   const [view, setView] = useState<'grid' | 'list'>('grid');
+  const [detail, setDetail] = useState<AssetDetail | null>(null);
   const [error, setError] = useState<string>();
+
+  const openInspector = useCallback(async (id: string) => {
+    try {
+      const body = await json<{ asset: AssetDetail }>(await fetch(`/api/library/asset/${id}`));
+      setDetail(body.asset);
+    } catch {
+      setDetail(null);
+    }
+  }, []);
+
+  const patchAsset = useCallback(
+    async (id: string, patch: MetadataPatch) => {
+      await apiFetch(`/api/library/asset/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      });
+      await openInspector(id);
+    },
+    [openInspector],
+  );
 
   const load = useCallback(async () => {
     try {
@@ -107,10 +128,17 @@ export function LibraryBrowser(): React.ReactNode {
             view={view}
             onSortChange={setSort}
             onViewChange={changeView}
-            onOpen={(id) => router.push(`/library/asset/${id}`)}
+            onOpen={(id) => void openInspector(id)}
           />
         )}
       </div>
+      {detail ? (
+        <InspectorDrawer
+          detail={detail}
+          onPatch={(patch) => void patchAsset(detail.id, patch)}
+          onClose={() => setDetail(null)}
+        />
+      ) : null}
     </section>
   );
 }

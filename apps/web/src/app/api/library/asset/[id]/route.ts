@@ -5,7 +5,7 @@
 
 import { NextResponse } from 'next/server';
 import * as z from 'zod';
-import { KilnryError, libraryMarker, loadConfig, updateAssetMetadata } from '@kilnry/core';
+import { KilnryError, getAssetDetail, libraryMarker, loadConfig, updateAssetMetadata } from '@kilnry/core';
 import { errorResponse, requireSession } from '../../../../../server/http';
 import { runtimeServices } from '../../../../../server/runtime';
 
@@ -17,6 +17,27 @@ const MetadataPatch = z.object({
   prompt: z.string().max(20_000).optional(),
 });
 
+function libraryRoot(): string {
+  const config = loadConfig();
+  if (!config.library_root) throw new KilnryError('NOT_FOUND', 'Library root is not configured.');
+  return config.library_root;
+}
+
+export async function GET(
+  _request: Request,
+  context: { params: Promise<{ id: string }> },
+): Promise<Response> {
+  try {
+    await requireSession();
+    const { id } = await context.params;
+    const services = await runtimeServices();
+    const detail = await getAssetDetail(services.database, libraryRoot(), id);
+    return NextResponse.json({ asset: detail });
+  } catch (error) {
+    return errorResponse(error);
+  }
+}
+
 export async function PATCH(
   request: Request,
   context: { params: Promise<{ id: string }> },
@@ -25,11 +46,10 @@ export async function PATCH(
     await requireSession();
     const { id } = await context.params;
     const patch = MetadataPatch.parse(await request.json());
-    const config = loadConfig();
-    if (!config.library_root) throw new KilnryError('NOT_FOUND', 'Library root is not configured.');
+    const root = libraryRoot();
     const services = await runtimeServices();
-    const marker = await libraryMarker(config.library_root);
-    await updateAssetMetadata(services.database, config.library_root, marker.library_id, id, patch);
+    const marker = await libraryMarker(root);
+    await updateAssetMetadata(services.database, root, marker.library_id, id, patch);
     return NextResponse.json({ ok: true });
   } catch (error) {
     return errorResponse(error);

@@ -6,7 +6,7 @@
 import { and, asc, desc, eq, isNull, like, or, type SQL } from 'drizzle-orm';
 import { randomBytes } from 'node:crypto';
 import { open, rename } from 'node:fs/promises';
-import { assets, type DatabaseState } from '@kilnry/db';
+import { assets, auditEvents, type DatabaseState } from '@kilnry/db';
 import { KilnryError } from '../errors.js';
 import { resolveInRoot } from './containment.js';
 import { indexAsset } from './index.js';
@@ -149,4 +149,79 @@ async function writeSidecarExact(assetPath: string, value: Sidecar): Promise<voi
     await handle.close();
   }
   await rename(temporary, path);
+}
+
+export interface AssetActivity {
+  action: string;
+  actor: string | null;
+  at: string;
+}
+
+export interface AssetDetail extends AssetListItem {
+  sha256: string | null;
+  bytes: number | null;
+  model_id: string | null;
+  file_mtime: string | null;
+  indexed_at: string;
+  tags: string[];
+  label: string | null;
+  rating: number;
+  user_notes: string;
+  generation: Record<string, unknown> | null;
+  lineage: { made_from: string[]; used_in: string[] };
+  sidecar_path: string;
+  activity: AssetActivity[];
+}
+
+// The full detail an inspector needs for one asset: the index row, the metadata
+// the sidecar holds, and the activity timeline recorded for it.
+export async function getAssetDetail(
+  state: DatabaseState,
+  root: string,
+  assetId: string,
+): Promise<AssetDetail> {
+  const [row] = await state.db.select().from(assets).where(eq(assets.id, assetId)).limit(1);
+  if (!row) throw new KilnryError('NOT_FOUND', 'That asset is not in the Library.');
+  const resolved = await resolveInRoot(root, row.path, { mustExist: false });
+  const sidecar = await readSidecar(resolved.abs);
+  const events = await state.db
+    .select()
+    .from(auditEvents)
+    .where(eq(auditEvents.target, assetId))
+    .orderBy(asc(auditEvents.createdAt))
+    .limit(200);
+
+  return {
+    id: row.id,
+    path: row.path,
+    folder_path: row.folderPath,
+    kind: row.kind,
+    mime: row.mime,
+    width: row.width,
+    height: row.height,
+    duration_s: row.durationS === null ? null : Number(row.durationS),
+    has_audio: row.hasAudio,
+    provider_id: row.providerId,
+    actual_usd: row.actualUsd === null ? null : Number(row.actualUsd),
+    estimate_usd: row.estimateUsd === null ? null : Number(row.estimateUsd),
+    sidecar_ok: row.sidecarOk,
+    created_at: row.createdAt.toISOString(),
+    sha256: row.sha256,
+    bytes: row.bytes,
+    model_id: row.modelId,
+    file_mtime: row.fileMtime ? row.fileMtime.toISOString() : null,
+    indexed_at: row.indexedAt.toISOString(),
+    tags: sidecar.ok ? sidecar.value.tags : [],
+    label: sidecar.ok ? sidecar.value.label : row.label,
+    rating: sidecar.ok ? sidecar.value.rating : row.rating,
+    user_notes: sidecar.ok ? sidecar.value.user_notes : (row.userNotes ?? ''),
+    generation: sidecar.ok ? sidecar.value.generation : null,
+    lineage: sidecar.ok ? sidecar.value.lineage : { made_from: [], used_in: [] },
+    sidecar_path: `${row.path}.kilnry.json`,
+    activity: events.map((event) => ({
+      action: event.action,
+      actor: event.actor,
+      at: event.createdAt.toISOString(),
+    })),
+  };
 }
