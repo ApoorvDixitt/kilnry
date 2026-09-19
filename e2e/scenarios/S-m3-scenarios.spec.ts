@@ -361,7 +361,7 @@ test('@m3 S-25 search syntax typed into the Library search box', async ({ page }
     .toBe(true);
 });
 
-test('@m3 M3-VID generate a video against the fal video fixture', async ({ page }) => {
+test('@m3 @video M3-VID generate a video against the fal video fixture', async ({ page }) => {
   test.setTimeout(180_000);
   await ensureOnlyProvider(page, 'fal', FAL_KEY);
   await ensureSignedIn(page, '/create');
