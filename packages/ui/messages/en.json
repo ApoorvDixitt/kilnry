@@ -116,6 +116,19 @@
       "noMatch": "No model matches that. Try a capability: video, edit, tts.",
       "staleShort": "Price is out of date"
     },
+    "chips": {
+      "group": "Generation settings",
+      "aspect": "Aspect",
+      "duration": "Duration",
+      "resolution": "Resolution",
+      "count": "Count",
+      "audio": "Audio",
+      "on": "On",
+      "off": "Off",
+      "snapAspect": "{from} isn't offered here; using {to}.",
+      "snapResolution": "{from} isn't offered here; using {to}.",
+      "snapDuration": "{from} s isn't offered here; using {to} s."
+    },
     "proof": {
       "examplePrompt": "A small ceramic kiln arch on warm handmade paper, soft studio light",
       "readyTitle": "The M2 engine is ready",
