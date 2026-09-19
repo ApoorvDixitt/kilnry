@@ -167,3 +167,60 @@ export async function ledgerTotalForJob(state: DatabaseState, jobId: string): Pr
     .where(and(eq(spendLedger.jobId, jobId), lt(spendLedger.occurredAt, new Date(Date.now() + 60_000))));
   return number(rows[0]?.total);
 }
+
+export interface BudgetStatusLine {
+  scope: 'daily' | 'monthly' | 'folder' | 'provider';
+  label: string;
+  cap_usd: number;
+  spent_usd: number;
+  reserved_usd: number;
+  behavior: string;
+}
+
+// The current caps and how much of each is spent (ledger) and reserved
+// (in-flight jobs), for the cost strip and the budget settings page. Returns one
+// line per configured cap; scopes with no cap set are omitted.
+export async function budgetStatus(
+  database: BudgetDatabase,
+  now: Date = new Date(),
+): Promise<BudgetStatusLine[]> {
+  const capRows = await database.select().from(budgets);
+  const lines: BudgetStatusLine[] = [];
+  const capMap = new Map(capRows.map((row) => [row.scope, row]));
+
+  const daily = capMap.get('daily');
+  if (daily?.capUsd) {
+    lines.push({
+      scope: 'daily',
+      label: 'Today',
+      cap_usd: number(daily.capUsd),
+      spent_usd: await ledgerTotal(database, startOfDay(now)),
+      reserved_usd: await openReservations(database),
+      behavior: daily.behavior,
+    });
+  }
+  const monthly = capMap.get('monthly');
+  if (monthly?.capUsd) {
+    lines.push({
+      scope: 'monthly',
+      label: 'This month',
+      cap_usd: number(monthly.capUsd),
+      spent_usd: await ledgerTotal(database, startOfMonth(now)),
+      reserved_usd: await openReservations(database),
+      behavior: monthly.behavior,
+    });
+  }
+  for (const row of capRows) {
+    if (!row.scope.startsWith('folder:') || !row.capUsd) continue;
+    const folder = row.scope.slice(7);
+    lines.push({
+      scope: 'folder',
+      label: folder,
+      cap_usd: number(row.capUsd),
+      spent_usd: await ledgerTotal(database, startOfMonth(now), undefined, folder),
+      reserved_usd: await openReservations(database, undefined, folder),
+      behavior: row.behavior,
+    });
+  }
+  return lines;
+}

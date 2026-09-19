@@ -15,6 +15,7 @@ import type { ComposerMode } from './model-picker';
 import type { ComposerParams } from './param-chips';
 import { ResultTileActions, type TileCapabilities } from './result-tile-actions';
 import { ModeratedTile } from './moderated-tile';
+import type { BudgetLine } from './cost-strip';
 
 interface ResultTile {
   id: string;
@@ -64,6 +65,7 @@ export function CreateComposer(): React.ReactNode {
   const [tiles, setTiles] = useState<ResultTile[]>([]);
   const [loadError, setLoadError] = useState<string>();
   const [capabilities, setCapabilities] = useState<TileCapabilities>({ reveal: false });
+  const [budgets, setBudgets] = useState<BudgetLine[]>([]);
   const [seed, setSeed] = useState<{ token: number; prompt: string }>();
   const lastState = useRef<ReturnType<typeof toEstimatePayload> | null>(null);
   const lastPrompt = useRef('');
@@ -82,6 +84,12 @@ export function CreateComposer(): React.ReactNode {
         if (body) setCapabilities({ reveal: Boolean(body.reveal) });
       })
       .catch(() => setCapabilities({ reveal: false }));
+    void fetch('/api/budget')
+      .then((response) => (response.ok ? (response.json() as Promise<{ budgets: BudgetLine[] }>) : null))
+      .then((body) => {
+        if (body) setBudgets(body.budgets);
+      })
+      .catch(() => setBudgets([]));
   }, []);
 
   // Re-price on every composer change, debounced, using the engine's estimate
@@ -271,6 +279,7 @@ export function CreateComposer(): React.ReactNode {
       <Composer
         models={models}
         estimate={estimate}
+        budgets={budgets}
         onStateChange={onStateChange}
         onGenerate={() => void generate()}
         seed={seed}
