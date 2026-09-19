@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
 
-test('@smoke AS-01 first run creates a protected local account and Library', async ({
+test('@smoke @m3 S-01 AS-01 first run creates a protected local account and Library', async ({
   browser,
   page,
   request,

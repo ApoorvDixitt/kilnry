@@ -11,6 +11,14 @@ const png = Buffer.from(
   'base64',
 );
 
+const mp4 = Buffer.from(
+  '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',
+  'base64',
+);
+// A single HTTPS location the fal video fixture points at; the engine downloads
+// the bytes from here after the queue job completes.
+const FAL_VIDEO_URL = 'https://v3.fal.media/files/test/kilnry-fixture.mp4';
+
 type TestGlobal = typeof globalThis & {
   __kilnryTestMswStarted?: boolean;
   __kilnryTestMswServer?: ReturnType<typeof setupServer>;
@@ -55,7 +63,63 @@ export function startTestMsw(): void {
             unit: 'megapixel',
             currency: 'USD',
           },
+          {
+            endpoint_id: 'fal-ai/kling-video/v3/standard/text-to-video',
+            unit_price: 0.05,
+            unit: 'second',
+            currency: 'USD',
+          },
         ],
+      }),
+    ),
+    // fal is a queue provider: submit returns a request id and polling URLs, the
+    // status turns to COMPLETED, and the response carries a downloadable output.
+    // A prompt containing TRIGGER is rejected exactly as S-09 states: HTTP 422
+    // with detail[].type "content_policy_violation" and X-Fal-Retryable: false,
+    // so the job is moderated and never billed.
+    http.post('https://queue.fal.run/*', async ({ request }) => {
+      const body = (await request
+        .clone()
+        .json()
+        .catch(() => ({}))) as { prompt?: string };
+      if (typeof body.prompt === 'string' && body.prompt.includes('TRIGGER')) {
+        return HttpResponse.json(
+          {
+            detail: [
+              { msg: 'The prompt was flagged by a content checker.', type: 'content_policy_violation' },
+            ],
+          },
+          { status: 422, headers: { 'X-Fal-Retryable': 'false' } },
+        );
+      }
+      const requestId = `kilnry-${crypto.randomUUID()}`;
+      const url = new URL(request.url);
+      const model = url.pathname.replace(/^\//, '');
+      return HttpResponse.json({
+        request_id: requestId,
+        status_url: `https://queue.fal.run/${model}/requests/${requestId}/status`,
+        response_url: `https://queue.fal.run/${model}/requests/${requestId}`,
+      });
+    }),
+    http.get('https://queue.fal.run/*/requests/*/status', () =>
+      HttpResponse.json({ status: 'COMPLETED', logs: [] }),
+    ),
+    http.get('https://queue.fal.run/*/requests/*', ({ request }) => {
+      const isVideo = /video|kling|veo|seedance/i.test(new URL(request.url).pathname);
+      return isVideo
+        ? HttpResponse.json({ video: { url: FAL_VIDEO_URL, content_type: 'video/mp4' } })
+        : HttpResponse.json({
+            images: [{ url: FAL_VIDEO_URL.replace('.mp4', '.png'), content_type: 'image/png' }],
+          });
+    }),
+    http.get(FAL_VIDEO_URL, () =>
+      HttpResponse.arrayBuffer(mp4.buffer.slice(mp4.byteOffset, mp4.byteOffset + mp4.byteLength), {
+        headers: { 'Content-Type': 'video/mp4' },
+      }),
+    ),
+    http.get(FAL_VIDEO_URL.replace('.mp4', '.png'), () =>
+      HttpResponse.arrayBuffer(png.buffer.slice(png.byteOffset, png.byteOffset + png.byteLength), {
+        headers: { 'Content-Type': 'image/png' },
       }),
     ),
     http.get('https://gen.pollinations.ai/v1/models', () => HttpResponse.json({ data: [{ id: 'flux' }] })),

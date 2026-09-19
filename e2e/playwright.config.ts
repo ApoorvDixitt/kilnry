@@ -38,6 +38,9 @@ export default defineConfig({
       KILNRY_HOST: '127.0.0.1',
       KILNRY_PORT: '3123',
       KILNRY_TEST_MSW: '1',
+      // Poll the filesystem so the library watcher reliably detects files that the
+      // rename-and-import scenarios (S-13, S-14) create during the test run.
+      CHOKIDAR_USEPOLLING: '1',
     },
   },
 });
