@@ -67,6 +67,12 @@ export interface AdapterContext {
   log: (level: 'debug' | 'info' | 'warn', event: string, meta?: Record<string, unknown>) => void;
 }
 
+export interface ProviderPriceUpdate {
+  model_id: string;
+  price_rule: ModelManifest['price_rule'];
+  source_url: string;
+}
+
 export interface ProviderAdapter {
   readonly id: ProviderId;
   readonly display_name: string;
@@ -88,6 +94,10 @@ export interface ProviderAdapter {
     key?: string,
     options?: { fetch?: typeof fetch; signal?: AbortSignal },
   ): Promise<ModelManifest[]>;
+  refreshPrices?(
+    key: string,
+    options?: { fetch?: typeof fetch; signal?: AbortSignal },
+  ): Promise<ProviderPriceUpdate[]>;
   authoritativeEstimate?(
     request: CanonicalRequest,
     estimate: Estimate,

@@ -14,6 +14,7 @@ import {
 } from '@kilnry/core';
 import { falAdapter } from './fal/index.js';
 import { openRouterAdapter } from './openrouter/index.js';
+import { pollinationsAdapter } from './pollinations/index.js';
 
 const server = setupServer();
 const tinyPng = Buffer.from(
@@ -85,6 +86,13 @@ describe('fal adapter MSW matrix', () => {
       ),
       http.post('https://queue.fal.run/fal-ai/flux-2/klein/4b', async ({ request: incoming }) => {
         expect(incoming.headers.get('x-fal-store-io')).toBe('0');
+        const payload = (await incoming.json()) as Record<string, unknown>;
+        expect(payload).toMatchObject({
+          prompt: 'fixture request',
+          image_size: { width: 1024, height: 1024 },
+        });
+        expect(payload).not.toHaveProperty('model');
+        expect(payload).not.toHaveProperty('route_why');
         return HttpResponse.json({
           request_id: 'fal-request-fixture',
           status_url: 'https://queue.fal.run/status/fal-request-fixture',
@@ -121,6 +129,13 @@ describe('fal adapter MSW matrix', () => {
     );
     expect((await falAdapter.testKey(credential(), { fetch })).ok).toBe(true);
     expect((await falAdapter.listModels(credential(), { fetch })).length).toBeGreaterThan(50);
+    const refreshed = await falAdapter.refreshPrices!(credential(), { fetch });
+    expect(refreshed).toMatchObject([
+      {
+        model_id: 'fal-ai/flux-2/klein/4b',
+        price_rule: { kind: 'per_megapixel', per_mp_usd: 0.005 },
+      },
+    ]);
     await expect(
       falAdapter.authoritativeEstimate!(
         request('fal'),
@@ -172,6 +187,12 @@ describe('fal adapter MSW matrix', () => {
       body: { detail: 'balance empty' },
       code: 'INSUFFICIENT_FUNDS',
     },
+    {
+      name: 'insufficient credits on 403',
+      status: 403,
+      body: { detail: 'credits balance empty' },
+      code: 'INSUFFICIENT_FUNDS',
+    },
   ] as const) {
     it(`normalizes ${scenario.name}`, async () => {
       server.use(
@@ -206,6 +227,12 @@ describe('fal adapter MSW matrix', () => {
     );
     await expectCode(falAdapter.submit(request('fal'), context()), 'TIMEOUT');
     expect(calls).toBe(1);
+  });
+
+  it('rejects passthrough fields that could replace the canonical fal request', async () => {
+    const value = request('fal');
+    value.params.extra = { ...value.params.extra, prompt: 'shadow prompt' };
+    await expectCode(falAdapter.submit(value, context()), 'INVALID_INPUT');
   });
 });
 
@@ -276,6 +303,55 @@ describe('OpenRouter adapter MSW matrix', () => {
     expect((await openRouterAdapter.download(terminal.result, context()))[0]?.mime).toBe('video/mp4');
   });
 
+  it('maps live image, video, and token prices into registry updates', async () => {
+    server.use(
+      http.get('https://openrouter.ai/api/v1/images/models', () =>
+        HttpResponse.json({
+          data: [
+            {
+              id: 'bytedance-seed/seedream-4.5',
+              endpoints: '/api/v1/images/models/bytedance-seed/seedream-4.5/endpoints',
+            },
+          ],
+        }),
+      ),
+      http.get('https://openrouter.ai/api/v1/images/models/bytedance-seed/seedream-4.5/endpoints', () =>
+        HttpResponse.json({
+          endpoints: [
+            {
+              pricing: [{ billable: 'output_image', cost_usd: 0.055, unit: 'image' }],
+            },
+          ],
+        }),
+      ),
+      http.get('https://openrouter.ai/api/v1/videos/models', () =>
+        HttpResponse.json({
+          data: [{ id: 'bytedance/seedance-2.5', pricing_skus: { video_tokens: '0.000012' } }],
+        }),
+      ),
+      http.get('https://openrouter.ai/api/v1/models', () =>
+        HttpResponse.json({
+          data: [
+            {
+              id: 'anthropic/claude-sonnet-5',
+              pricing: { prompt: '0.000003', completion: '0.000015' },
+            },
+          ],
+        }),
+      ),
+    );
+    const updates = await openRouterAdapter.refreshPrices!(credential(), { fetch });
+    expect(updates.find((update) => update.model_id === 'bytedance-seed/seedream-4.5')).toMatchObject({
+      price_rule: { kind: 'flat_per_unit', amount: 0.055 },
+    });
+    expect(updates.find((update) => update.model_id === 'bytedance/seedance-2.5')).toMatchObject({
+      price_rule: { kind: 'video_tokens', usd_per_token: { default: 0.000012 } },
+    });
+    expect(updates.find((update) => update.model_id === 'anthropic/claude-sonnet-5')).toMatchObject({
+      price_rule: { kind: 'per_million_tokens', in: 3, out: 15 },
+    });
+  });
+
   for (const scenario of [
     {
       name: 'moderation',
@@ -294,6 +370,12 @@ describe('OpenRouter adapter MSW matrix', () => {
       name: 'insufficient funds',
       status: 402,
       body: { error: { code: 402, message: 'credits empty' } },
+      code: 'INSUFFICIENT_FUNDS',
+    },
+    {
+      name: 'insufficient credits on 403',
+      status: 403,
+      body: { error: { code: 403, message: 'credit balance empty' } },
       code: 'INSUFFICIENT_FUNDS',
     },
   ] as const) {
@@ -332,5 +414,61 @@ describe('OpenRouter adapter MSW matrix', () => {
     );
     await expectCode(openRouterAdapter.submit(request('openrouter'), context()), 'TIMEOUT');
     expect(ambiguousCalls).toBe(1);
+  });
+
+  it('rejects passthrough fields that could replace the canonical OpenRouter request', async () => {
+    const value = request('openrouter');
+    value.params.extra = { ...value.params.extra, prompt: 'shadow prompt' };
+    await expectCode(openRouterAdapter.submit(value, context()), 'INVALID_INPUT');
+  });
+});
+
+describe('Pollinations demo adapter', () => {
+  it('tests a free key, generates one image, and records zero provider cost', async () => {
+    server.use(
+      http.get('https://gen.pollinations.ai/v1/models', () => HttpResponse.json({ data: [{ id: 'flux' }] })),
+      http.post('https://gen.pollinations.ai/v1/images/generations', () =>
+        HttpResponse.json({
+          data: [{ b64_json: tinyPng.toString('base64'), media_type: 'image/png' }],
+        }),
+      ),
+    );
+    const demoRequest = CanonicalRequestSchema.parse({
+      kind: 'image',
+      capability: 'text2image',
+      prompt: 'free demo fixture',
+      params: { width: 1024, height: 1024, resolution: '1K', extra: { model: 'flux' } },
+      medias: [],
+      injections: [],
+      count: 1,
+      target_folder: 'inbox',
+      source: 'ui',
+    });
+    expect(await pollinationsAdapter.testKey(credential(), { fetch })).toMatchObject({ ok: true });
+    const handle = await pollinationsAdapter.submit(demoRequest, context());
+    expect(handle.inline_result?.billing).toMatchObject({ actual_usd: 0, source: 'free' });
+    expect((await pollinationsAdapter.download(handle.inline_result!, context()))[0]?.bytes).toEqual(
+      new Uint8Array(tinyPng),
+    );
+  });
+
+  it('maps an exhausted free-key balance to insufficient funds', async () => {
+    server.use(
+      http.post('https://gen.pollinations.ai/v1/images/generations', () =>
+        HttpResponse.json({ error: { message: 'credit balance empty' } }, { status: 402 }),
+      ),
+    );
+    const demoRequest = CanonicalRequestSchema.parse({
+      kind: 'image',
+      capability: 'text2image',
+      prompt: 'free demo fixture',
+      params: { extra: { model: 'flux' } },
+      medias: [],
+      injections: [],
+      count: 1,
+      target_folder: 'inbox',
+      source: 'ui',
+    });
+    await expectCode(pollinationsAdapter.submit(demoRequest, context()), 'INSUFFICIENT_FUNDS');
   });
 });

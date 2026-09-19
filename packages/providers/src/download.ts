@@ -97,8 +97,8 @@ export async function downloadOutputs(
     const output = result.outputs[index]!;
     let bytes: Uint8Array;
     let mime = output.mime ?? 'application/octet-stream';
-    if (output.bytes) bytes = output.bytes;
-    else if (output.base64) bytes = Buffer.from(output.base64, 'base64');
+    if (output.bytes) bytes = new Uint8Array(output.bytes);
+    else if (output.base64) bytes = new Uint8Array(Buffer.from(output.base64, 'base64'));
     else if (output.url) {
       const downloaded = await downloadUrl(provider, output.url, context, headers);
       bytes = downloaded.bytes;

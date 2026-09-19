@@ -75,10 +75,12 @@ export function providerHttpError(
       },
     );
   }
-  if (status === 401 || status === 403) {
+  const insufficientFunds =
+    status === 402 || (status === 403 && /(?:balance|credit|funds|billing)/i.test(providerText ?? ''));
+  if (insufficientFunds) {
     return new KilnryError(
-      'INVALID_INPUT',
-      message(`${provider} rejected that key (${status}).`, providerText),
+      'INSUFFICIENT_FUNDS',
+      message(`${provider} says your account is out of balance. Top up, then retry.`, providerText),
       {
         provider,
         provider_code: String(value?.error?.code ?? status),
@@ -87,13 +89,13 @@ export function providerHttpError(
       },
     );
   }
-  if (status === 402) {
+  if (status === 401 || status === 403) {
     return new KilnryError(
-      'INSUFFICIENT_FUNDS',
-      message(`${provider} says your account is out of balance. Top up, then retry.`, providerText),
+      'INVALID_INPUT',
+      message(`${provider} rejected that key (${status}).`, providerText),
       {
         provider,
-        provider_code: '402',
+        provider_code: String(value?.error?.code ?? status),
         retryable: false,
         details,
       },

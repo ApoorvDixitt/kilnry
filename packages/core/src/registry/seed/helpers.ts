@@ -55,15 +55,42 @@ const defaultSupports: Supports = {
   aspect_ratios: ['auto'],
 };
 
+function paramsSchema(supports: Supports): Record<string, unknown> {
+  const properties: Record<string, unknown> = {
+    quality: { type: 'string', enum: ['draft', 'standard', 'premium'] },
+  };
+  if (supports.aspect_ratios.length > 0) {
+    properties.aspect_ratio = { type: 'string', enum: supports.aspect_ratios };
+  }
+  if (supports.resolutions.length > 0) {
+    properties.resolution = { type: 'string', enum: supports.resolutions };
+  }
+  if (Array.isArray(supports.durations)) {
+    properties.duration_s = { type: 'number', enum: supports.durations };
+  } else if (supports.durations) {
+    properties.duration_s = {
+      type: 'number',
+      minimum: supports.durations.min,
+      maximum: supports.durations.max,
+      multipleOf: supports.durations.step,
+    };
+  }
+  if (supports.seed) properties.seed = { type: 'integer', minimum: 0 };
+  if (supports.audio) properties.audio = { type: 'boolean' };
+  if (supports.negative_prompt) properties.negative_prompt = { type: 'string', maxLength: 20_000 };
+  return { type: 'object', properties, additionalProperties: false };
+}
+
 export function seed(input: SeedInput): ModelManifest {
+  const supports = { ...defaultSupports, ...input.supports };
   return ModelManifestSchema.parse({
     provider: input.provider,
     model_id: input.model_id,
     display_name: input.display_name,
     capabilities: input.capabilities,
-    supports: { ...defaultSupports, ...input.supports },
+    supports,
     media_roles: input.media_roles ?? [],
-    params_schema: { type: 'object', additionalProperties: false },
+    params_schema: paramsSchema(supports),
     price_rule: input.price_rule,
     retention_days: input.retention_days ?? 7,
     moderation: input.moderation ?? { http: 422, shape: 'content_policy_violation', billed: 'maybe' },

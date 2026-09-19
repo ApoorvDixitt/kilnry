@@ -202,27 +202,52 @@ export async function refreshProviderPrices(input: {
   if (!adapter) throw new KilnryError('NO_PROVIDER', `${input.provider} is not available in this milestone.`);
   const key = await input.keyStore.get(input.provider);
   if (!key) throw new KilnryError('NO_PROVIDER', `No ${input.provider} key is configured.`);
-  const manifests = await adapter.listModels(key, {
-    fetch: input.fetch ?? fetch,
-  });
+  const updates = adapter.refreshPrices
+    ? await adapter.refreshPrices(key, { fetch: input.fetch ?? fetch })
+    : (await adapter.listModels(key, { fetch: input.fetch ?? fetch })).map((manifest) => ({
+        model_id: manifest.model_id,
+        price_rule: manifest.price_rule,
+        source_url: manifest.source_url,
+      }));
+  if (updates.length === 0) {
+    throw new KilnryError(
+      'PROVIDER_ERROR',
+      `${input.provider} returned no usable price rows. Existing snapshots were left unchanged.`,
+      { provider: input.provider, retryable: true },
+    );
+  }
   const fetchedAt = new Date();
-  for (const manifest of manifests) {
+  for (const update of updates) {
     const rows = await input.state.db
       .select({ id: models.id })
       .from(models)
-      .where(and(eq(models.providerId, manifest.provider), eq(models.modelId, manifest.model_id)))
+      .where(and(eq(models.providerId, input.provider), eq(models.modelId, update.model_id)))
       .limit(1);
     const model = rows[0];
     if (!model) continue;
-    const summary = priceSummary(manifest.price_rule);
+    const summary = priceSummary(update.price_rule);
+    const source =
+      input.provider === 'fal'
+        ? 'fal_pricing_api'
+        : input.provider === 'openrouter'
+          ? update.source_url.includes('/videos/')
+            ? 'openrouter_videos'
+            : update.source_url.endsWith('/models')
+              ? 'openrouter_models'
+              : 'openrouter_endpoints'
+          : 'seed';
+    await input.state.db
+      .update(models)
+      .set({ priceRule: update.price_rule as Record<string, unknown>, updatedAt: fetchedAt })
+      .where(eq(models.id, model.id));
     await input.state.db.insert(priceSnapshots).values({
       id: ulid(),
       modelUlid: model.id,
       unit: summary.unit,
       amountUsd: summary.amount.toFixed(6),
-      tiers: manifest.price_rule,
-      source: input.provider === 'fal' ? 'fal_pricing_api' : 'openrouter_models',
-      sourceUrl: manifest.source_url,
+      tiers: update.price_rule,
+      source,
+      sourceUrl: update.source_url,
       fetchedAt,
     });
   }
@@ -238,10 +263,10 @@ export async function refreshProviderPrices(input: {
           {
             provider: input.provider,
             fetched_at: fetchedAt.toISOString(),
-            models: manifests.map((manifest) => ({
-              model_id: manifest.model_id,
-              price_rule: manifest.price_rule,
-              source_url: manifest.source_url,
+            models: updates.map((update) => ({
+              model_id: update.model_id,
+              price_rule: update.price_rule,
+              source_url: update.source_url,
             })),
           },
           null,
@@ -255,7 +280,7 @@ export async function refreshProviderPrices(input: {
     }
     await rename(temporary, destination);
   }
-  return { models: manifests.length, fetched_at: fetchedAt.toISOString() };
+  return { models: updates.length, fetched_at: fetchedAt.toISOString() };
 }
 
 export async function setProviderCap(

@@ -5,17 +5,20 @@
 
 import {
   KilnryError,
+  priceSummary,
   redact,
   registrySeed,
   type CanonicalRequest,
   type PollStatus,
   type ProviderAdapter,
   type ProviderOutput,
+  type ProviderPriceUpdate,
   type ProviderResult,
 } from '@kilnry/core';
 import { downloadOutputs } from '../download.js';
 import { providerHttpError } from '../errors.js';
 import { requestJson } from '../http.js';
+import { priceUpdate, withImagePricing, withTokenPricing, withVideoPricing } from '../pricing.js';
 
 interface OpenRouterImageResponse {
   data?: Array<{ b64_json?: string; media_type?: string; url?: string }>;
@@ -36,6 +39,34 @@ interface OpenRouterKeyResponse {
   data?: { label?: string; limit?: number | null; limit_remaining?: number | null; usage?: number };
 }
 
+interface OpenRouterImageCatalog {
+  data?: Array<{
+    id?: string;
+    endpoints?: string;
+    supported_parameters?: Record<string, unknown>;
+  }>;
+}
+
+interface OpenRouterImageEndpoints {
+  endpoints?: Array<{
+    pricing?: Array<{ billable?: string; cost_usd?: number; unit?: string }>;
+  }>;
+  data?: Array<{
+    pricing?: Array<{ billable?: string; cost_usd?: number; unit?: string }>;
+  }>;
+}
+
+interface OpenRouterVideoCatalog {
+  data?: Array<{ id?: string; pricing_skus?: Record<string, string | number> }>;
+}
+
+interface OpenRouterModelCatalog {
+  data?: Array<{
+    id?: string;
+    pricing?: { prompt?: string | number; completion?: string | number; input_cache_read?: string | number };
+  }>;
+}
+
 function headers(key: string): HeadersInit {
   return {
     Authorization: `Bearer ${key}`,
@@ -43,6 +74,78 @@ function headers(key: string): HeadersInit {
     'HTTP-Referer': 'https://kilnry.app',
     'X-Title': 'Kilnry',
   };
+}
+
+async function currentPrices(
+  key: string,
+  options: { fetch?: typeof fetch; signal?: AbortSignal } = {},
+): Promise<ProviderPriceUpdate[]> {
+  const requestFetch = options.fetch ?? fetch;
+  const requestOptions = {
+    provider: 'openrouter' as const,
+    fetch: requestFetch,
+    ...(options.signal ? { signal: options.signal } : {}),
+    init: { headers: headers(key) },
+  };
+  const [imageCatalog, videoCatalog, modelCatalog] = await Promise.all([
+    requestJson<OpenRouterImageCatalog>({
+      ...requestOptions,
+      url: 'https://openrouter.ai/api/v1/images/models',
+    }),
+    requestJson<OpenRouterVideoCatalog>({
+      ...requestOptions,
+      url: 'https://openrouter.ai/api/v1/videos/models',
+    }),
+    requestJson<OpenRouterModelCatalog>({
+      ...requestOptions,
+      url: 'https://openrouter.ai/api/v1/models',
+    }),
+  ]);
+  const manifests = registrySeed.filter((model) => model.provider === 'openrouter');
+  const updates = new Map<string, ProviderPriceUpdate>();
+  for (const catalogModel of imageCatalog.data ?? []) {
+    if (!catalogModel.id || !catalogModel.endpoints) continue;
+    const model = manifests.find((candidate) => candidate.model_id === catalogModel.id);
+    if (!model) continue;
+    const endpointUrl = new URL(catalogModel.endpoints, 'https://openrouter.ai').toString();
+    const response = await requestJson<OpenRouterImageEndpoints>({
+      ...requestOptions,
+      url: endpointUrl,
+    });
+    const endpointRules = [...(response.endpoints ?? []), ...(response.data ?? [])]
+      .filter((endpoint) => (endpoint.pricing?.length ?? 0) > 0)
+      .map((endpoint) => withImagePricing(model.price_rule, endpoint.pricing ?? []));
+    if (endpointRules.length === 0) continue;
+    endpointRules.sort((left, right) => priceSummary(left).amount - priceSummary(right).amount);
+    updates.set(model.model_id, priceUpdate(model, endpointRules[0]!, endpointUrl));
+  }
+  for (const catalogModel of videoCatalog.data ?? []) {
+    if (!catalogModel.id || !catalogModel.pricing_skus) continue;
+    const model = manifests.find((candidate) => candidate.model_id === catalogModel.id);
+    if (!model) continue;
+    updates.set(
+      model.model_id,
+      priceUpdate(
+        model,
+        withVideoPricing(model.price_rule, catalogModel.pricing_skus),
+        'https://openrouter.ai/api/v1/videos/models',
+      ),
+    );
+  }
+  for (const catalogModel of modelCatalog.data ?? []) {
+    if (!catalogModel.id || !catalogModel.pricing) continue;
+    const model = manifests.find((candidate) => candidate.model_id === catalogModel.id);
+    if (!model || model.price_rule.kind !== 'per_million_tokens') continue;
+    updates.set(
+      model.model_id,
+      priceUpdate(
+        model,
+        withTokenPricing(model.price_rule, catalogModel.pricing),
+        'https://openrouter.ai/api/v1/models',
+      ),
+    );
+  }
+  return [...updates.values()];
 }
 
 function mediaInputs(request: CanonicalRequest): Array<{ url: string }> {
@@ -56,8 +159,21 @@ function mediaInputs(request: CanonicalRequest): Array<{ url: string }> {
   });
 }
 
+function passthrough(request: CanonicalRequest, reserved: string[]): Record<string, unknown> {
+  const extra = { ...(request.params.extra ?? {}) };
+  delete extra.model;
+  delete extra.route_why;
+  for (const key of reserved) {
+    if (key in extra) {
+      throw new KilnryError('INVALID_INPUT', `Provider passthrough cannot override canonical field ${key}.`);
+    }
+  }
+  return extra;
+}
+
 function imagePayload(request: CanonicalRequest, model: string): Record<string, unknown> {
   return {
+    ...passthrough(request, ['model', 'prompt', 'n', 'input_references']),
     model,
     prompt: request.prompt,
     n: request.count,
@@ -65,7 +181,6 @@ function imagePayload(request: CanonicalRequest, model: string): Record<string, 
     ...(request.params.resolution ? { resolution: request.params.resolution } : {}),
     ...(request.params.quality ? { quality: request.params.quality } : {}),
     ...(request.medias.length > 0 ? { input_references: mediaInputs(request) } : {}),
-    ...(request.params.extra ?? {}),
   };
 }
 
@@ -85,6 +200,7 @@ function videoPayload(request: CanonicalRequest, model: string): Record<string, 
     });
   const references = request.medias.filter((media) => !['start_frame', 'end_frame'].includes(media.role));
   return {
+    ...passthrough(request, ['model', 'prompt', 'frame_images', 'input_references']),
     model,
     prompt: request.prompt,
     ...(request.params.resolution ? { resolution: request.params.resolution } : {}),
@@ -94,7 +210,6 @@ function videoPayload(request: CanonicalRequest, model: string): Record<string, 
     ...(request.params.seed !== undefined ? { seed: request.params.seed } : {}),
     ...(frameImages.length > 0 ? { frame_images: frameImages } : {}),
     ...(references.length > 0 ? { input_references: mediaInputs({ ...request, medias: references }) } : {}),
-    ...(request.params.extra ?? {}),
   };
 }
 
@@ -160,6 +275,9 @@ export const openRouterAdapter: ProviderAdapter = {
       ]);
     }
     return registrySeed.filter((model) => model.provider === 'openrouter');
+  },
+  refreshPrices(key, options) {
+    return currentPrices(key, options);
   },
   async submit(request, context) {
     const model = request.params.extra?.model;

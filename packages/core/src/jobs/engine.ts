@@ -371,6 +371,7 @@ export class JobEngine {
     confirmed_by: string;
     client_request_id?: string;
     override_budget?: boolean;
+    allow_stale_price?: boolean;
   }): Promise<CreateJobResult> {
     if (!this.#started) throw new Error('Job engine must be started before creating jobs.');
     if (input.client_request_id) {
@@ -392,6 +393,13 @@ export class JobEngine {
       }
     }
     const prepared = await this.estimate(input.request, input.constraints);
+    if (prepared.estimate.adjustments.includes('stale_price') && !input.allow_stale_price) {
+      throw new KilnryError(
+        'INVALID_INPUT',
+        'This price snapshot is older than 30 days. Refresh provider prices before generating, or explicitly allow the stale estimate.',
+        { details: { stale_price: true, estimate: prepared.estimate } },
+      );
+    }
     assertCostConfirmation(prepared.estimate, input.confirmed_cost_usd);
     const id = ulid();
     const row: typeof jobs.$inferInsert = {

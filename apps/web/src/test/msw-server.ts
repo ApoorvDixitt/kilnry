@@ -29,8 +29,23 @@ export function startTestMsw(): void {
         usage: { cost: 0.014, prompt_tokens: 20, completion_tokens: 100, total_tokens: 120 },
       }),
     ),
-    http.get('https://openrouter.ai/api/v1/images/models', () => HttpResponse.json({ data: [] })),
+    http.get('https://openrouter.ai/api/v1/images/models', () =>
+      HttpResponse.json({
+        data: [
+          {
+            id: 'bytedance-seed/seedream-4.5',
+            endpoints: '/api/v1/images/models/bytedance-seed/seedream-4.5/endpoints',
+          },
+        ],
+      }),
+    ),
+    http.get('https://openrouter.ai/api/v1/images/models/bytedance-seed/seedream-4.5/endpoints', () =>
+      HttpResponse.json({
+        endpoints: [{ pricing: [{ billable: 'output_image', cost_usd: 0.04, unit: 'image' }] }],
+      }),
+    ),
     http.get('https://openrouter.ai/api/v1/videos/models', () => HttpResponse.json({ data: [] })),
+    http.get('https://openrouter.ai/api/v1/models', () => HttpResponse.json({ data: [] })),
     http.get('https://api.fal.ai/v1/models/pricing', () =>
       HttpResponse.json({
         prices: [

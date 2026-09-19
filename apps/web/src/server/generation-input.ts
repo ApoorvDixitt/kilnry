@@ -33,6 +33,7 @@ export const GenerationInput = z.object({
   confirmed_cost_usd: z.number().nonnegative().optional(),
   client_request_id: z.string().min(1).max(64).optional(),
   override_budget: z.boolean().default(false),
+  allow_stale_price: z.boolean().default(false),
 });
 export type GenerationInputValue = z.infer<typeof GenerationInput>;
 

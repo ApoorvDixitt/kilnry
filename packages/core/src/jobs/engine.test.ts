@@ -9,7 +9,15 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { eq } from 'drizzle-orm';
 import { afterEach, describe, expect, it } from 'vitest';
-import { assets, budgets, closeDatabaseState, createDatabase, jobs, spendLedger } from '@kilnry/db';
+import {
+  assets,
+  budgets,
+  closeDatabaseState,
+  createDatabase,
+  jobs,
+  priceSnapshots,
+  spendLedger,
+} from '@kilnry/db';
 import { readEmbeddedMetadata } from '@kilnry/media';
 import { KilnryError } from '../errors.js';
 import { ProviderKeyStore } from '../security/key-store.js';
@@ -256,6 +264,28 @@ describe('pg-boss job engine', () => {
     const rejected = outcomes.find((outcome) => outcome.status === 'rejected');
     expect(rejected).toMatchObject({ status: 'rejected', reason: { code: 'BUDGET_EXCEEDED' } });
     expect(await state.db.select().from(jobs)).toHaveLength(1);
+  });
+
+  it('shows stale estimates but refuses submission unless the caller explicitly allows one', async () => {
+    const fake = fakeAdapter();
+    const { engine, state } = await harness(fake.adapter);
+    await state.db.update(priceSnapshots).set({ fetchedAt: new Date('2020-01-01T00:00:00.000Z') });
+    const priced = await engine.estimate(imageRequest());
+    expect(priced.estimate.adjustments).toContain('stale_price');
+    await expect(
+      engine.createJob({
+        request: imageRequest(),
+        confirmed_cost_usd: priced.estimate.estimate_usd,
+        confirmed_by: 'user',
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_INPUT', options: { details: { stale_price: true } } });
+    const created = await engine.createJob({
+      request: imageRequest(),
+      confirmed_cost_usd: priced.estimate.estimate_usd,
+      confirmed_by: 'user',
+      allow_stale_price: true,
+    });
+    expect(await engine.waitForJob(created.job_id, 5000)).toMatchObject({ status: 'completed' });
   });
 
   it('writes a zero ledger entry for moderation', async () => {

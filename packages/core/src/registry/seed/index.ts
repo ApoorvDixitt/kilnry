@@ -28,7 +28,16 @@ const pollinationsSeed: ModelManifest = {
     aspect_ratios: ['1:1', '16:9', '9:16'],
   },
   media_roles: [],
-  params_schema: { type: 'object', additionalProperties: false },
+  params_schema: {
+    type: 'object',
+    properties: {
+      aspect_ratio: { type: 'string', enum: ['1:1', '16:9', '9:16'] },
+      resolution: { type: 'string', enum: ['1K'] },
+      seed: { type: 'integer', minimum: 0 },
+      quality: { type: 'string', enum: ['draft'] },
+    },
+    additionalProperties: false,
+  },
   price_rule: { kind: 'free', unit: 'image' },
   retention_days: null,
   moderation: { http: 403, shape: 'error', billed: 'no' },

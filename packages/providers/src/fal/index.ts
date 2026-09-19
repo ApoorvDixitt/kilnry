@@ -10,10 +10,12 @@ import {
   type CanonicalRequest,
   type ProviderAdapter,
   type ProviderOutput,
+  type ProviderPriceUpdate,
 } from '@kilnry/core';
 import { downloadOutputs } from '../download.js';
 import { providerHttpError } from '../errors.js';
 import { requestJson } from '../http.js';
+import { priceUpdate, withBasePrice } from '../pricing.js';
 
 interface FalSubmit {
   request_id?: string;
@@ -33,18 +35,73 @@ interface FalPriceResponse {
   prices?: Array<{ endpoint_id?: string; unit_price?: number; unit?: string; currency?: string }>;
 }
 
+async function currentPrices(
+  key: string,
+  options: { fetch?: typeof fetch; signal?: AbortSignal } = {},
+): Promise<ProviderPriceUpdate[]> {
+  const manifests = registrySeed.filter((model) => model.provider === 'fal');
+  const updates: ProviderPriceUpdate[] = [];
+  for (let offset = 0; offset < manifests.length; offset += 50) {
+    const batch = manifests.slice(offset, offset + 50);
+    const endpointIds = batch.map((model) => model.model_id).join(',');
+    const response = await requestJson<FalPriceResponse>({
+      provider: 'fal',
+      fetch: options.fetch ?? fetch,
+      ...(options.signal ? { signal: options.signal } : {}),
+      url: `https://api.fal.ai/v1/models/pricing?endpoint_id=${encodeURIComponent(endpointIds)}`,
+      init: { headers: headers(key) },
+    });
+    for (const quote of response.prices ?? []) {
+      const model = batch.find((candidate) => candidate.model_id === quote.endpoint_id);
+      if (!model || quote.unit_price === undefined || !Number.isFinite(quote.unit_price)) continue;
+      updates.push(
+        priceUpdate(
+          model,
+          withBasePrice(model.price_rule, quote.unit_price),
+          'https://api.fal.ai/v1/models/pricing',
+        ),
+      );
+    }
+  }
+  return updates;
+}
+
 function headers(key: string): HeadersInit {
   return { Authorization: `Key ${key}`, 'Content-Type': 'application/json' };
 }
 
 function falPayload(request: CanonicalRequest): Record<string, unknown> {
+  const extra = { ...(request.params.extra ?? {}) };
+  const model = extra.model;
+  delete extra.model;
+  delete extra.route_why;
+  for (const key of [
+    'prompt',
+    'negative_prompt',
+    'image_url',
+    'end_image_url',
+    'image_urls',
+    'audio_url',
+    'video_url',
+  ]) {
+    if (key in extra) {
+      throw new KilnryError('INVALID_INPUT', `Provider passthrough cannot override canonical field ${key}.`);
+    }
+  }
   const payload: Record<string, unknown> = { prompt: request.prompt };
   if (request.negative_prompt) payload.negative_prompt = request.negative_prompt;
   if (request.params.width && request.params.height)
     payload.image_size = { width: request.params.width, height: request.params.height };
   if (request.params.aspect_ratio) payload.aspect_ratio = request.params.aspect_ratio;
   if (request.params.resolution) payload.resolution = request.params.resolution;
-  if (request.params.duration_s) payload.duration = String(request.params.duration_s);
+  if (request.params.duration_s) {
+    payload.duration =
+      typeof model === 'string' && /veo/i.test(model)
+        ? `${request.params.duration_s}s`
+        : typeof model === 'string' && /kling|seedance/i.test(model)
+          ? String(request.params.duration_s)
+          : request.params.duration_s;
+  }
   if (request.params.audio !== undefined) payload.generate_audio = request.params.audio;
   if (request.params.seed !== undefined) payload.seed = request.params.seed;
   if (request.count > 1) payload.num_images = request.count;
@@ -56,12 +113,14 @@ function falPayload(request: CanonicalRequest): Record<string, unknown> {
       );
     if (media.role === 'start_frame') payload.image_url = media.url;
     else if (media.role === 'end_frame') payload.end_image_url = media.url;
+    else if (media.role === 'audio') payload.audio_url = media.url;
+    else if (media.role === 'video' || media.role === 'driving_video') payload.video_url = media.url;
     else {
       const images = Array.isArray(payload.image_urls) ? payload.image_urls : [];
       payload.image_urls = [...images, media.url];
     }
   }
-  return { ...payload, ...(request.params.extra ?? {}) };
+  return { ...extra, ...payload };
 }
 
 function outputs(body: Record<string, unknown>): ProviderOutput[] {
@@ -131,22 +190,17 @@ export const falAdapter: ProviderAdapter = {
   },
   async listModels(key, options) {
     const manifests = registrySeed.filter((model) => model.provider === 'fal');
-    if (key) {
-      for (let offset = 0; offset < manifests.length; offset += 50) {
-        const endpointIds = manifests
-          .slice(offset, offset + 50)
-          .map((model) => model.model_id)
-          .join(',');
-        await requestJson<FalPriceResponse>({
-          provider: 'fal',
-          fetch: options?.fetch ?? fetch,
-          ...(options?.signal ? { signal: options.signal } : {}),
-          url: `https://api.fal.ai/v1/models/pricing?endpoint_id=${encodeURIComponent(endpointIds)}`,
-          init: { headers: headers(key) },
-        });
-      }
-    }
-    return manifests;
+    if (!key) return manifests;
+    const updates = new Map(
+      (await currentPrices(key, options)).map((update) => [update.model_id, update.price_rule]),
+    );
+    return manifests.map((model) => ({
+      ...model,
+      price_rule: updates.get(model.model_id) ?? model.price_rule,
+    }));
+  },
+  refreshPrices(key, options) {
+    return currentPrices(key, options);
   },
   async authoritativeEstimate(request, estimate, context) {
     const response = await requestJson<FalPriceResponse>({
