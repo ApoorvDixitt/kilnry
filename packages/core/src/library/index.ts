@@ -6,8 +6,8 @@
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { basename, posix } from 'node:path';
-import { rename, rm, stat } from 'node:fs/promises';
-import { and, eq } from 'drizzle-orm';
+import { access, rename, rm, stat } from 'node:fs/promises';
+import { and, eq, ne } from 'drizzle-orm';
 import type { DatabaseState } from '@kilnry/db';
 import { assetCharacters, assetLineage, assets, assetTags, folders } from '@kilnry/db';
 import { probeMedia, readEmbeddedMetadata } from '@kilnry/media';
@@ -101,6 +101,7 @@ async function recoverExternalMove(
   state: DatabaseState,
   root: string,
   destination: string,
+  destinationRelative: string,
   probe: Awaited<ReturnType<typeof probeMedia>>,
   libraryId: string,
 ): Promise<Sidecar | undefined> {
@@ -108,32 +109,38 @@ async function recoverExternalMove(
   const matches = await state.db
     .select({ id: assets.id, path: assets.path })
     .from(assets)
-    .where(and(eq(assets.sha256, hash), eq(assets.bytes, probe.bytes), eq(assets.sidecarOk, false)))
-    .limit(1);
-  const match = matches[0];
-  if (!match) return undefined;
-  const prior = await resolveInRoot(root, match.path);
-  const oldSidecar = await readSidecar(prior.abs);
-  if (!oldSidecar.ok) return undefined;
-  const value = SidecarSchema.parse({
-    ...oldSidecar.value,
-    library_id: libraryId,
-    file: {
-      ...oldSidecar.value.file,
-      name: basename(destination),
-      sha256: hash,
-      bytes: probe.bytes,
-      mime: probe.mime,
-      ...(probe.width === undefined ? {} : { width: probe.width }),
-      ...(probe.height === undefined ? {} : { height: probe.height }),
-      ...(probe.duration_s === undefined ? {} : { duration_s: probe.duration_s }),
-      ...(probe.fps === undefined ? {} : { fps: probe.fps }),
-      ...(probe.has_audio === undefined ? {} : { has_audio: probe.has_audio }),
-    },
-  });
-  await writeSidecar(destination, value);
-  await rm(sidecarPath(prior.abs), { force: true });
-  return value;
+    .where(and(eq(assets.sha256, hash), eq(assets.bytes, probe.bytes), ne(assets.path, destinationRelative)));
+  for (const match of matches) {
+    const prior = await resolveInRoot(root, match.path);
+    try {
+      await access(prior.abs);
+      continue;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+    const oldSidecar = await readSidecar(prior.abs);
+    if (!oldSidecar.ok) continue;
+    const value = SidecarSchema.parse({
+      ...oldSidecar.value,
+      library_id: libraryId,
+      file: {
+        ...oldSidecar.value.file,
+        name: basename(destination),
+        sha256: hash,
+        bytes: probe.bytes,
+        mime: probe.mime,
+        ...(probe.width === undefined ? {} : { width: probe.width }),
+        ...(probe.height === undefined ? {} : { height: probe.height }),
+        ...(probe.duration_s === undefined ? {} : { duration_s: probe.duration_s }),
+        ...(probe.fps === undefined ? {} : { fps: probe.fps }),
+        ...(probe.has_audio === undefined ? {} : { has_audio: probe.has_audio }),
+      },
+    });
+    await writeSidecar(destination, value);
+    await rm(sidecarPath(prior.abs), { force: true });
+    return value;
+  }
+  return undefined;
 }
 
 export async function indexAsset(
@@ -154,7 +161,7 @@ export async function indexAsset(
     if (sidecarResult.bytes) {
       await rename(sidecarPath(resolved.abs), `${sidecarPath(resolved.abs)}.corrupt-${Date.now()}`);
     }
-    const moved = await recoverExternalMove(state, root, resolved.abs, probe, libraryId);
+    const moved = await recoverExternalMove(state, root, resolved.abs, resolved.rel, probe, libraryId);
     if (moved) sidecar = moved;
     else {
       const embedded = await readEmbeddedMetadata(resolved.abs, probe.mime);

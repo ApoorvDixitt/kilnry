@@ -29,6 +29,8 @@ export function watchLibrary(input: {
   root: string;
   libraryId: string;
   polling?: boolean;
+  stabilityThresholdMs?: number;
+  debounceMs?: number;
   onImported?: (assetId: string, folder: string) => void;
   onError: (error: unknown) => void;
 }): LibraryWatcher {
@@ -39,7 +41,10 @@ export function watchLibrary(input: {
   const watcher: FSWatcher = chokidar.watch(input.root, {
     ignoreInitial: true,
     followSymlinks: false,
-    awaitWriteFinish: { stabilityThreshold: 2000, pollInterval: 200 },
+    awaitWriteFinish: {
+      stabilityThreshold: input.stabilityThresholdMs ?? 2000,
+      pollInterval: Math.min(200, input.stabilityThresholdMs ?? 2000),
+    },
     usePolling: input.polling ?? false,
     interval: input.polling ? 2000 : 100,
     binaryInterval: input.polling ? 3000 : 300,
@@ -64,11 +69,16 @@ export function watchLibrary(input: {
             ),
           )
           .catch(input.onError);
-      }, 500),
+      }, input.debounceMs ?? 500),
     );
   };
   const markMissing = (path: string): void => {
     const mediaPath = path.endsWith('.kilnry.json') ? path.slice(0, -'.kilnry.json'.length) : path;
+    const scheduled = pending.get(mediaPath);
+    if (scheduled) {
+      clearTimeout(scheduled);
+      pending.delete(mediaPath);
+    }
     const relativePath = relative(input.root, mediaPath).split('\\').join('/');
     void input.state.db
       .update(assets)

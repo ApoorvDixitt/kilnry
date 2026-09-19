@@ -34,6 +34,8 @@ describe('Library watcher', () => {
       state,
       root: library,
       libraryId: prepared.marker.library_id,
+      stabilityThresholdMs: 100,
+      debounceMs: 25,
       onImported: (id, folder) => importedResolve({ id, folder }),
       onError: (error) => errors.push(error),
     });
