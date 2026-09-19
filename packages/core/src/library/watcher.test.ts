@@ -85,4 +85,53 @@ describe('Library watcher', () => {
     expect((await state.db.select().from(assets))[0]?.seed).toBe(42);
     expect(errors).toEqual([]);
   }, 30_000);
+
+  it('indexes files even when the Library root lives under a dot-directory', async () => {
+    // Regression for F-LIB-04: the ignore rule must run relative to the root, so
+    // a root whose own prefix contains a dot segment (for example a hidden home
+    // folder or a temporary .dev path) does not have every file ignored.
+    const base = mkdtempSync(join(tmpdir(), 'kilnry-watcher-dot-'));
+    const dataDir = join(base, 'data');
+    const library = join(base, '.hidden', 'library');
+    mkdirSync(dataDir, { recursive: true });
+    const prepared = prepareLibraryRoot(library, dataDir);
+    const state = createDatabase(dataDir, { memory: true });
+    await state.ready;
+    let importedResolve!: (value: { id: string; folder: string }) => void;
+    const imported = new Promise<{ id: string; folder: string }>((resolve) => {
+      importedResolve = resolve;
+    });
+    const watcher = watchLibrary({
+      state,
+      root: library,
+      libraryId: prepared.marker.library_id,
+      dataDir,
+      stabilityThresholdMs: 100,
+      debounceMs: 25,
+      onImported: (id, folder) => importedResolve({ id, folder }),
+      onError: () => {},
+    });
+    disposers.push(async () => {
+      await watcher.close();
+      await closeDatabaseState(state);
+      rmSync(base, { recursive: true, force: true });
+    });
+    await watcher.ready;
+    writeFileSync(
+      join(library, 'inbox', 'watched.png'),
+      Buffer.from(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+        'base64',
+      ),
+    );
+    const event = await new Promise<{ id: string; folder: string }>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('Watcher did not import within 15 seconds.')), 15_000);
+      void imported.then((value) => {
+        clearTimeout(timeout);
+        resolve(value);
+      }, reject);
+    });
+    expect(event.folder).toBe('inbox');
+    expect(existsSync(join(library, 'inbox', 'watched.png.kilnry.json'))).toBe(true);
+  }, 30_000);
 });

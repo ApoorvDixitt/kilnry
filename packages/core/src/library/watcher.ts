@@ -17,12 +17,20 @@ export interface LibraryWatcher {
   ready: Promise<void>;
 }
 
-function ignored(path: string): boolean {
+// Decide whether a path under the watched root should be ignored. The test runs
+// against the path *relative to the root*, so a Library whose root itself lives
+// under a dot-directory (for example a temporary "…/.dev/library" used in tests,
+// or a hidden folder in someone's home) does not have every file ignored just
+// because the root's own prefix contains a dot segment.
+function ignored(path: string, root: string): boolean {
+  const rel = relative(root, path);
+  // A path outside the root (empty or starting with "..") is never watched here.
+  if (rel === '' ) return false;
   return (
-    /(^|[/\\])\.[^/\\]+/.test(path) ||
-    /[/\\]Trash(?:[/\\]|$)/.test(path) ||
-    /\.(?:part|crdownload|download)$/.test(path) ||
-    /\.kilnry\.json\.tmp-.*$/.test(path)
+    /(^|[/\\])\.[^/\\]+/.test(rel) ||
+    /(^|[/\\])Trash(?:[/\\]|$)/.test(rel) ||
+    /\.(?:part|crdownload|download)$/.test(rel) ||
+    /\.kilnry\.json\.tmp-.*$/.test(rel)
   );
 }
 
@@ -51,7 +59,7 @@ export function watchLibrary(input: {
     usePolling: input.polling ?? false,
     interval: input.polling ? 2000 : 100,
     binaryInterval: input.polling ? 3000 : 300,
-    ignored,
+    ignored: (path: string) => ignored(path, input.root),
     atomic: 250,
     ignorePermissionErrors: true,
   });
