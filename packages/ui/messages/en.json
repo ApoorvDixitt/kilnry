@@ -455,6 +455,14 @@
       "deleteForever": "Delete forever",
       "confirmDelete": "Delete {n} assets? They go to Trash for 30 days.",
       "trashedNote": "Deleted · {days} days left"
+    },
+    "viewer": {
+      "back": "Back to Library",
+      "missing": "This file isn't in your Library any more.",
+      "info": "Details",
+      "prompt": "Prompt",
+      "model": "Model",
+      "cost": "Cost"
     }
   },
   "health": {

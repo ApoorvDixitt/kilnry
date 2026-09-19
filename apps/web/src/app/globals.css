@@ -1884,6 +1884,81 @@ kbd {
   color: var(--text-muted);
 }
 
+.viewer {
+  background: var(--background);
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  position: relative;
+}
+
+.viewer-bar {
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 10px 16px;
+}
+
+.viewer-bar button {
+  background: var(--surface-2);
+  border: 0;
+  border-radius: 8px;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 6px 10px;
+}
+
+.viewer-title {
+  color: var(--text-muted);
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.viewer-stage {
+  align-items: center;
+  display: flex;
+  flex: 1;
+  justify-content: center;
+  overflow: hidden;
+  padding: 24px;
+}
+
+.viewer-media {
+  max-height: 100%;
+  max-width: 100%;
+  object-fit: contain;
+}
+
+.viewer-info {
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  padding: 14px 16px;
+}
+
+.viewer-info strong {
+  color: var(--text-muted);
+  font-weight: 500;
+  margin-right: 6px;
+}
+
+.viewer-missing {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  justify-content: center;
+  height: 100%;
+}
+
 .asset-tile.is-orphan {
   outline: 2px dashed var(--warning, #b7791f);
   outline-offset: -2px;
