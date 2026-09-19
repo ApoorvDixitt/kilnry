@@ -135,11 +135,12 @@
   "settings": {
     "navLabel": "Settings sections",
     "navTitle": "Settings",
-    "m2Scope": "M2 includes Providers, Workspace indexing, and Security. Remaining settings arrive in their scheduled milestones.",
+    "m2Scope": "Providers, Workspace, Security, and Appearance are available.",
     "nav": {
       "providers": "Providers",
       "workspace": "Workspace",
-      "security": "Security"
+      "security": "Security",
+      "appearance": "Appearance"
     },
     "providers": {
       "eyebrow": "Bring your own keys",
@@ -239,6 +240,44 @@
         "file": "KILNRY_MASTER_KEY_FILE",
         "machine": "machine-derived fallback",
         "pending": "not initialized"
+      }
+    },
+    "appearance": {
+      "eyebrow": "Display and motion",
+      "title": "Appearance",
+      "subtitle": "Choose how Kilnry looks and moves on this machine. Changes apply immediately and persist across restarts.",
+      "saved": "Appearance saved.",
+      "saving": "Saving appearance…",
+      "saveFailed": "Kilnry could not save Appearance settings. Your previous choices were restored.",
+      "storageFailed": "Kilnry could not read browser Appearance settings. Safe defaults are active; open Appearance to save them again.",
+      "theme": {
+        "title": "Theme",
+        "system": "System",
+        "systemBody": "Follow this device's light or dark setting.",
+        "light": "Light",
+        "lightBody": "Use Kilnry's paper-white workspace.",
+        "dark": "Dark",
+        "darkBody": "Use Kilnry's warm-charcoal workspace."
+      },
+      "density": {
+        "title": "Density",
+        "comfortable": "Comfortable",
+        "comfortableBody": "Use 44 px rows and roomier controls.",
+        "compact": "Compact",
+        "compactBody": "Use 36 px rows and tighter controls."
+      },
+      "motion": {
+        "title": "Reduced motion",
+        "system": "Follow system",
+        "systemBody": "Use this device's motion preference.",
+        "reduce": "Always reduce",
+        "reduceBody": "Set every duration to 0 ms and turn off video hover-scrub.",
+        "full": "Never reduce",
+        "fullBody": "Keep Kilnry's specified motion even when the device requests less."
+      },
+      "accent": {
+        "title": "Kilnry green",
+        "body": "Green means money in Kilnry, so the accent is not customisable."
       }
     }
   },

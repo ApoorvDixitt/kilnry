@@ -6,6 +6,8 @@
 import * as z from 'zod';
 
 export const ThemeSchema = z.enum(['system', 'light', 'dark']);
+export const DensitySchema = z.enum(['comfortable', 'compact']);
+export const ReducedMotionSchema = z.enum(['system', 'reduce', 'no-preference']);
 
 export const KilnryConfigSchema = z.object({
   schema_version: z.literal(1).default(1),
@@ -14,6 +16,8 @@ export const KilnryConfigSchema = z.object({
   data_dir: z.string(),
   library_root: z.string().optional(),
   theme: ThemeSchema.default('system'),
+  density: DensitySchema.default('comfortable'),
+  reduced_motion: ReducedMotionSchema.default('system'),
   lan_enabled: z.boolean().default(false),
   onboarding_complete: z.boolean().default(false),
   update_check: z.boolean().default(false),
