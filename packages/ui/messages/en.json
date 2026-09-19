@@ -22,7 +22,15 @@
     "checklistFolder": "Save into a folder",
     "checklistWorkflow": "Run a workflow",
     "checklistMcp": "Connect an MCP client",
-    "close": "Close"
+    "close": "Close",
+    "shortcutsTitle": "Keyboard shortcuts",
+    "shortcutPalette": "Open the command palette",
+    "shortcutGo": "Go to a screen (then C, L, P, W, H, A, J, S)",
+    "shortcutFocus": "Focus the prompt",
+    "shortcutModels": "Open the model picker",
+    "shortcutGenerate": "Generate and keep the prompt",
+    "shortcutInspector": "Toggle the inspector",
+    "shortcutCollapse": "Collapse the sidebar"
   },
   "welcome": {
     "eyebrow": "Local setup",

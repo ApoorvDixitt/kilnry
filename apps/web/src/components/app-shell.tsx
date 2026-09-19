@@ -52,6 +52,7 @@ export function AppShell({ children }: { children: ReactNode }): React.ReactNode
   const router = useRouter();
   const [collapsed, setCollapsed] = useState(false);
   const [palette, setPalette] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [pendingChord, setPendingChord] = useState(false);
   const [activeJobs, setActiveJobs] = useState(0);
 
@@ -96,8 +97,16 @@ export function AppShell({ children }: { children: ReactNode }): React.ReactNode
         setCollapsed((value) => !value);
         return;
       }
-      if (event.key === 'Escape') setPalette(false);
+      if (event.key === 'Escape') {
+        setPalette(false);
+        setShortcutsOpen(false);
+      }
       if (editing || event.metaKey || event.ctrlKey || event.altKey) return;
+      if (event.key === '?') {
+        event.preventDefault();
+        setShortcutsOpen((value) => !value);
+        return;
+      }
       if (pendingChord) {
         const item = navigation.find((entry) => entry.chord.toLowerCase() === event.key.toLowerCase());
         setPendingChord(false);
@@ -239,6 +248,72 @@ export function AppShell({ children }: { children: ReactNode }): React.ReactNode
           </motion.div>
         ) : null}
       </AnimatePresence>
+      {shortcutsOpen ? (
+        <div className="palette-backdrop" onClick={() => setShortcutsOpen(false)}>
+          <section
+            className="shortcuts-help"
+            role="dialog"
+            aria-modal="true"
+            aria-label={message('shell.shortcutsTitle')}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <header>
+              <h2>{message('shell.shortcutsTitle')}</h2>
+              <button
+                type="button"
+                onClick={() => setShortcutsOpen(false)}
+                aria-label={message('shell.close')}
+              >
+                <X size={17} />
+              </button>
+            </header>
+            <dl>
+              <div>
+                <dt>{message('shell.shortcutPalette')}</dt>
+                <dd>
+                  <kbd>⌘K</kbd>
+                </dd>
+              </div>
+              <div>
+                <dt>{message('shell.shortcutGo')}</dt>
+                <dd>
+                  <kbd>G</kbd>
+                </dd>
+              </div>
+              <div>
+                <dt>{message('shell.shortcutFocus')}</dt>
+                <dd>
+                  <kbd>/</kbd>
+                </dd>
+              </div>
+              <div>
+                <dt>{message('shell.shortcutModels')}</dt>
+                <dd>
+                  <kbd>M</kbd>
+                </dd>
+              </div>
+              <div>
+                <dt>{message('shell.shortcutGenerate')}</dt>
+                <dd>
+                  <kbd>⌘↵</kbd>
+                </dd>
+              </div>
+              <div>
+                <dt>{message('shell.shortcutInspector')}</dt>
+                <dd>
+                  <kbd>i</kbd>
+                </dd>
+              </div>
+              <div>
+                <dt>{message('shell.shortcutCollapse')}</dt>
+                <dd>
+                  <kbd>⌘\</kbd>
+                </dd>
+              </div>
+            </dl>
+          </section>
+        </div>
+      ) : null}
     </div>
   );
 }

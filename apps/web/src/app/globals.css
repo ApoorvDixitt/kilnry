@@ -370,6 +370,66 @@ kbd {
   width: min(640px, calc(100vw - 32px));
 }
 
+.shortcuts-help {
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: var(--shadow-popover-theme);
+  overflow: hidden;
+  padding: 16px 18px;
+  width: min(460px, calc(100vw - 32px));
+}
+
+.shortcuts-help header {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.shortcuts-help h2 {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.shortcuts-help header button {
+  background: transparent;
+  border: 0;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.shortcuts-help dl {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.shortcuts-help dl > div {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.shortcuts-help dt {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.shortcuts-help dd {
+  margin: 0;
+}
+
+.shortcuts-help kbd {
+  background: var(--surface-2);
+  border: 1px solid var(--border-control);
+  border-radius: 6px;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 12px;
+  padding: 2px 7px;
+}
+
 .palette-search {
   align-items: center;
   border-bottom: 1px solid var(--border);
