@@ -56,4 +56,30 @@ Core-scope boundary: full Workspace backup/export/root-migration controls remain
 
 Manual-only check: no real key or paid request was used. With an owner-supplied key and explicit approval for the displayed spend, connect fal, test, generate one image, verify file + sidecar + derivative + ledger, then remove the key. Documented, not executed.
 
+## M3 · Create, Library UI, Jobs, Budget · 2026-09-20
+
+Status: complete. GitHub [`ci` run 35473190455](https://github.com/ApoorvDixitt/kilnry/actions/runs/35473190455) passed on the final head.
+
+Implemented F-CRE-01, 03, 04, 05, 06, 07, 08, 14; F-LIB-01, 02, 03, 05, 06, 08, 09; F-JOB-01; F-PRV-04; F-SET-04, F-SET-09; F-ONB-05, F-ONB-07; the canonical motion moments; the F-SET-08 security audit log; and the restored F-CRE-13 Demo badge. The composer calls the M2 engine through `/api/estimate` and `/api/generate`; it never reimplements pricing or budget.
+
+Gate results:
+
+- Every required command passes: lint, typecheck, `test` (126 core, 22 provider, 13 media, 1 web), `test:browser` (97), smoke and acceptance E2E, canon/header/provenance/i18n/size, `audit --prod`, build.
+- Acceptance scenarios (PRD-21 numbering, by topic) S-01, S-02, S-07, S-08, S-09, S-13, S-14, S-25 and the unnumbered M3-VID pass as Playwright tests under strict mock service worker; continuous integration runs `@m3|@gate`.
+- Library performance: 10,000 synthetic assets scroll with a 95th-percentile main-thread frame time of 3.5 ms, well under 16.7 ms.
+- Keyboard, accessibility (axe WCAG 2.2 AA, zero critical or serious on every touched route), reduced motion (operating-system preference and Appearance setting) and the green-means-money accent lint pass.
+
+Resolved canon conflicts:
+
+- PRD-21 scenario numbers are by topic, not by milestone; `MILESTONES.md` and `VERIFICATION.md` were corrected on 2026-09-19.
+- Library search uses ILIKE substring matching instead of a `tsvector` column (default; adjustable).
+
+Notes and decisions:
+
+- S-13 (rename outside Kilnry) failed until a real bug was fixed: the watcher ignored files whenever the Library root sat under a hidden folder; it now decides relative to the root (F-LIB-04). The scenario runs in the acceptance suite.
+- The audit log was built to complete F-SET-08, promised in M2 but never implemented.
+- The visual baseline is capture-only for now; a `toHaveScreenshot` comparison with masked dynamic areas, captured on the continuous-integration platform, is the M4 follow-up. The video scenario is skipped in continuous integration for the same machine-dependent reasons as the performance and visual suites.
+- The commit-subject check bans the word "updates"; it will need an exemption when the Updates page is built (noted, not changed).
+- M3 was completed across two agent sessions; no tracked file depends on either agent.
+
 <!-- Kilnry © 2026 Apoorv Dixit · Sustainable Use License 1.0 · See LICENSE.md. -->
