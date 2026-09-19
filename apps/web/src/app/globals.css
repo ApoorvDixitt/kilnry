@@ -678,8 +678,10 @@ kbd {
 .demo-button,
 .settings-primary,
 .provider-card footer button,
+.provider-controls button,
 .security-card button,
 .recovery-card button,
+.recovery-proof button,
 .session-card button,
 .workspace-card button {
   align-items: center;
@@ -703,8 +705,10 @@ kbd {
 .demo-button:hover,
 .settings-primary:hover,
 .provider-card footer button:hover,
+.provider-controls button:hover,
 .security-card button:hover,
 .recovery-card button:hover,
+.recovery-proof button:hover,
 .session-card button:hover,
 .workspace-card button:hover {
   background: var(--surface-2);
@@ -714,8 +718,10 @@ kbd {
 .demo-button:active,
 .settings-primary:active,
 .provider-card footer button:active,
+.provider-controls button:active,
 .security-card button:active,
 .recovery-card button:active,
+.recovery-proof button:active,
 .session-card button:active,
 .workspace-card button:active {
   transform: scale(0.98);
@@ -725,8 +731,10 @@ kbd {
 .demo-button:disabled,
 .settings-primary:disabled,
 .provider-card footer button:disabled,
+.provider-controls button:disabled,
 .security-card button:disabled,
 .recovery-card button:disabled,
+.recovery-proof button:disabled,
 .session-card button:disabled,
 .workspace-card button:disabled {
   cursor: not-allowed;
@@ -772,6 +780,32 @@ kbd {
 
 .demo-button {
   align-self: stretch;
+}
+
+.demo-instructions {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  display: grid;
+  gap: 7px;
+  margin-top: 10px;
+  overflow: hidden;
+  padding: 14px;
+}
+
+.demo-instructions p,
+.demo-instructions small {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 18px;
+  margin: 0;
+}
+
+.demo-instructions a {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 500;
+  text-underline-offset: 3px;
 }
 
 .form-success {
@@ -1339,6 +1373,49 @@ kbd {
   padding: 8px 10px;
 }
 
+.provider-controls {
+  align-items: end;
+  border-top: 1px solid var(--border);
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(150px, 1fr) 120px minmax(180px, auto);
+  margin-top: 14px;
+  padding-top: 14px;
+}
+
+.provider-controls label {
+  color: var(--text-muted);
+  display: grid;
+  font-size: 12px;
+  gap: 6px;
+}
+
+.provider-controls input {
+  background: var(--background);
+  border: 1px solid var(--border-control);
+  border-radius: 6px;
+  color: var(--text);
+  height: 36px;
+  min-width: 0;
+  padding: 0 10px;
+}
+
+.provider-controls > div {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.provider-controls span {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.provider-controls span.is-stale {
+  color: var(--warning);
+}
+
 .recovery-inline {
   color: var(--text);
 }
@@ -1350,6 +1427,33 @@ kbd {
 
 .recovery-inline button {
   margin-top: 10px;
+}
+
+.recovery-proof-fields {
+  align-items: end;
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.recovery-proof-fields label {
+  color: var(--text-muted);
+  display: grid;
+  font-size: 12px;
+  gap: 5px;
+}
+
+.recovery-proof-fields input {
+  background: var(--background);
+  border: 1px solid var(--border-control);
+  border-radius: 6px;
+  color: var(--text);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 14px;
+  height: 38px;
+  letter-spacing: 0.18em;
+  padding: 0 9px;
+  width: 94px;
 }
 
 .security-card,
@@ -1534,6 +1638,11 @@ kbd {
   text-decoration: none;
 }
 
+.keyless-actions {
+  display: flex;
+  gap: 16px;
+}
+
 .proof-results figure {
   margin: 0;
   max-width: 430px;
@@ -1716,6 +1825,14 @@ kbd {
   .provider-card dl > div {
     border-right: 0;
     padding: 0;
+  }
+
+  .provider-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .provider-controls > div {
+    justify-content: flex-start;
   }
 
   .password-confirm-row {

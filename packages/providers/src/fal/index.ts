@@ -226,7 +226,12 @@ export const falAdapter: ProviderAdapter = {
       url: `${this.base_url}/${model}`,
       init: {
         method: 'POST',
-        headers: { ...headers(context.key), 'X-Fal-Request-Timeout': '900', 'X-Fal-Store-IO': '0' },
+        headers: {
+          ...headers(context.key),
+          'X-Fal-Request-Timeout': '900',
+          'X-Fal-Store-IO': '0',
+          'X-Fal-Object-Lifecycle-Preference': JSON.stringify({ expiration_duration_seconds: 604_800 }),
+        },
         body: JSON.stringify(payload),
       },
       timeoutMs: 30_000,

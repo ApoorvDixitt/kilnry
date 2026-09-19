@@ -11,6 +11,7 @@ describe('key prefix detection', () => {
     const fal = `${'a'.repeat(8)}-${'b'.repeat(4)}-${'c'.repeat(4)}-${'d'.repeat(4)}-${'e'.repeat(12)}:${'f'.repeat(32)}`;
     const openrouter = ['sk-or-v1-', '0'.repeat(64)].join('');
     expect(detectProviderKey(fal)).toEqual([{ provider: 'fal', confidence: 'high' }]);
+    expect(detectProviderKey(`fal_${'F'.repeat(32)}`)).toEqual([{ provider: 'fal', confidence: 'high' }]);
     expect(detectProviderKey(openrouter)).toEqual([{ provider: 'openrouter', confidence: 'high' }]);
   });
 
@@ -21,5 +22,10 @@ describe('key prefix detection', () => {
       'pollinations',
     ]);
     expect(maskProviderKey(ambiguous)).not.toContain(ambiguous.slice(5, -4));
+    expect(maskProviderKey(openrouterKey())).toBe('sk-or-••••0000');
   });
 });
+
+function openrouterKey(): string {
+  return ['sk-or-v1-', '0'.repeat(64)].join('');
+}

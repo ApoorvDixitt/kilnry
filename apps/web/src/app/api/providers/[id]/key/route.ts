@@ -14,6 +14,7 @@ import {
 } from '@kilnry/core';
 import { adapters } from '@kilnry/providers';
 import { errorResponse, requireSession } from '../../../../../server/http';
+import { createRecoveryChallenge } from '../../../../../server/recovery-challenge';
 import { ensureRuntimeEngine, runtimeServices } from '../../../../../server/runtime';
 
 const Input = z.object({
@@ -40,7 +41,7 @@ async function providerFrom(id: string, key?: string) {
 
 export async function PUT(request: Request, context: { params: Promise<{ id: string }> }): Promise<Response> {
   try {
-    await requireSession();
+    const session = await requireSession();
     await ensureRuntimeEngine();
     const input = Input.parse(await request.json());
     const provider = await providerFrom((await context.params).id, input.key);
@@ -54,7 +55,12 @@ export async function PUT(request: Request, context: { params: Promise<{ id: str
       ...(input.label === undefined ? {} : { label: input.label }),
       save_anyway: input.save_anyway,
     });
-    return NextResponse.json(result);
+    return NextResponse.json({
+      ...result,
+      ...(result.recovery_kit
+        ? { confirmation: createRecoveryChallenge(session.session.id, result.recovery_kit) }
+        : {}),
+    });
   } catch (error) {
     return errorResponse(error);
   }

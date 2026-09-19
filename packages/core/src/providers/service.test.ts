@@ -11,7 +11,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { closeDatabaseState, createDatabase } from '@kilnry/db';
 import { KilnryError } from '../errors.js';
 import type { ProviderAdapter } from './adapter.js';
-import { refreshProviderPrices } from './service.js';
+import { listProviders, refreshProviderPrices, updateProviderControls } from './service.js';
 import { loadRegistry, seedRegistry } from '../registry/store.js';
 import { ProviderKeyStore } from '../security/key-store.js';
 
@@ -91,5 +91,14 @@ describe('provider price refresh', () => {
       models?: Array<{ price_rule?: { per_mp_usd?: number } }>;
     };
     expect(cached.models?.[0]?.price_rule?.per_mp_usd).toBe(0.009);
+    await updateProviderControls(state, 'fal', { monthly_cap_usd: 12.5, max_concurrency: 1 });
+    expect(
+      (await listProviders(state, { fal: adapter })).find((provider) => provider.id === 'fal'),
+    ).toMatchObject({
+      id: 'fal',
+      monthly_cap_usd: 12.5,
+      max_concurrency: 1,
+      price_stale: false,
+    });
   });
 });

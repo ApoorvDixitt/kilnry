@@ -159,7 +159,12 @@ export function CreateFoundation(): React.ReactNode {
               </div>
               <h2>{message('create.keylessTitle')}</h2>
               <p>{message('create.keylessBody')}</p>
-              <Link href="/settings/providers">{message('create.addKey')}</Link>
+              <div className="keyless-actions">
+                <a href="https://enter.pollinations.ai/keys" target="_blank" rel="noreferrer">
+                  {message('create.useDemo')}
+                </a>
+                <Link href="/settings/providers">{message('create.addKey')}</Link>
+              </div>
             </div>
           ) : (
             <div className="create-empty" key="ready">

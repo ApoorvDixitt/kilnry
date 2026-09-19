@@ -17,6 +17,7 @@ const patterns: Array<{ provider: ProviderId; pattern: RegExp; confidence: KeyCa
     pattern: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}:[0-9a-f]{32}$/i,
     confidence: 'high',
   },
+  { provider: 'fal', pattern: /^fal_[A-Za-z0-9_-]{16,}$/, confidence: 'high' },
   {
     provider: 'openai',
     pattern: /^sk-(?!or-|ant-)(?:proj-|svcacct-)?[A-Za-z0-9_-]{20,}$/,
@@ -45,8 +46,8 @@ export function maskProviderKey(key: string): string {
   if (value.includes(':')) {
     return value
       .split(':')
-      .map((part) => (part.length > 9 ? `${part.slice(0, 5)}••••${part.slice(-4)}` : '••••'))
+      .map((part) => (part.length > 10 ? `${part.slice(0, 6)}••••${part.slice(-4)}` : '••••'))
       .join(':');
   }
-  return value.length > 9 ? `${value.slice(0, 5)}••••${value.slice(-4)}` : '••••';
+  return value.length > 10 ? `${value.slice(0, 6)}••••${value.slice(-4)}` : '••••';
 }

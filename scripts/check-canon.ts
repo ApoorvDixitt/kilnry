@@ -6,6 +6,9 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, extname, join, normalize } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { ModelManifestSchema } from '../packages/core/src/registry/manifest.js';
+import { registrySeed } from '../packages/core/src/registry/seed/index.js';
+import { CapabilitySchema, ProviderIdSchema } from '../packages/core/src/types.js';
 
 const allowedTools = new Set([
   'kilnry_models',
@@ -74,6 +77,30 @@ function isText(path: string): boolean {
 }
 
 const failures: string[] = [];
+const registryKeys = registrySeed.map((model) => `${model.provider}:${model.model_id}`);
+if (new Set(registryKeys).size !== registryKeys.length)
+  failures.push('registry seed contains duplicate provider/model ids');
+for (const model of registrySeed) {
+  const parsed = ModelManifestSchema.safeParse(model);
+  if (!parsed.success)
+    failures.push(`registry seed has an invalid manifest: ${model.provider}:${model.model_id}`);
+  if (!ProviderIdSchema.safeParse(model.provider).success)
+    failures.push(`registry seed has unknown provider ${model.provider}`);
+  for (const capability of model.capabilities) {
+    if (!CapabilitySchema.safeParse(capability).success)
+      failures.push(`registry seed has unknown capability ${capability}`);
+  }
+}
+if (registrySeed.some((model) => /sora|gemini-2\.5-flash-image/i.test(model.model_id))) {
+  failures.push('registry seed contains a D-42 retired model');
+}
+if (
+  registrySeed.some(
+    (model) => model.provider === 'fal' && /seedance-2\.5/i.test(model.model_id) && model.enabled,
+  )
+) {
+  failures.push('registry seed enables the D-42 excluded fal Seedance 2.5 route');
+}
 for (const path of trackedFiles().filter(isText)) {
   const content = readFileSync(path, 'utf8');
   if (/\bKiln\b/.test(content)) failures.push(`${path}: prohibited former short name`);

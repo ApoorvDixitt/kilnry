@@ -86,6 +86,9 @@ describe('fal adapter MSW matrix', () => {
       ),
       http.post('https://queue.fal.run/fal-ai/flux-2/klein/4b', async ({ request: incoming }) => {
         expect(incoming.headers.get('x-fal-store-io')).toBe('0');
+        expect(incoming.headers.get('x-fal-object-lifecycle-preference')).toBe(
+          '{"expiration_duration_seconds":604800}',
+        );
         const payload = (await incoming.json()) as Record<string, unknown>;
         expect(payload).toMatchObject({
           prompt: 'fixture request',

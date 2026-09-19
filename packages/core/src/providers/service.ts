@@ -29,6 +29,9 @@ export interface ProviderSummary {
   last_tested_at?: string;
   degraded_until?: string;
   monthly_cap_usd?: number;
+  max_concurrency: number;
+  price_fetched_at?: string;
+  price_stale: boolean;
   training_on_inputs: boolean;
 }
 
@@ -53,6 +56,10 @@ export async function listProviders(
     .select({ providerId: models.providerId, value: count() })
     .from(models)
     .groupBy(models.providerId);
+  const modelRows = await state.db.select({ id: models.id, providerId: models.providerId }).from(models);
+  const snapshots = await state.db
+    .select({ modelId: priceSnapshots.modelUlid, fetchedAt: priceSnapshots.fetchedAt })
+    .from(priceSnapshots);
   const spend = await state.db
     .select({
       providerId: spendLedger.providerId,
@@ -64,12 +71,23 @@ export async function listProviders(
   const byKey = new Map(keys.map((row) => [row.providerId, row]));
   const byCount = new Map(counts.map((row) => [row.providerId, row.value]));
   const bySpend = new Map(spend.map((row) => [row.providerId, Number(row.value)]));
+  const providerForModel = new Map(modelRows.map((row) => [row.id, row.providerId]));
+  const latestPrice = new Map<string, Date>();
+  for (const snapshot of snapshots) {
+    const providerId = providerForModel.get(snapshot.modelId);
+    if (!providerId) continue;
+    const prior = latestPrice.get(providerId);
+    if (!prior || snapshot.fetchedAt > prior) latestPrice.set(providerId, snapshot.fetchedAt);
+  }
   const summaries = rows.flatMap((row) => {
     const parsed = ProviderIdSchema.safeParse(row.id);
     if (!parsed.success) return [];
     const id = parsed.data;
     const adapter = adapters[id];
     const key = byKey.get(id);
+    const fetchedAt = latestPrice.get(id);
+    const configuredConcurrency =
+      typeof row.extra.max_concurrency === 'number' ? row.extra.max_concurrency : undefined;
     return [
       {
         id,
@@ -83,6 +101,15 @@ export async function listProviders(
         ...(row.lastTestedAt ? { last_tested_at: row.lastTestedAt.toISOString() } : {}),
         ...(row.degradedUntil ? { degraded_until: row.degradedUntil.toISOString() } : {}),
         ...(row.monthlyCapUsd ? { monthly_cap_usd: Number(row.monthlyCapUsd) } : {}),
+        max_concurrency: Math.max(
+          1,
+          Math.min(
+            configuredConcurrency ?? adapter?.concurrency.default ?? 1,
+            adapter?.concurrency.max_known ?? 32,
+          ),
+        ),
+        ...(fetchedAt ? { price_fetched_at: fetchedAt.toISOString() } : {}),
+        price_stale: !fetchedAt || Date.now() - fetchedAt.getTime() > 30 * 86_400_000,
         training_on_inputs: adapter?.training_on_inputs ?? false,
       },
     ];
@@ -292,4 +319,32 @@ export async function setProviderCap(
     .update(providers)
     .set({ monthlyCapUsd: capUsd === null ? null : capUsd.toFixed(6), updatedAt: new Date() })
     .where(and(eq(providers.id, provider)));
+}
+
+export async function updateProviderControls(
+  state: DatabaseState,
+  provider: ProviderId,
+  input: { monthly_cap_usd?: number | null; max_concurrency?: number; resume?: boolean },
+): Promise<void> {
+  const rows = await state.db
+    .select({ extra: providers.extra })
+    .from(providers)
+    .where(eq(providers.id, provider));
+  const current = rows[0];
+  if (!current) throw new KilnryError('NOT_FOUND', `Provider ${provider} is not seeded.`);
+  const extra = { ...current.extra };
+  if (input.max_concurrency !== undefined) extra.max_concurrency = input.max_concurrency;
+  await state.db
+    .update(providers)
+    .set({
+      extra,
+      ...(input.monthly_cap_usd === undefined
+        ? {}
+        : {
+            monthlyCapUsd: input.monthly_cap_usd === null ? null : input.monthly_cap_usd.toFixed(6),
+          }),
+      ...(input.resume ? { status: 'ok', degradedUntil: null, lastError: null } : {}),
+      updatedAt: new Date(),
+    })
+    .where(eq(providers.id, provider));
 }

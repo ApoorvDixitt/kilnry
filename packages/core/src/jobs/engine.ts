@@ -127,6 +127,13 @@ function ambiguous(error: KilnryError): boolean {
   );
 }
 
+function retryAfterMs(error: KilnryError): number | undefined {
+  const details = error.options.details;
+  if (typeof details !== 'object' || details === null || !('retry_after_s' in details)) return undefined;
+  const seconds = Number(details.retry_after_s);
+  return Number.isFinite(seconds) && seconds > 0 ? Math.min(seconds, 120) * 1000 : undefined;
+}
+
 function delay(milliseconds: number, signal?: AbortSignal): Promise<void> {
   if (signal?.aborted) {
     return Promise.reject(
@@ -241,14 +248,25 @@ export class JobEngine {
     }
     this.#boss = boss;
     await this.#recover();
+    const providerControls = new Map(
+      (await this.#options.state.db.select({ id: providers.id, extra: providers.extra }).from(providers)).map(
+        (provider) => [provider.id, provider.extra],
+      ),
+    );
     for (const [providerKey, adapter] of Object.entries(this.#options.adapters)) {
       if (!adapter) continue;
       const provider = ProviderIdSchema.parse(providerKey);
+      const configured = providerControls.get(provider)?.max_concurrency;
+      const requestedConcurrency = typeof configured === 'number' ? configured : adapter.concurrency.default;
+      const concurrency = Math.max(
+        1,
+        Math.min(requestedConcurrency, adapter.concurrency.default, adapter.concurrency.max_known ?? 32),
+      );
       await boss.work<QueuePayload>(
         queueName(provider),
         {
           batchSize: 1,
-          localConcurrency: adapter.concurrency.default,
+          localConcurrency: concurrency,
           pollingIntervalSeconds: 0.5,
         },
         async (messages) => {
@@ -680,7 +698,8 @@ export class JobEngine {
         const limit = normalized.code === 'RATE_LIMITED' ? 5 : normalized.code === 'PROVIDER_ERROR' ? 3 : 0;
         if (!definitiveNoSpend || attempt >= limit) throw normalized;
         const schedule = this.#options.submitRetryScheduleMs;
-        await delay(schedule[Math.min(attempt, schedule.length - 1)] ?? 0, context.signal);
+        const providerDelay = normalized.code === 'RATE_LIMITED' ? retryAfterMs(normalized) : undefined;
+        await delay(providerDelay ?? schedule[Math.min(attempt, schedule.length - 1)] ?? 0, context.signal);
         attempt += 1;
       }
     }

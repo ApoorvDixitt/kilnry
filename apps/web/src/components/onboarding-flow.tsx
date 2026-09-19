@@ -9,7 +9,9 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Check, Eye, EyeOff, FolderOpen, KeyRound, LockKeyhole, Sparkles } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
+import { detectProviderKey } from '@kilnry/core/security/key-detection';
 import { BrandMark } from './brand-mark';
+import { RecoveryProof, type RecoveryConfirmation } from './recovery-proof';
 import { apiFetch } from '../lib/api-client';
 import { message } from '../lib/messages';
 
@@ -45,14 +47,18 @@ export function OnboardingFlow({
   const [providerKey, setProviderKey] = useState('');
   const [provider, setProvider] = useState<'fal' | 'openrouter' | 'pollinations'>('fal');
   const [connected, setConnected] = useState(false);
+  const [demoExpanded, setDemoExpanded] = useState(false);
   const [connectionNote, setConnectionNote] = useState<string>();
   const [recoveryKit, setRecoveryKit] = useState<string>();
+  const [recoveryConfirmation, setRecoveryConfirmation] = useState<RecoveryConfirmation>();
 
   function detectProvider(value: string): 'fal' | 'openrouter' | 'pollinations' | undefined {
-    if (/^sk-or-v1-/i.test(value)) return 'openrouter';
-    if (/^[0-9a-f]{8}-[0-9a-f-]{27}:[0-9a-f]{32}$/i.test(value)) return 'fal';
-    if (/^sk_/i.test(value)) return 'pollinations';
-    return undefined;
+    const candidates = detectProviderKey(value);
+    if (candidates.length !== 1) return undefined;
+    const candidate = candidates[0]?.provider;
+    return candidate === 'fal' || candidate === 'openrouter' || candidate === 'pollinations'
+      ? candidate
+      : undefined;
   }
 
   async function createAccount(event: React.FormEvent<HTMLFormElement>): Promise<void> {
@@ -114,6 +120,7 @@ export function OnboardingFlow({
       });
       const body = (await response.json()) as {
         recovery_kit?: string;
+        confirmation?: RecoveryConfirmation;
         test?: { latency_ms?: number; model_count?: number };
         error?: { message?: string };
       };
@@ -121,6 +128,7 @@ export function OnboardingFlow({
       setProvider(selected);
       setConnected(true);
       setRecoveryKit(body.recovery_kit);
+      setRecoveryConfirmation(body.confirmation);
       setConnectionNote(
         message('welcome.providerConnected')
           .replace('{latency}', String(body.test?.latency_ms ?? 0))
@@ -318,7 +326,9 @@ export function OnboardingFlow({
                         '{provider}',
                         detectProvider(providerKey) ?? provider,
                       )
-                    : message('welcome.providerHelp')}
+                    : detectProviderKey(providerKey).length > 1
+                      ? message('welcome.providerAmbiguous')
+                      : message('welcome.providerHelp')}
                 </span>
                 {connectionNote ? (
                   <p className="form-success">
@@ -326,11 +336,16 @@ export function OnboardingFlow({
                     {connectionNote}
                   </p>
                 ) : null}
-                {recoveryKit ? (
+                {recoveryKit && recoveryConfirmation ? (
                   <div className="onboarding-recovery">
-                    <strong>{message('welcome.recoveryTitle')}</strong>
-                    <p>{message('welcome.recoveryBody')}</p>
-                    <code>{recoveryKit}</code>
+                    <RecoveryProof
+                      recoveryKit={recoveryKit}
+                      confirmation={recoveryConfirmation}
+                      onConfirmed={() => {
+                        setRecoveryKit(undefined);
+                        setRecoveryConfirmation(undefined);
+                      }}
+                    />
                   </div>
                 ) : null}
                 {error ? (
@@ -349,7 +364,7 @@ export function OnboardingFlow({
                   <button
                     className="primary-button"
                     type="button"
-                    disabled={pending || !connected}
+                    disabled={pending || !connected || Boolean(recoveryKit)}
                     onClick={() => void finishProviderStep()}
                   >
                     {message('welcome.continue')}
@@ -364,10 +379,28 @@ export function OnboardingFlow({
                   onClick={() => {
                     setProvider('pollinations');
                     setConnected(false);
+                    setDemoExpanded(true);
                   }}
                 >
                   {message('welcome.demo')}
                 </button>
+                <AnimatePresence>
+                  {demoExpanded ? (
+                    <motion.div
+                      className="demo-instructions"
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      exit={{ opacity: 0, height: 0 }}
+                    >
+                      <strong>{message('welcome.demoTitle')}</strong>
+                      <p>{message('welcome.demoBody')}</p>
+                      <a href="https://enter.pollinations.ai/keys" target="_blank" rel="noreferrer">
+                        {message('welcome.demoLink')}
+                      </a>
+                      <small>{message('welcome.demoNote')}</small>
+                    </motion.div>
+                  ) : null}
+                </AnimatePresence>
                 <button
                   className="text-button"
                   type="button"

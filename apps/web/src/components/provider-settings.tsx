@@ -8,8 +8,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Check, KeyRound, RefreshCw, Trash2 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
+import { detectProviderKey } from '@kilnry/core/security/key-detection';
 import { apiFetch } from '../lib/api-client';
 import { message } from '../lib/messages';
+import { RecoveryProof, type RecoveryConfirmation } from './recovery-proof';
 
 type ProviderId = 'fal' | 'openrouter' | 'pollinations';
 interface ProviderSummary {
@@ -21,6 +23,10 @@ interface ProviderSummary {
   model_count: number;
   spend_month_usd: number;
   last_error?: string;
+  monthly_cap_usd?: number;
+  max_concurrency?: number;
+  price_fetched_at?: string;
+  price_stale?: boolean;
 }
 
 interface ApiError {
@@ -34,10 +40,12 @@ async function responseJson<T>(response: Response): Promise<T> {
 }
 
 function detect(value: string): ProviderId | undefined {
-  if (/^sk-or-v1-/i.test(value)) return 'openrouter';
-  if (/^[0-9a-f]{8}-[0-9a-f-]{27}:[0-9a-f]{32}$/i.test(value)) return 'fal';
-  if (/^sk_/i.test(value)) return 'pollinations';
-  return undefined;
+  const candidates = detectProviderKey(value);
+  if (candidates.length !== 1) return undefined;
+  const provider = candidates[0]?.provider;
+  return provider === 'fal' || provider === 'openrouter' || provider === 'pollinations'
+    ? provider
+    : undefined;
 }
 
 export function ProviderSettings({
@@ -52,6 +60,9 @@ export function ProviderSettings({
   const [error, setError] = useState<string>();
   const [notice, setNotice] = useState<string>();
   const [recoveryKit, setRecoveryKit] = useState<string>();
+  const [recoveryConfirmation, setRecoveryConfirmation] = useState<RecoveryConfirmation>();
+  const [caps, setCaps] = useState<Record<string, string>>({});
+  const [concurrency, setConcurrency] = useState<Record<string, string>>({});
 
   const load = useCallback(async () => {
     const response = await fetch('/api/providers');
@@ -67,6 +78,7 @@ export function ProviderSettings({
   }, [initialProviders, load]);
 
   const detected = useMemo(() => detect(key), [key]);
+  const ambiguous = useMemo(() => detectProviderKey(key).length > 1, [key]);
 
   async function connect(event: React.FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
@@ -82,9 +94,11 @@ export function ProviderSettings({
       });
       const body = await responseJson<{
         recovery_kit?: string;
+        confirmation?: RecoveryConfirmation;
         test: { latency_ms?: number; model_count?: number };
       }>(response);
       setRecoveryKit(body.recovery_kit);
+      setRecoveryConfirmation(body.confirmation);
       setNotice(
         message('settings.providers.connected')
           .replace('{latency}', String(body.test.latency_ms ?? 0))
@@ -150,6 +164,51 @@ export function ProviderSettings({
     }
   }
 
+  async function saveControls(item: ProviderSummary): Promise<void> {
+    setError(undefined);
+    setPending(true);
+    try {
+      const cap = caps[item.id] ?? (item.monthly_cap_usd === undefined ? '' : String(item.monthly_cap_usd));
+      const maximum = Number(concurrency[item.id] ?? item.max_concurrency ?? 1);
+      await responseJson(
+        await apiFetch(`/api/providers/${item.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            monthly_cap_usd: cap.trim() ? Number(cap) : null,
+            max_concurrency: maximum,
+          }),
+        }),
+      );
+      setNotice(message('settings.providers.controlsSaved'));
+      await load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : message('settings.providers.requestFailed'));
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function resumeProvider(id: string): Promise<void> {
+    setError(undefined);
+    setPending(true);
+    try {
+      await responseJson(
+        await apiFetch(`/api/providers/${id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ resume: true }),
+        }),
+      );
+      setNotice(message('settings.providers.resumed'));
+      await load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : message('settings.providers.requestFailed'));
+    } finally {
+      setPending(false);
+    }
+  }
+
   return (
     <div className="settings-content">
       <header className="settings-heading">
@@ -191,7 +250,9 @@ export function ProviderSettings({
         <small>
           {detected
             ? message('settings.providers.detected').replace('{provider}', detected)
-            : message('settings.providers.encryptionHelp')}
+            : ambiguous
+              ? message('settings.providers.ambiguous')
+              : message('settings.providers.encryptionHelp')}
         </small>
       </form>
       <div className="inline-feedback" aria-live="polite">
@@ -204,19 +265,21 @@ export function ProviderSettings({
         ) : null}
       </div>
       <AnimatePresence>
-        {recoveryKit ? (
+        {recoveryKit && recoveryConfirmation ? (
           <motion.section
             className="recovery-inline"
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
           >
-            <h3>{message('settings.security.kitSaveTitle')}</h3>
-            <p>{message('settings.security.kitSaveBody')}</p>
-            <code>{recoveryKit}</code>
-            <button type="button" onClick={() => setRecoveryKit(undefined)}>
-              {message('settings.security.kitStored')}
-            </button>
+            <RecoveryProof
+              recoveryKit={recoveryKit}
+              confirmation={recoveryConfirmation}
+              onConfirmed={() => {
+                setRecoveryKit(undefined);
+                setRecoveryConfirmation(undefined);
+              }}
+            />
           </motion.section>
         ) : null}
       </AnimatePresence>
@@ -253,7 +316,58 @@ export function ProviderSettings({
               </div>
             </dl>
             {item.last_error ? <p className="provider-error">{item.last_error}</p> : null}
+            <div className="provider-controls">
+              <label>
+                {message('settings.providers.monthlyCap')}
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder={message('settings.providers.noCap')}
+                  value={
+                    caps[item.id] ?? (item.monthly_cap_usd === undefined ? '' : String(item.monthly_cap_usd))
+                  }
+                  onChange={(event) => setCaps((current) => ({ ...current, [item.id]: event.target.value }))}
+                />
+              </label>
+              <label>
+                {message('settings.providers.concurrency')}
+                <input
+                  type="number"
+                  min="1"
+                  max="32"
+                  step="1"
+                  value={concurrency[item.id] ?? String(item.max_concurrency ?? 1)}
+                  onChange={(event) =>
+                    setConcurrency((current) => ({ ...current, [item.id]: event.target.value }))
+                  }
+                />
+              </label>
+              <div>
+                <span className={item.price_stale ? 'is-stale' : ''}>
+                  {item.price_fetched_at
+                    ? message('settings.providers.priceAge').replace(
+                        '{days}',
+                        String(
+                          Math.max(
+                            0,
+                            Math.floor((Date.now() - new Date(item.price_fetched_at).getTime()) / 86_400_000),
+                          ),
+                        ),
+                      )
+                    : message('settings.providers.priceUnknown')}
+                </span>
+                <button type="button" disabled={pending} onClick={() => void saveControls(item)}>
+                  {message('settings.providers.saveControls')}
+                </button>
+              </div>
+            </div>
             <footer>
+              {item.status === 'degraded' ? (
+                <button type="button" disabled={pending} onClick={() => void resumeProvider(item.id)}>
+                  {message('settings.providers.resume')}
+                </button>
+              ) : null}
               <button type="button" disabled={!item.connected || pending} onClick={() => void test(item.id)}>
                 <RefreshCw size={15} />
                 {message('settings.providers.test')}

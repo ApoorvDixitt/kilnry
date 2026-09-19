@@ -21,6 +21,7 @@
     "./providers/adapter": "./dist/providers/adapter.js",
     "./registry": "./dist/registry/store.js",
     "./security/key-store": "./dist/security/key-store.js",
+    "./security/key-detection": "./dist/security/key-detection.js",
     "./security/redact": "./dist/security/redact.js",
     "./types": "./dist/types.js"
   },

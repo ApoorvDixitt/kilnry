@@ -64,11 +64,28 @@ test('@smoke AS-01 first run creates a protected local account and Library', asy
     return { missing_csrf: missingCsrf.status, no_provider: response.status };
   });
   expect(noProviderStatus).toEqual({ missing_csrf: 403, no_provider: 424 });
+  await page.getByRole('button', { name: 'Try the demo with a free Pollinations key' }).click();
+  await expect(page.getByText('Free Pollinations image demo')).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Open Pollinations free keys' })).toHaveAttribute(
+    'href',
+    'https://enter.pollinations.ai/keys',
+  );
   const providerKey = ['sk-or-v1-', '0'.repeat(64)].join('');
   await page.getByLabel('Provider key').fill(providerKey);
   await expect(page.getByText('openrouter detected', { exact: false })).toBeVisible();
   await page.getByRole('button', { name: 'Test and save key' }).click();
   await expect(page.getByText(/Connected · \d+ ms/)).toBeVisible();
+  const onboardingKit =
+    (await page.locator('.onboarding-recovery code').textContent())?.replace(/[\s-]/g, '') ?? '';
+  const onboardingGroups = onboardingKit.slice('kilnry1'.length).match(/.{1,4}/g) ?? [];
+  const onboardingConfirmation = page.locator('.onboarding-recovery .recovery-proof-fields label');
+  for (let index = 0; index < (await onboardingConfirmation.count()); index += 1) {
+    const label = onboardingConfirmation.nth(index);
+    const group = Number(/group (\d+)/i.exec((await label.textContent()) ?? '')?.[1]);
+    await label.locator('input').fill(onboardingGroups[group - 1] ?? '');
+  }
+  await page.getByRole('button', { name: "I've stored it safely" }).click();
+  await expect(page.locator('.onboarding-recovery')).toHaveCount(0);
   const providerTestStatuses = await page.evaluate(async () => {
     const csrf = decodeURIComponent(
       document.cookie
@@ -185,6 +202,10 @@ test('@smoke AS-01 first run creates a protected local account and Library', asy
   await expect(page.getByRole('heading', { name: 'Providers', exact: true })).toBeVisible();
   const openRouterCard = page.locator('.provider-card').filter({ hasText: 'OpenRouter' });
   await expect(openRouterCard).toContainText('Connected');
+  await openRouterCard.getByLabel('Monthly cap (USD)').fill('25');
+  await openRouterCard.getByLabel('Concurrency').fill('2');
+  await openRouterCard.getByRole('button', { name: 'Save limits' }).click();
+  await expect(page.getByText(/Provider limits saved/)).toBeVisible();
   await openRouterCard.getByRole('button', { name: 'Refresh prices' }).click();
   await expect(page.getByText(/Prices refreshed · \d+ models/)).toBeVisible();
   await expect(openRouterCard.getByRole('button', { name: 'Refresh prices' })).toBeEnabled();
@@ -204,8 +225,22 @@ test('@smoke AS-01 first run creates a protected local account and Library', asy
   await expect(page.getByText('This browser')).toBeVisible();
   await expect(page.getByText(/master key source: (?!not initialized)/)).toBeVisible();
   await page.screenshot({ path: join(root, 'test-results', 'm2-security-dark.png'), fullPage: true });
+  await page.goto('/settings/providers');
+  await page.getByLabel('Add or replace a provider key').fill(`sk_${'p'.repeat(32)}`);
+  await page.getByLabel('Provider', { exact: true }).selectOption('pollinations');
+  await page.getByRole('button', { name: 'Test and save' }).click();
+  const pollinationsCard = page.locator('.provider-card').filter({ hasText: 'Pollinations' });
+  await expect(pollinationsCard).toContainText('Connected');
+  await openRouterCard.getByRole('button', { name: 'Remove' }).click();
+  await expect(openRouterCard).toContainText('Not connected');
   await page.goto('/create');
   await expect(page.getByRole('heading', { name: 'The M2 engine is ready' })).toBeVisible();
+  await expect(page.getByText(/Pollinations demo is connected/)).toBeVisible();
+  await page.getByRole('button', { name: 'Auto · estimate route' }).click();
+  await expect(page.locator('.cost-zero')).toContainText('$0.0000');
+  await page.getByRole('button', { name: 'Generate' }).click();
+  await expect(page.getByText('Saved to the Library')).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText('Demo', { exact: true })).toBeVisible();
   await page.screenshot({ path: join(root, 'test-results', 'm1-create-dark.png'), fullPage: true });
 
   const privateContext = await browser.newContext();
