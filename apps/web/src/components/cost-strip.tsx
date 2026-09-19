@@ -6,6 +6,8 @@
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
 import { AlertTriangle } from 'lucide-react';
+import { motion } from 'motion/react';
+import NumberFlow from '@number-flow/react';
 import { message } from '../lib/messages';
 import type { ApiEstimate } from '../lib/composer-types';
 
@@ -28,6 +30,13 @@ const STALE_PRICE_DAYS = 30;
 export function formatUsd(amount: number): string {
   const digits = amount < 0.01 ? 4 : amount < 1 ? 3 : 2;
   return `$${amount.toFixed(digits)}`;
+}
+
+// How many fraction digits Kilnry shows for a given amount. NumberFlow is given
+// the same minimum and maximum so its rolled figure matches formatUsd exactly:
+// small amounts keep more precision so a fraction of a cent is never hidden.
+export function usdFractionDigits(amount: number): number {
+  return amount < 0.01 ? 4 : amount < 1 ? 3 : 2;
 }
 
 export function formatEta(seconds: number): string {
@@ -115,7 +124,8 @@ export function CostStrip({
   }
 
   const amount = state.amount ?? 0;
-  const figure = `${state.authoritative ? '' : '≈ '}${formatUsd(amount)}`;
+  const digits = usdFractionDigits(amount);
+  const over = state.status === 'over-budget';
   const size = outputSize(estimate.unit_price.unit, params, promptChars);
   const ageDays = priceAgeDays(estimate.unit_price.fetched_at, now);
 
@@ -148,7 +158,36 @@ export function CostStrip({
           strokeWidth={2}
         />
       ) : null}
-      <span className="cost-strip-figure">{figure}</span>
+      <motion.span
+        className="cost-strip-figure"
+        data-over={over ? 'true' : 'false'}
+        animate={over ? 'over' : 'ok'}
+        variants={{
+          ok: { color: 'var(--accent-text)' },
+          over: { color: 'var(--danger)', scale: [1, 1.04, 1] },
+        }}
+        transition={{ duration: 0.2, ease: [0.25, 1, 0.5, 1] }}
+      >
+        <span className="cost-strip-figure-roll" aria-hidden="true">
+          <NumberFlow
+            value={amount}
+            prefix={state.authoritative ? '' : '≈ '}
+            format={{
+              style: 'currency',
+              currency: 'USD',
+              minimumFractionDigits: digits,
+              maximumFractionDigits: digits,
+            }}
+            trend={0}
+            spinTiming={{ duration: 300, easing: 'cubic-bezier(.32,.72,0,1)' }}
+            transformTiming={{ duration: 200, easing: 'cubic-bezier(.25,1,.5,1)' }}
+            respectMotionPreference
+          />
+        </span>
+        <span className="cost-strip-figure-text visually-hidden" aria-live="polite">
+          {`${state.authoritative ? '' : '≈ '}${formatUsd(amount)}`}
+        </span>
+      </motion.span>
       <span className="cost-strip-sep">·</span>
       <span className="cost-strip-size">{size}</span>
       <span className="cost-strip-sep">·</span>

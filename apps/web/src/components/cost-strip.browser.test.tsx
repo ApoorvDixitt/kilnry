@@ -100,7 +100,7 @@ describe('CostStrip', () => {
       promptChars: 0,
       now: NOW,
     });
-    expect(host.querySelector('.cost-strip-figure')?.textContent).toBe('≈ $0.840');
+    expect(host.querySelector('.cost-strip-figure-text')?.textContent).toBe('≈ $0.840');
     expect(host.querySelector('.cost-strip-size')?.textContent).toBe('5 s');
     expect(host.querySelector('.cost-strip-eta')?.textContent).toBe('~90 s');
   });
@@ -112,7 +112,22 @@ describe('CostStrip', () => {
       promptChars: 0,
       now: NOW,
     });
-    expect(host.querySelector('.cost-strip-figure')?.textContent).toBe('$0.900');
+    expect(host.querySelector('.cost-strip-figure-text')?.textContent).toBe('$0.900');
+  });
+
+  it('renders an animated figure that is hidden from assistive technology', async () => {
+    const host = await render({
+      estimate: estimate(),
+      params: { count: 1, duration_s: 5 },
+      promptChars: 0,
+      now: NOW,
+    });
+    const roll = host.querySelector('.cost-strip-figure-roll');
+    expect(roll).not.toBeNull();
+    expect(roll?.getAttribute('aria-hidden')).toBe('true');
+    expect(roll?.querySelector('number-flow-react')).not.toBeNull();
+    // The accessible amount lives in a visually-hidden live region.
+    expect(host.querySelector('.cost-strip-figure-text.visually-hidden')).not.toBeNull();
   });
 
   it('renders the exact over-budget copy and marks the strip', async () => {

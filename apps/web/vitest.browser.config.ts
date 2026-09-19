@@ -8,7 +8,15 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   optimizeDeps: {
-    include: ['react/jsx-runtime', 'react/jsx-dev-runtime'],
+    include: [
+      'react',
+      'react-dom',
+      'react-dom/client',
+      'react/jsx-runtime',
+      'react/jsx-dev-runtime',
+      '@number-flow/react',
+      'motion/react',
+    ],
   },
   oxc: {
     jsx: { runtime: 'automatic' },
