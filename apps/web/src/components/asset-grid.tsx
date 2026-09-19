@@ -52,7 +52,17 @@ function TypeGlyph({ item }: { item: AssetListItem }): React.ReactNode {
   return null;
 }
 
-function AssetTile({ item, onOpen }: { item: AssetListItem; onOpen: (id: string) => void }): React.ReactNode {
+function AssetTile({
+  item,
+  onOpen,
+  selected,
+  onToggleSelect,
+}: {
+  item: AssetListItem;
+  onOpen: (id: string) => void;
+  selected?: boolean | undefined;
+  onToggleSelect?: ((id: string) => void) | undefined;
+}): React.ReactNode {
   const [scrub, setScrub] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const isVideo = item.kind === 'video' || item.kind === 'video_edit';
@@ -67,22 +77,33 @@ function AssetTile({ item, onOpen }: { item: AssetListItem; onOpen: (id: string)
   }
 
   return (
-    <button
-      type="button"
-      className={`asset-tile${item.sidecar_ok ? '' : ' is-orphan'}`}
-      data-kind={item.kind}
-      onMouseEnter={enter}
-      onMouseLeave={leave}
-      onClick={() => onOpen(item.id)}
-    >
-      <img
-        src={scrub ? `/api/sprite/${item.id}` : `/api/thumb/${item.id}`}
-        alt=""
-        loading="lazy"
-        className="asset-thumb"
-      />
-      <TypeGlyph item={item} />
-    </button>
+    <div className={`asset-tile-wrap${selected ? ' is-selected' : ''}`}>
+      {onToggleSelect ? (
+        <input
+          type="checkbox"
+          className="asset-select"
+          checked={selected ?? false}
+          aria-label={`Select ${item.path.split('/').at(-1)}`}
+          onChange={() => onToggleSelect(item.id)}
+        />
+      ) : null}
+      <button
+        type="button"
+        className={`asset-tile${item.sidecar_ok ? '' : ' is-orphan'}`}
+        data-kind={item.kind}
+        onMouseEnter={enter}
+        onMouseLeave={leave}
+        onClick={() => onOpen(item.id)}
+      >
+        <img
+          src={scrub ? `/api/sprite/${item.id}` : `/api/thumb/${item.id}`}
+          alt=""
+          loading="lazy"
+          className="asset-thumb"
+        />
+        <TypeGlyph item={item} />
+      </button>
+    </div>
   );
 }
 
@@ -90,16 +111,20 @@ export function AssetGrid({
   assets,
   sort,
   view,
+  selected,
   onSortChange,
   onViewChange,
   onOpen,
+  onToggleSelect,
 }: {
   assets: AssetListItem[];
   sort: AssetSort;
   view: 'grid' | 'list';
+  selected?: ReadonlySet<string>;
   onSortChange: (sort: AssetSort) => void;
   onViewChange: (view: 'grid' | 'list') => void;
   onOpen: (id: string) => void;
+  onToggleSelect?: (id: string) => void;
 }): React.ReactNode {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
@@ -192,7 +217,13 @@ export function AssetGrid({
                       </span>
                     </button>
                   ) : (
-                    <AssetTile key={item.id} item={item} onOpen={onOpen} />
+                    <AssetTile
+                      key={item.id}
+                      item={item}
+                      onOpen={onOpen}
+                      selected={selected?.has(item.id) ?? false}
+                      onToggleSelect={onToggleSelect}
+                    />
                   ),
                 )}
               </div>

@@ -5,7 +5,15 @@
 
 import { NextResponse } from 'next/server';
 import * as z from 'zod';
-import { KilnryError, getAssetDetail, libraryMarker, loadConfig, updateAssetMetadata } from '@kilnry/core';
+import {
+  KilnryError,
+  deleteAssetToTrash,
+  getAssetDetail,
+  libraryMarker,
+  loadConfig,
+  restoreAsset,
+  updateAssetMetadata,
+} from '@kilnry/core';
 import { errorResponse, requireSession } from '../../../../../server/http';
 import { runtimeServices } from '../../../../../server/runtime';
 
@@ -50,6 +58,42 @@ export async function PATCH(
     const services = await runtimeServices();
     const marker = await libraryMarker(root);
     await updateAssetMetadata(services.database, root, marker.library_id, id, patch);
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    return errorResponse(error);
+  }
+}
+
+// Move the asset to Trash (soft delete). Restore is a POST with {op:'restore'}.
+export async function DELETE(
+  _request: Request,
+  context: { params: Promise<{ id: string }> },
+): Promise<Response> {
+  try {
+    await requireSession();
+    const { id } = await context.params;
+    const root = libraryRoot();
+    const services = await runtimeServices();
+    const marker = await libraryMarker(root);
+    await deleteAssetToTrash(services.database, root, marker.library_id, id);
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    return errorResponse(error);
+  }
+}
+
+export async function POST(
+  request: Request,
+  context: { params: Promise<{ id: string }> },
+): Promise<Response> {
+  try {
+    await requireSession();
+    const { id } = await context.params;
+    const body = (await request.json()) as { op?: string };
+    if (body.op !== 'restore') throw new KilnryError('INVALID_INPUT', 'Unknown asset operation.');
+    const root = libraryRoot();
+    const services = await runtimeServices();
+    await restoreAsset(services.database, root, id);
     return NextResponse.json({ ok: true });
   } catch (error) {
     return errorResponse(error);

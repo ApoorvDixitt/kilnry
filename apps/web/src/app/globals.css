@@ -1821,6 +1821,69 @@ kbd {
   position: relative;
 }
 
+.asset-tile-wrap {
+  position: relative;
+}
+
+.asset-tile-wrap.is-selected .asset-tile {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+
+.asset-select {
+  left: 8px;
+  position: absolute;
+  top: 8px;
+  z-index: 2;
+}
+
+.selection-bar {
+  align-items: center;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  bottom: 16px;
+  box-shadow: var(--shadow-popover, 0 12px 32px rgb(0 0 0 / 18%));
+  display: flex;
+  gap: 10px;
+  left: 50%;
+  min-height: 48px;
+  padding: 8px 12px;
+  position: fixed;
+  transform: translateX(-50%);
+  z-index: 60;
+}
+
+.selection-count {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.selection-spacer {
+  width: 8px;
+}
+
+.selection-bar button {
+  align-items: center;
+  background: var(--surface-2);
+  border: 0;
+  border-radius: 8px;
+  color: var(--text);
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 12px;
+  gap: 5px;
+  padding: 6px 10px;
+}
+
+.selection-bar .selection-danger {
+  color: var(--danger);
+}
+
+.selection-bar .selection-clear {
+  color: var(--text-muted);
+}
+
 .asset-tile.is-orphan {
   outline: 2px dashed var(--warning, #b7791f);
   outline-offset: -2px;

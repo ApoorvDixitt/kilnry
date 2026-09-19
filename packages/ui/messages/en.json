@@ -445,6 +445,16 @@
       "multi": "{n} files · {size} · {cost} total",
       "saved": "Saved",
       "saveFailed": "Kilnry could not save that change."
+    },
+    "selection": {
+      "count": "{n} selected",
+      "delete": "Delete",
+      "tag": "Tag",
+      "clear": "Clear selection",
+      "restore": "Restore",
+      "deleteForever": "Delete forever",
+      "confirmDelete": "Delete {n} assets? They go to Trash for 30 days.",
+      "trashedNote": "Deleted · {days} days left"
     }
   },
   "health": {

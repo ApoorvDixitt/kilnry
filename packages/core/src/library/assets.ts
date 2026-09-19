@@ -5,7 +5,8 @@
 
 import { and, asc, desc, eq, isNull, like, or, type SQL } from 'drizzle-orm';
 import { randomBytes } from 'node:crypto';
-import { open, rename } from 'node:fs/promises';
+import { mkdir, open, rename, rm, stat } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import { assets, auditEvents, type DatabaseState } from '@kilnry/db';
 import { KilnryError } from '../errors.js';
 import { resolveInRoot } from './containment.js';
@@ -224,4 +225,111 @@ export async function getAssetDetail(
       at: event.createdAt.toISOString(),
     })),
   };
+}
+
+// Move an asset and its sidecar into Trash/, stamping the sidecar's trash block
+// with when and where it came from, and recording trashedAt/originalPath in the
+// index so it can be restored later.
+export async function deleteAssetToTrash(
+  state: DatabaseState,
+  root: string,
+  libraryId: string,
+  assetId: string,
+  now: Date = new Date(),
+): Promise<void> {
+  const [row] = await state.db.select().from(assets).where(eq(assets.id, assetId)).limit(1);
+  if (!row) throw new KilnryError('NOT_FOUND', 'That asset is not in the Library.');
+  const source = await resolveInRoot(root, row.path, { mustExist: true });
+  const originalRel = row.path;
+  const base = originalRel.split('/').at(-1)!;
+  const stamp = now.toISOString().replace(/[:.]/g, '-');
+  const trashRel = `Trash/${stamp}__${base}`;
+  const target = join(root, trashRel);
+  await mkdir(dirname(target), { recursive: true });
+
+  const sidecar = await readSidecar(source.abs);
+  await rename(source.abs, target);
+  const sourceSidecar = sidecarPath(source.abs);
+  const targetSidecar = sidecarPath(target);
+  if (sidecar.ok) {
+    const next: Sidecar = {
+      ...sidecar.value,
+      trash: { deleted_at: now.toISOString(), original_path: originalRel },
+    };
+    await writeSidecarExact(target, next);
+    await unlinkIfExists(sourceSidecar);
+  } else {
+    await renameIfExists(sourceSidecar, targetSidecar);
+  }
+
+  await state.db
+    .update(assets)
+    .set({ path: trashRel, folderPath: 'Trash', trashedAt: now, originalPath: originalRel })
+    .where(eq(assets.id, assetId));
+  void libraryId;
+}
+
+// Restore a trashed asset to its original path, recreating folders as needed and
+// clearing the trash block from the sidecar and the index.
+export async function restoreAsset(state: DatabaseState, root: string, assetId: string): Promise<void> {
+  const [row] = await state.db.select().from(assets).where(eq(assets.id, assetId)).limit(1);
+  if (!row) throw new KilnryError('NOT_FOUND', 'That asset is not in the Library.');
+  if (!row.originalPath) throw new KilnryError('INVALID_INPUT', 'That asset has no original location.');
+  const currentAbs = join(root, row.path);
+  if (!(await pathExists(currentAbs))) {
+    throw new KilnryError('NOT_FOUND', 'The trashed file is missing.');
+  }
+  let destinationRel = row.originalPath;
+  // If something already occupies the original path, restore alongside it.
+  if (await pathExists(join(root, destinationRel))) {
+    const dot = destinationRel.lastIndexOf('.');
+    destinationRel =
+      dot > 0
+        ? `${destinationRel.slice(0, dot)}-restored${destinationRel.slice(dot)}`
+        : `${destinationRel}-restored`;
+  }
+  const destination = join(root, destinationRel);
+  await mkdir(dirname(destination), { recursive: true });
+  await rename(currentAbs, destination);
+  await renameIfExists(sidecarPath(currentAbs), sidecarPath(destination));
+
+  const sidecar = await readSidecar(destination);
+  if (sidecar.ok) {
+    const next: Sidecar = { ...sidecar.value, trash: null };
+    await writeSidecarExact(destination, next);
+  }
+  await state.db
+    .update(assets)
+    .set({
+      path: destinationRel,
+      folderPath: destinationRel.includes('/') ? destinationRel.split('/').slice(0, -1).join('/') : null,
+      trashedAt: null,
+      originalPath: null,
+    })
+    .where(eq(assets.id, assetId));
+}
+
+async function unlinkIfExists(path: string): Promise<void> {
+  try {
+    await rm(path);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+  }
+}
+
+async function renameIfExists(from: string, to: string): Promise<void> {
+  try {
+    await rename(from, to);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+  }
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch {
+    return false;
+  }
 }

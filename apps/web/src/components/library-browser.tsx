@@ -12,6 +12,7 @@ import type { AssetDetail, AssetListItem, AssetSort, MetadataPatch } from '../li
 import { FolderTree, type FolderNode } from './folder-tree';
 import { AssetGrid } from './asset-grid';
 import { InspectorDrawer } from './inspector-drawer';
+import { SelectionBar } from './selection-bar';
 
 async function json<T>(response: Response): Promise<T> {
   const body = (await response.json()) as T & { error?: { message?: string } };
@@ -28,7 +29,17 @@ export function LibraryBrowser(): React.ReactNode {
   const [detail, setDetail] = useState<AssetDetail | null>(null);
   const [query, setQuery] = useState('');
   const [searchResults, setSearchResults] = useState<AssetListItem[] | null>(null);
+  const [selection, setSelection] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string>();
+
+  const toggleSelect = useCallback((id: string) => {
+    setSelection((prior) => {
+      const next = new Set(prior);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
 
   const openInspector = useCallback(async (id: string) => {
     try {
@@ -100,6 +111,35 @@ export function LibraryBrowser(): React.ReactNode {
   }, [query]);
 
   const shownAssets = searchResults ?? assets;
+  const inTrash = selected === 'Trash' || query.includes('in:trash');
+
+  const reloadAssets = useCallback(() => {
+    const params = new URLSearchParams({ folder: selected, sort });
+    void fetch(`/api/library/assets?${params.toString()}`)
+      .then((response) => json<{ assets: AssetListItem[] }>(response))
+      .then((body) => setAssets(body.assets))
+      .catch(() => setAssets([]));
+  }, [selected, sort]);
+
+  const deleteSelected = useCallback(async () => {
+    for (const id of selection) {
+      await apiFetch(`/api/library/asset/${id}`, { method: 'DELETE' });
+    }
+    setSelection(new Set());
+    reloadAssets();
+  }, [selection, reloadAssets]);
+
+  const restoreSelected = useCallback(async () => {
+    for (const id of selection) {
+      await apiFetch(`/api/library/asset/${id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ op: 'restore' }),
+      });
+    }
+    setSelection(new Set());
+    reloadAssets();
+  }, [selection, reloadAssets]);
 
   const mutate = useCallback(async (url: string, body: string) => {
     try {
@@ -157,11 +197,20 @@ export function LibraryBrowser(): React.ReactNode {
             assets={shownAssets}
             sort={sort}
             view={view}
+            selected={selection}
             onSortChange={setSort}
             onViewChange={changeView}
             onOpen={(id) => void openInspector(id)}
+            onToggleSelect={toggleSelect}
           />
         )}
+        <SelectionBar
+          count={selection.size}
+          inTrash={inTrash}
+          onDelete={() => void deleteSelected()}
+          onRestore={() => void restoreSelected()}
+          onClear={() => setSelection(new Set())}
+        />
       </div>
       {detail ? (
         <InspectorDrawer
