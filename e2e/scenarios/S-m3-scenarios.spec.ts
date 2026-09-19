@@ -362,6 +362,7 @@ test('@m3 S-25 search syntax typed into the Library search box', async ({ page }
 });
 
 test('@m3 M3-VID generate a video against the fal video fixture', async ({ page }) => {
+  test.setTimeout(180_000);
   await ensureOnlyProvider(page, 'fal', FAL_KEY);
   await ensureSignedIn(page, '/create');
   // Switch to Video mode; fal is the only provider so Auto routes to its video model.
@@ -372,8 +373,10 @@ test('@m3 M3-VID generate a video against the fal video fixture', async ({ page 
   await expect(page.locator('.cost-strip .cost-strip-figure-text')).toBeVisible({ timeout: 15_000 });
   const before = inboxFiles('.mp4').length;
   await page.getByRole('button', { name: 'Generate' }).click();
-  await expect(page.getByText(/^Saved · \$/)).toBeVisible({ timeout: 30_000 });
-  await expect.poll(() => inboxFiles('.mp4').length, { timeout: 15_000 }).toBeGreaterThan(before);
+  // Video finalisation downloads the file, probes it and builds a thumbnail,
+  // which is slower on a continuous-integration runner, so allow generous time.
+  await expect(page.getByText(/^Saved · \$/)).toBeVisible({ timeout: 90_000 });
+  await expect.poll(() => inboxFiles('.mp4').length, { timeout: 30_000 }).toBeGreaterThan(before);
   const mp4 = newestInboxFile('.mp4') as string;
   expect(existsSync(join(libraryDir(), 'inbox', `${mp4}.kilnry.json`))).toBe(true);
 });
