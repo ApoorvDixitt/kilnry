@@ -15,5 +15,12 @@
     "build": "tsc -b",
     "typecheck": "tsc -b --pretty false",
     "test": "vitest run --passWithNoTests --exclude 'dist/**'"
+  },
+  "dependencies": {
+    "@kilnry/core": "workspace:*",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "msw": "2.15.0"
   }
 }

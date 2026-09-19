@@ -3,7 +3,26 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
-import { PlaceholderPage } from '../../../../components/placeholder-page';
-export default function SettingsPage(): React.ReactNode {
-  return <PlaceholderPage />;
+import { loadConfig } from '@kilnry/core';
+import { ProviderSettings } from '../../../../components/provider-settings';
+import { SecuritySettings } from '../../../../components/security-settings';
+import { SettingsLayout } from '../../../../components/settings-layout';
+import { WorkspaceSettings } from '../../../../components/workspace-settings';
+
+export default async function SettingsPage({
+  params,
+}: {
+  params: Promise<{ section?: string[] }>;
+}): Promise<React.ReactNode> {
+  const requested = (await params).section?.[0] ?? 'providers';
+  const section = ['providers', 'workspace', 'security'].includes(requested) ? requested : 'providers';
+  const content =
+    section === 'security' ? (
+      <SecuritySettings />
+    ) : section === 'workspace' ? (
+      <WorkspaceSettings libraryRoot={loadConfig().library_root ?? ''} />
+    ) : (
+      <ProviderSettings />
+    );
+  return <SettingsLayout section={section}>{content}</SettingsLayout>;
 }

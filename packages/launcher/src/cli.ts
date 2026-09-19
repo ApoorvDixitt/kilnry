@@ -4,7 +4,7 @@
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
 import { parseArgs } from 'node:util';
-import { printDoctor, runDoctor } from './commands/doctor.js';
+import { printDoctor, requestReindex, runDoctor } from './commands/doctor.js';
 import { startServer } from './commands/start.js';
 
 const version = process.env.npm_package_version ?? '0.0.0';
@@ -20,6 +20,7 @@ async function main(): Promise<void> {
     options: {
       help: { type: 'boolean', short: 'h' },
       json: { type: 'boolean' },
+      reindex: { type: 'boolean' },
       'no-open': { type: 'boolean' },
       port: { type: 'string' },
       version: { type: 'boolean', short: 'v' },
@@ -31,10 +32,20 @@ async function main(): Promise<void> {
     return;
   }
   if (parsed.values.help) {
-    process.stdout.write('Usage: kilnry [start] [--port 3123] [--no-open]\n       kilnry doctor [--json]\n');
+    process.stdout.write(
+      'Usage: kilnry [start] [--port 3123] [--no-open]\n       kilnry doctor [--json] [--reindex]\n',
+    );
     return;
   }
   if (command === 'doctor') {
+    if (parsed.values.reindex) {
+      const report = await requestReindex(Number(parsed.values.port ?? process.env.KILNRY_PORT ?? 3123));
+      if (!parsed.values.json) {
+        process.stdout.write(
+          `Rebuilt Library index: ${report.indexed} assets, ${report.recovered_from_embedded} recovered, ${report.skipped} skipped.\n`,
+        );
+      }
+    }
     const checks = await runDoctor();
     printDoctor(checks, parsed.values.json ?? false);
     if (checks.some((check) => check.status === 'fail')) process.exitCode = 1;

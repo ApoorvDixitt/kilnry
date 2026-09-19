@@ -8,6 +8,7 @@ import * as z from 'zod';
 import { KilnryError, loadConfig, prepareLibraryRoot, saveConfig } from '@kilnry/core';
 import { putSetting } from '@kilnry/db';
 import { currentSession } from '../../../../server/session';
+import { ensureRuntimeEngine } from '../../../../server/runtime';
 
 const Input = z.object({ path: z.string().min(1).max(4096) });
 
@@ -22,11 +23,12 @@ export async function POST(request: Request): Promise<Response> {
     const input = Input.parse(await request.json());
     const config = loadConfig();
     const result = prepareLibraryRoot(input.path, config.data_dir);
-    const updated = { ...config, library_root: result.root, onboarding_complete: true };
+    const updated = { ...config, library_root: result.root, onboarding_complete: false };
     saveConfig(updated);
     await putSetting('library_root', result.root, config.data_dir);
     await putSetting('library_id', result.marker.library_id, config.data_dir);
     await putSetting('onboarding_step', 3, config.data_dir);
+    await ensureRuntimeEngine();
     return NextResponse.json({ ok: true, root: result.root, library_id: result.marker.library_id });
   } catch (error) {
     if (error instanceof KilnryError) return NextResponse.json({ error: error.toJSON() }, { status: 422 });

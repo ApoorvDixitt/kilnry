@@ -10,8 +10,19 @@
     ".": "./dist/index.js",
     "./config": "./dist/config/load.js",
     "./errors": "./dist/errors.js",
+    "./events": "./dist/events/hub.js",
     "./ids": "./dist/ids.js",
-    "./library/root": "./dist/library/root.js"
+    "./jobs": "./dist/jobs/engine.js",
+    "./library": "./dist/library/index.js",
+    "./library/containment": "./dist/library/containment.js",
+    "./library/reindex": "./dist/library/reindex.js",
+    "./library/root": "./dist/library/root.js",
+    "./library/sidecar": "./dist/library/sidecar.js",
+    "./providers/adapter": "./dist/providers/adapter.js",
+    "./registry": "./dist/registry/store.js",
+    "./security/key-store": "./dist/security/key-store.js",
+    "./security/redact": "./dist/security/redact.js",
+    "./types": "./dist/types.js"
   },
   "types": "./dist/index.d.ts",
   "files": [
@@ -23,6 +34,12 @@
     "test": "vitest run --passWithNoTests --exclude 'dist/**'"
   },
   "dependencies": {
+    "@kilnry/db": "workspace:*",
+    "@kilnry/media": "workspace:*",
+    "@napi-rs/keyring": "2.1.0",
+    "chokidar": "5.0.0",
+    "drizzle-orm": "0.45.2",
+    "pg-boss": "12.33.1",
     "ulidx": "2.4.1",
     "zod": "4.6.5"
   }

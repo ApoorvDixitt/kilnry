@@ -12,8 +12,16 @@ const config: NextConfig = {
   outputFileTracingIncludes: {
     '/*': ['../../packages/db/migrations/**/*', '../../packages/ui/messages/**/*'],
   },
-  serverExternalPackages: ['@electric-sql/pglite', 'pino', 'pino-roll'],
-  transpilePackages: ['@kilnry/core', '@kilnry/db', '@kilnry/ui'],
+  serverExternalPackages: [
+    '@electric-sql/pglite',
+    '@napi-rs/keyring',
+    'chokidar',
+    'pg-boss',
+    'pino',
+    'pino-roll',
+    'sharp',
+  ],
+  transpilePackages: ['@kilnry/core', '@kilnry/db', '@kilnry/media', '@kilnry/providers', '@kilnry/ui'],
   experimental: {
     serverActions: {
       allowedOrigins: ['localhost:3123', '127.0.0.1:3123'],

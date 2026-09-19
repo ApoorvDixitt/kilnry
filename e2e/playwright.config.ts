@@ -36,6 +36,7 @@ export default defineConfig({
       KILNRY_LIBRARY_ROOT: join(root, '.dev', 'e2e-library'),
       KILNRY_HOST: '127.0.0.1',
       KILNRY_PORT: '3123',
+      KILNRY_TEST_MSW: '1',
     },
   },
 });

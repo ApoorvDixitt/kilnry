@@ -17,7 +17,7 @@ export default async function WelcomePage(): Promise<React.ReactNode> {
   const hasUser = await hasLocalUser();
   const config = loadConfig();
   const library = await getSetting<string>('library_root');
-  if (session && (config.onboarding_complete || library)) redirect('/create');
+  if (session && config.onboarding_complete) redirect('/create');
   if (!session && hasUser) redirect('/login');
 
   const setup = (await cookies()).get('kilnry_setup')?.value === '1';
@@ -33,7 +33,7 @@ export default async function WelcomePage(): Promise<React.ReactNode> {
   }
   return (
     <OnboardingFlow
-      initialStep={hasUser ? 2 : 1}
+      initialStep={hasUser ? (library ? 3 : 2) : 1}
       defaultLibrary={library ?? defaultLibraryRoot()}
       docker={process.env.KILNRY_DOCKER === '1'}
     />

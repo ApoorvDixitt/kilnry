@@ -1,0 +1,166 @@
+// Kilnry — https://github.com/ApoorvDixitt/kilnry
+// Copyright (c) 2026 Apoorv Dixit. Licensed under the Sustainable Use License 1.0.
+// SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
+// See LICENSE.md in the repository root. You may not remove or obscure this notice.
+
+import { and, eq, gte, inArray, like, lt, sql } from 'drizzle-orm';
+import type { DatabaseState } from '@kilnry/db';
+import { budgets, jobs, providers, spendLedger } from '@kilnry/db';
+import { KilnryError } from '../errors.js';
+import type { Estimate, ProviderId } from '../types.js';
+
+function number(value: string | number | null | undefined): number {
+  if (value === null || value === undefined) return 0;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) throw new Error(`Invalid monetary value in the database: ${String(value)}`);
+  return parsed;
+}
+
+export function assertCostConfirmation(estimate: Estimate, confirmedCostUsd: number | undefined): void {
+  if (estimate.estimate_usd === 0) return;
+  if (confirmedCostUsd === undefined || confirmedCostUsd < estimate.estimate_usd * 0.9) {
+    throw new KilnryError(
+      'CONFIRMATION_REQUIRED',
+      `Waiting for cost confirmation: ≈ $${estimate.estimate_usd.toFixed(4)}.`,
+      {
+        details: { estimate },
+      },
+    );
+  }
+}
+
+function startOfDay(now: Date): Date {
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+}
+
+function startOfMonth(now: Date): Date {
+  return new Date(now.getFullYear(), now.getMonth(), 1);
+}
+
+async function ledgerTotal(
+  state: DatabaseState,
+  from: Date,
+  provider?: ProviderId,
+  folder?: string,
+): Promise<number> {
+  const conditions = [gte(spendLedger.occurredAt, from)];
+  if (provider) conditions.push(eq(spendLedger.providerId, provider));
+  if (folder) conditions.push(like(spendLedger.folder, `${folder}%`));
+  const rows = await state.db
+    .select({ total: sql<string>`coalesce(sum(${spendLedger.actualUsd}), 0)` })
+    .from(spendLedger)
+    .where(and(...conditions));
+  return number(rows[0]?.total);
+}
+
+async function openReservations(
+  state: DatabaseState,
+  provider?: ProviderId,
+  folder?: string,
+): Promise<number> {
+  const conditions = [inArray(jobs.status, ['queued', 'running', 'waiting'])];
+  if (provider) conditions.push(eq(jobs.providerId, provider));
+  if (folder) conditions.push(like(jobs.targetFolder, `${folder}%`));
+  const rows = await state.db
+    .select({ total: sql<string>`coalesce(sum(${jobs.estimateUsd}), 0)` })
+    .from(jobs)
+    .where(and(...conditions));
+  return number(rows[0]?.total);
+}
+
+interface BudgetCheck {
+  scope: string;
+  cap: number;
+  spent: number;
+  reset: string;
+  behavior: string;
+}
+
+export async function reserveBudget(
+  state: DatabaseState,
+  input: {
+    estimate_usd: number;
+    provider: ProviderId;
+    folder: string;
+    now?: Date;
+    override_budget?: boolean;
+  },
+): Promise<void> {
+  const now = input.now ?? new Date();
+  const capRows = await state.db.select().from(budgets);
+  const capMap = new Map(capRows.map((row) => [row.scope, row]));
+  const checks: BudgetCheck[] = [];
+  const daily = capMap.get('daily');
+  if (daily?.capUsd)
+    checks.push({
+      scope: 'Daily',
+      cap: number(daily.capUsd),
+      spent: (await ledgerTotal(state, startOfDay(now))) + (await openReservations(state)),
+      reset: 'midnight',
+      behavior: daily.behavior,
+    });
+  const monthly = capMap.get('monthly');
+  if (monthly?.capUsd)
+    checks.push({
+      scope: 'Monthly',
+      cap: number(monthly.capUsd),
+      spent: (await ledgerTotal(state, startOfMonth(now))) + (await openReservations(state)),
+      reset: 'the first of next month',
+      behavior: monthly.behavior,
+    });
+  const folderCaps = capRows.filter(
+    (row) => row.scope.startsWith('folder:') && input.folder.startsWith(row.scope.slice(7)),
+  );
+  for (const cap of folderCaps) {
+    if (!cap.capUsd) continue;
+    const folder = cap.scope.slice(7);
+    checks.push({
+      scope: folder || 'Folder',
+      cap: number(cap.capUsd),
+      spent:
+        (await ledgerTotal(state, new Date(0), undefined, folder)) +
+        (await openReservations(state, undefined, folder)),
+      reset: 'you raise the cap',
+      behavior: cap.behavior,
+    });
+  }
+  const providerRows = await state.db
+    .select({ cap: providers.monthlyCapUsd })
+    .from(providers)
+    .where(eq(providers.id, input.provider))
+    .limit(1);
+  if (providerRows[0]?.cap)
+    checks.push({
+      scope: `${input.provider} monthly`,
+      cap: number(providerRows[0].cap),
+      spent:
+        (await ledgerTotal(state, startOfMonth(now), input.provider)) +
+        (await openReservations(state, input.provider)),
+      reset: 'the first of next month',
+      behavior: 'block',
+    });
+
+  const exceeded = checks.find((check) => check.spent + input.estimate_usd > check.cap);
+  if (!exceeded || input.override_budget) return;
+  const code = exceeded.behavior === 'ask' ? 'CONFIRMATION_REQUIRED' : 'BUDGET_EXCEEDED';
+  throw new KilnryError(
+    code,
+    `${exceeded.scope} cap $${exceeded.cap.toFixed(2)} reached ($${exceeded.spent.toFixed(2)} spent). Raise the cap or wait until ${exceeded.reset}. Nothing was spent.`,
+    {
+      details: {
+        scope: exceeded.scope,
+        cap_usd: exceeded.cap,
+        spent_usd: exceeded.spent,
+        estimate_usd: input.estimate_usd,
+      },
+    },
+  );
+}
+
+export async function ledgerTotalForJob(state: DatabaseState, jobId: string): Promise<number> {
+  const rows = await state.db
+    .select({ total: sql<string>`coalesce(sum(${spendLedger.actualUsd}), 0)` })
+    .from(spendLedger)
+    .where(and(eq(spendLedger.jobId, jobId), lt(spendLedger.occurredAt, new Date(Date.now() + 60_000))));
+  return number(rows[0]?.total);
+}

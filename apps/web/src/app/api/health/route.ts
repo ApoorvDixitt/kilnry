@@ -4,7 +4,7 @@
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
 import { NextResponse } from 'next/server';
-import { runtimeStatus, startRuntime } from '../../../server/runtime';
+import { runtimeStatus, runtimeWorkerStatus, startRuntime } from '../../../server/runtime';
 
 const startedAt = Date.now();
 
@@ -22,7 +22,7 @@ export async function GET(): Promise<Response> {
     version: process.env.npm_package_version ?? '0.0.0',
     uptime_s: Math.floor((Date.now() - startedAt) / 1000),
     db: 'ok',
-    worker: 'paused',
+    worker: runtimeWorkerStatus(),
     online: true,
     ready_at: status.readyAt,
   });

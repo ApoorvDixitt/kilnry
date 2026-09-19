@@ -7,7 +7,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Eye, EyeOff, FolderOpen, LockKeyhole, Sparkles } from 'lucide-react';
+import { Check, Eye, EyeOff, FolderOpen, KeyRound, LockKeyhole, Sparkles } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { BrandMark } from './brand-mark';
 import { message } from '../lib/messages';
@@ -15,7 +15,7 @@ import { message } from '../lib/messages';
 interface OnboardingFlowProps {
   defaultLibrary: string;
   docker: boolean;
-  initialStep: 1 | 2;
+  initialStep: 1 | 2 | 3;
 }
 
 function passwordScore(password: string): number {
@@ -33,7 +33,7 @@ export function OnboardingFlow({
   initialStep,
 }: OnboardingFlowProps): React.ReactNode {
   const router = useRouter();
-  const [step, setStep] = useState<1 | 2 | 3>(initialStep);
+  const [step, setStep] = useState<1 | 2 | 3 | 4>(initialStep);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmation, setConfirmation] = useState('');
@@ -41,6 +41,18 @@ export function OnboardingFlow({
   const [library, setLibrary] = useState(defaultLibrary);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string>();
+  const [providerKey, setProviderKey] = useState('');
+  const [provider, setProvider] = useState<'fal' | 'openrouter' | 'pollinations'>('fal');
+  const [connected, setConnected] = useState(false);
+  const [connectionNote, setConnectionNote] = useState<string>();
+  const [recoveryKit, setRecoveryKit] = useState<string>();
+
+  function detectProvider(value: string): 'fal' | 'openrouter' | 'pollinations' | undefined {
+    if (/^sk-or-v1-/i.test(value)) return 'openrouter';
+    if (/^[0-9a-f]{8}-[0-9a-f-]{27}:[0-9a-f]{32}$/i.test(value)) return 'fal';
+    if (/^sk_/i.test(value)) return 'pollinations';
+    return undefined;
+  }
 
   async function createAccount(event: React.FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
@@ -88,6 +100,54 @@ export function OnboardingFlow({
     }
   }
 
+  async function testProvider(event: React.FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    setError(undefined);
+    setPending(true);
+    try {
+      const selected = detectProvider(providerKey) ?? provider;
+      const response = await fetch(`/api/providers/${selected}/key`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: providerKey }),
+      });
+      const body = (await response.json()) as {
+        recovery_kit?: string;
+        test?: { latency_ms?: number; model_count?: number };
+        error?: { message?: string };
+      };
+      if (!response.ok) throw new Error(body.error?.message ?? message('welcome.providerError'));
+      setProvider(selected);
+      setConnected(true);
+      setRecoveryKit(body.recovery_kit);
+      setConnectionNote(
+        message('welcome.providerConnected')
+          .replace('{latency}', String(body.test?.latency_ms ?? 0))
+          .replace('{count}', String(body.test?.model_count ?? 0)),
+      );
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : message('welcome.providerError'));
+      setConnected(false);
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function finishProviderStep(): Promise<void> {
+    setError(undefined);
+    setPending(true);
+    try {
+      const response = await fetch('/api/onboarding/complete', { method: 'POST' });
+      const body = (await response.json()) as { error?: { message?: string } };
+      if (!response.ok) throw new Error(body.error?.message ?? message('welcome.genericError'));
+      setStep(4);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : message('welcome.genericError'));
+    } finally {
+      setPending(false);
+    }
+  }
+
   return (
     <div className="onboarding-shell">
       <aside className="onboarding-story">
@@ -110,7 +170,7 @@ export function OnboardingFlow({
           aria-label={message('welcome.progress')}
           aria-valuemin={1}
           aria-valuemax={3}
-          aria-valuenow={step}
+          aria-valuenow={Math.min(step, 3)}
         >
           {[1, 2, 3].map((value) => (
             <span key={value} className={value <= step ? 'is-on' : ''} />
@@ -219,6 +279,105 @@ export function OnboardingFlow({
               </form>
             ) : null}
             {step === 3 ? (
+              <form onSubmit={(event) => void testProvider(event)}>
+                <span className="step-icon">
+                  <KeyRound size={20} />
+                </span>
+                <p className="eyebrow">{message('welcome.eyebrow')}</p>
+                <h1>{message('welcome.providerTitle')}</h1>
+                <p className="onboarding-subtitle">{message('welcome.providerSubtitle')}</p>
+                <label htmlFor="provider-key">{message('welcome.providerKey')}</label>
+                <input
+                  id="provider-key"
+                  type="password"
+                  value={providerKey}
+                  onChange={(event) => {
+                    setProviderKey(event.target.value);
+                    const detected = detectProvider(event.target.value);
+                    if (detected) setProvider(detected);
+                    setConnected(false);
+                  }}
+                  placeholder={message('welcome.providerPlaceholder')}
+                  autoFocus
+                  autoComplete="off"
+                />
+                <select
+                  className="onboarding-select"
+                  aria-label={message('welcome.providerSelect')}
+                  value={provider}
+                  onChange={(event) => setProvider(event.target.value as typeof provider)}
+                >
+                  <option value="fal">fal</option>
+                  <option value="openrouter">OpenRouter</option>
+                  <option value="pollinations">Pollinations</option>
+                </select>
+                <span className="field-hint">
+                  {detectProvider(providerKey)
+                    ? message('welcome.providerDetected').replace(
+                        '{provider}',
+                        detectProvider(providerKey) ?? provider,
+                      )
+                    : message('welcome.providerHelp')}
+                </span>
+                {connectionNote ? (
+                  <p className="form-success">
+                    <Check size={15} />
+                    {connectionNote}
+                  </p>
+                ) : null}
+                {recoveryKit ? (
+                  <div className="onboarding-recovery">
+                    <strong>{message('welcome.recoveryTitle')}</strong>
+                    <p>{message('welcome.recoveryBody')}</p>
+                    <code>{recoveryKit}</code>
+                  </div>
+                ) : null}
+                {error ? (
+                  <p className="form-error" role="alert">
+                    {error}
+                  </p>
+                ) : null}
+                <div className="onboarding-actions">
+                  <button
+                    className="secondary-button"
+                    type="submit"
+                    disabled={pending || providerKey.length < 8}
+                  >
+                    {pending ? message('welcome.providerTesting') : message('welcome.providerTest')}
+                  </button>
+                  <button
+                    className="primary-button"
+                    type="button"
+                    disabled={pending || !connected}
+                    onClick={() => void finishProviderStep()}
+                  >
+                    {message('welcome.continue')}
+                  </button>
+                </div>
+                <div className="demo-divider">
+                  <span>{message('welcome.or')}</span>
+                </div>
+                <button
+                  className="demo-button"
+                  type="button"
+                  onClick={() => {
+                    setProvider('pollinations');
+                    setConnected(false);
+                  }}
+                >
+                  {message('welcome.demo')}
+                </button>
+                <button
+                  className="text-button"
+                  type="button"
+                  disabled={pending}
+                  onClick={() => void finishProviderStep()}
+                >
+                  {message('welcome.skipProvider')}
+                </button>
+              </form>
+            ) : null}
+            {step === 4 ? (
               <div className="ready-card">
                 <span className="step-icon">
                   <Sparkles size={20} />

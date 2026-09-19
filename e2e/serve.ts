@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
+import { randomBytes } from 'node:crypto';
 import { mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
@@ -15,7 +16,15 @@ for (const directory of ['e2e-data', 'e2e-library']) {
 }
 
 const detached = process.platform !== 'win32';
-const child = spawn('tsx', ['scripts/dev.ts'], { cwd: root, detached, env: process.env, stdio: 'inherit' });
+const child = spawn('tsx', ['scripts/dev.ts'], {
+  cwd: root,
+  detached,
+  env: {
+    ...process.env,
+    KILNRY_MASTER_KEY: process.env.KILNRY_MASTER_KEY ?? randomBytes(32).toString('hex'),
+  },
+  stdio: 'inherit',
+});
 let stopping = false;
 
 function stop(signal: NodeJS.Signals): void {

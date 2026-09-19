@@ -12,6 +12,8 @@
     "KILNRY_MASTER_KEY",
     "KILNRY_MASTER_KEY_FILE",
     "KILNRY_PORT",
+    "KILNRY_RELEASE_BUILD",
+    "KILNRY_TEST_MSW",
     "KILNRY_TLS"
   ],
   "tasks": {

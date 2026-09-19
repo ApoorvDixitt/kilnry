@@ -6,6 +6,7 @@
 import { join } from 'node:path';
 import pino from 'pino';
 import { defaultDataDir, ensureDataDir } from '@kilnry/core/config';
+import { redact, redactString } from '@kilnry/core/security/redact';
 
 const dataDir = defaultDataDir();
 const building = process.env.NEXT_PHASE === 'phase-production-build';
@@ -30,6 +31,14 @@ export const log = building
             '*.token',
             '*.password',
           ],
+        },
+        hooks: {
+          logMethod(arguments_, method) {
+            const safe = arguments_.map((value) =>
+              typeof value === 'string' ? redactString(value) : redact(value),
+            );
+            method.apply(this, safe as [object: unknown, message?: string, ...arguments_: unknown[]]);
+          },
         },
       },
       pino.destination({ dest: join(dataDir, 'logs', 'kilnry.log'), mkdir: true, sync: false }),

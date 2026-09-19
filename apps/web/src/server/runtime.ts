@@ -6,11 +6,24 @@
 import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
-import { loadConfig, saveConfig } from '@kilnry/core/config';
-import { closeDatabase, database, hasLocalUser } from '@kilnry/db';
+import {
+  JobEngine,
+  ProviderKeyStore,
+  eventHub,
+  libraryMarker,
+  loadConfig,
+  reindexLibrary,
+  saveConfig,
+  seedRegistry,
+  watchLibrary,
+  type LibraryWatcher,
+} from '@kilnry/core';
+import { closeDatabase, database, hasLocalUser, type DatabaseState } from '@kilnry/db';
+import { adapters } from '@kilnry/providers';
 import { log } from './log';
 
-export type RuntimeStage = 'idle' | 'migrating' | 'ready' | 'error' | 'shutting_down';
+export type RuntimeStage =
+  'idle' | 'migrating' | 'indexing' | 'starting_workers' | 'ready' | 'error' | 'shutting_down';
 
 interface RuntimeStatus {
   stage: RuntimeStage;
@@ -18,10 +31,19 @@ interface RuntimeStatus {
   error?: string;
 }
 
+export interface RuntimeServices {
+  database: DatabaseState;
+  keyStore: ProviderKeyStore;
+  engine?: JobEngine;
+  watcher?: LibraryWatcher;
+}
+
 type RuntimeGlobal = typeof globalThis & {
   __kilnryRuntime?: Promise<void>;
   __kilnryRuntimeStatus?: RuntimeStatus;
   __kilnrySignalsInstalled?: boolean;
+  __kilnryServices?: RuntimeServices;
+  __kilnryEngineStart?: Promise<JobEngine>;
 };
 
 function globalRuntime(): RuntimeGlobal {
@@ -51,6 +73,18 @@ async function boot(): Promise<void> {
   }
   if (!(await hasLocalUser(config.data_dir))) ensureSetupToken(config.data_dir, config.port);
   if (!existsSync(join(config.data_dir, 'config.json'))) saveConfig(config);
+  await seedRegistry(state);
+  global.__kilnryServices = {
+    database: state,
+    keyStore: new ProviderKeyStore({
+      dataDir: config.data_dir,
+      database: state,
+      onWarning: (message, error) => log.warn({ err: error }, message),
+    }),
+  };
+  if (config.library_root && existsSync(join(config.library_root, '.kilnry', 'library.json'))) {
+    await ensureRuntimeEngine();
+  }
   global.__kilnryRuntimeStatus = { stage: 'ready', readyAt: new Date().toISOString() };
   log.info({ data_dir: config.data_dir, host: config.host, port: config.port }, 'runtime_ready');
   process.stdout.write(
@@ -62,6 +96,8 @@ async function boot(): Promise<void> {
     const shutdown = async (): Promise<void> => {
       global.__kilnryRuntimeStatus = { stage: 'shutting_down' };
       try {
+        await global.__kilnryServices?.watcher?.close();
+        await global.__kilnryServices?.engine?.stop();
         await closeDatabase();
         await log.flush();
       } catch (error) {
@@ -91,4 +127,75 @@ export function startRuntime(): Promise<void> {
 
 export function runtimeStatus(): RuntimeStatus {
   return globalRuntime().__kilnryRuntimeStatus ?? { stage: 'idle' };
+}
+
+export function runtimeWorkerStatus(): 'ok' | 'paused' {
+  return globalRuntime().__kilnryServices?.engine ? 'ok' : 'paused';
+}
+
+export async function runtimeServices(): Promise<RuntimeServices> {
+  await startRuntime();
+  const services = globalRuntime().__kilnryServices;
+  if (!services) throw new Error('Kilnry runtime services are unavailable.');
+  return services;
+}
+
+export async function ensureRuntimeEngine(): Promise<JobEngine> {
+  const global = globalRuntime();
+  if (!global.__kilnryRuntime && !global.__kilnryServices) await startRuntime();
+  if (global.__kilnryServices?.engine) return global.__kilnryServices.engine;
+  global.__kilnryEngineStart ??= (async () => {
+    const services = global.__kilnryServices;
+    if (!services) throw new Error('Kilnry runtime services are unavailable.');
+    const config = loadConfig();
+    if (!config.library_root) throw new Error('Choose a Library root before starting the job engine.');
+    if (process.env.KILNRY_TEST_MSW === '1') {
+      if (process.env.KILNRY_RELEASE_BUILD === '1') {
+        throw new Error('KILNRY_TEST_MSW is forbidden in release builds.');
+      }
+      const { startTestMsw } = await import('../test/msw-server');
+      startTestMsw();
+    }
+    global.__kilnryRuntimeStatus = { stage: 'indexing' };
+    const marker = await libraryMarker(config.library_root);
+    await reindexLibrary(services.database, config.library_root, marker.library_id, {
+      reportDir: join(config.data_dir, 'logs'),
+    });
+    global.__kilnryRuntimeStatus = { stage: 'starting_workers' };
+    const engine = new JobEngine({
+      state: services.database,
+      keyStore: services.keyStore,
+      adapters,
+      dataDir: config.data_dir,
+      libraryRoot: config.library_root,
+      libraryId: marker.library_id,
+      events: eventHub,
+      log: (level, event, meta) => log[level]({ ...(meta ?? {}) }, event),
+    });
+    await engine.start();
+    const watcher = watchLibrary({
+      state: services.database,
+      root: config.library_root,
+      libraryId: marker.library_id,
+      polling: process.env.CHOKIDAR_USEPOLLING === '1' || process.env.KILNRY_DOCKER === '1',
+      onImported: (assetId, folder) =>
+        eventHub.emit({
+          type: 'library.imported',
+          asset_id: assetId,
+          folder,
+          ts: new Date().toISOString(),
+        }),
+      onError: (error) => log.error({ err: error }, 'library_watcher_error'),
+    });
+    await watcher.ready;
+    services.engine = engine;
+    services.watcher = watcher;
+    return engine;
+  })();
+  try {
+    return await global.__kilnryEngineStart;
+  } catch (error) {
+    delete global.__kilnryEngineStart;
+    throw error;
+  }
 }

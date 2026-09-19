@@ -18,6 +18,23 @@ export interface DatabaseState {
   ready: Promise<void>;
 }
 
+export function createDatabase(dataDir: string, options: { memory?: boolean } = {}): DatabaseState {
+  const building = process.env.NEXT_PHASE === 'phase-production-build';
+  const dbDir = `${dataDir}/kilnry.pglite`;
+  if (!building && !options.memory) mkdirSync(dbDir, { recursive: true, mode: 0o700 });
+  const client =
+    building || options.memory
+      ? new PGlite()
+      : new PGlite({ fs: new NodeFS(dbDir), relaxedDurability: false });
+  const db = drizzle(client, { schema });
+  const ready = client.waitReady.then(() => applyMigrations(client));
+  return { client, db, dataDir, ready };
+}
+
+export async function closeDatabaseState(state: DatabaseState): Promise<void> {
+  await state.client.close();
+}
+
 type GlobalDatabase = typeof globalThis & { __kilnryDatabase?: DatabaseState };
 
 function migrationDirectory(): string {
@@ -59,13 +76,7 @@ export function database(dataDir = process.env.KILNRY_DATA_DIR ?? '.dev/kilnry')
     }
     return global.__kilnryDatabase;
   }
-  const building = process.env.NEXT_PHASE === 'phase-production-build';
-  const dbDir = `${dataDir}/kilnry.pglite`;
-  if (!building) mkdirSync(dbDir, { recursive: true, mode: 0o700 });
-  const client = building ? new PGlite() : new PGlite({ fs: new NodeFS(dbDir), relaxedDurability: false });
-  const db = drizzle(client, { schema });
-  const ready = client.waitReady.then(() => applyMigrations(client));
-  const state: DatabaseState = { client, db, dataDir, ready };
+  const state = createDatabase(dataDir);
   global.__kilnryDatabase = state;
   return state;
 }

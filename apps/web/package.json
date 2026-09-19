@@ -11,16 +11,19 @@
     "build": "next build",
     "start": "next start --hostname 127.0.0.1 --port 3123",
     "typecheck": "tsc --noEmit --pretty false",
-    "test": "vitest run --passWithNoTests --exclude 'src/**/*.browser.test.tsx'",
+    "test": "vitest run --passWithNoTests --exclude 'src/**/*.browser.test.tsx' --exclude '.next/**'",
     "test:browser": "vitest run --config vitest.browser.config.ts --passWithNoTests"
   },
   "dependencies": {
     "@better-auth/drizzle-adapter": "1.7.5",
     "@kilnry/core": "workspace:*",
     "@kilnry/db": "workspace:*",
+    "@kilnry/media": "workspace:*",
+    "@kilnry/providers": "workspace:*",
     "@kilnry/ui": "workspace:*",
     "@tailwindcss/postcss": "4.3.3",
     "better-auth": "1.7.5",
+    "drizzle-orm": "0.45.2",
     "geist": "1.7.2",
     "lucide-react": "1.47.0",
     "motion": "13.4.0",
@@ -33,5 +36,8 @@
     "sonner": "2.0.8",
     "tailwindcss": "4.3.3",
     "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "msw": "2.15.0"
   }
 }

@@ -19,6 +19,38 @@ export interface DoctorCheck {
   fix?: string;
 }
 
+export async function requestReindex(port = Number(process.env.KILNRY_PORT ?? 3123)): Promise<{
+  indexed: number;
+  recovered_from_embedded: number;
+  skipped: number;
+}> {
+  const url = `http://127.0.0.1:${port}/api/library/reindex`;
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Origin: `http://127.0.0.1:${port}`,
+        'X-Kilnry-Doctor': 'reindex',
+      },
+      signal: AbortSignal.timeout(10 * 60_000),
+    });
+  } catch (error) {
+    throw new Error(
+      `Could not reach the running Kilnry app for reindex: ${error instanceof Error ? error.message : String(error)}. Start Kilnry, then run doctor --reindex again.`,
+      { cause: error },
+    );
+  }
+  const body = (await response.json()) as {
+    report?: { indexed: number; recovered_from_embedded: number; skipped: number };
+    error?: { message?: string };
+  };
+  if (!response.ok || !body.report) {
+    throw new Error(body.error?.message ?? `Reindex failed with HTTP ${response.status}.`);
+  }
+  return body.report;
+}
+
 export function nodeVersionCheck(version = process.versions.node): DoctorCheck {
   const [major = 0, minor = 0] = version.split('.').map(Number);
   const supported = major > 22 || (major === 22 && minor >= 12);

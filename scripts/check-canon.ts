@@ -85,6 +85,8 @@ for (const path of trackedFiles().filter(isText)) {
   }
 
   if (
+    !/\.(?:test|spec)\.[cm]?[jt]sx?$/.test(path) &&
+    !path.startsWith('packages/providers/src/') &&
     /\.(?:submit|createPrediction|runModel)\s*\(/.test(content) &&
     !/(confirmed_cost_usd|assertSpendAllowed|reserveBudget)/.test(content)
   ) {

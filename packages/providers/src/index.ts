@@ -3,4 +3,17 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
-export {};
+import type { AdapterRegistry } from '@kilnry/core';
+import { falAdapter } from './fal/index.js';
+import { openRouterAdapter } from './openrouter/index.js';
+import { pollinationsAdapter } from './pollinations/index.js';
+
+export * from './fal/index.js';
+export * from './openrouter/index.js';
+export * from './pollinations/index.js';
+
+export const adapters: AdapterRegistry = {
+  fal: falAdapter,
+  openrouter: openRouterAdapter,
+  pollinations: pollinationsAdapter,
+};
