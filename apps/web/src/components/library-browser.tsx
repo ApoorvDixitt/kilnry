@@ -141,6 +141,24 @@ export function LibraryBrowser(): React.ReactNode {
     reloadAssets();
   }, [selection, reloadAssets]);
 
+  const [importStatus, setImportStatus] = useState('');
+  const importFolder = useCallback(async () => {
+    setImportStatus(message('library.importFolder'));
+    try {
+      const response = await apiFetch('/api/library/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ folder: selected }),
+      });
+      const body = (await response.json()) as { report?: { imported: number }; error?: { message?: string } };
+      if (!response.ok) throw new Error(body.error?.message ?? message('library.unreachableTitle'));
+      setImportStatus(message('library.imported').replace('{n}', String(body.report?.imported ?? 0)));
+      reloadAssets();
+    } catch (cause) {
+      setImportStatus(cause instanceof Error ? cause.message : message('library.unreachableTitle'));
+    }
+  }, [selected, reloadAssets]);
+
   const mutate = useCallback(async (url: string, body: string) => {
     try {
       const parsed = await json<{ folders: FolderNode[] }>(
@@ -180,14 +198,24 @@ export function LibraryBrowser(): React.ReactNode {
         }
       />
       <div className="library-grid-area">
-        <input
-          type="search"
-          className="library-search"
-          value={query}
-          placeholder={message('library.searchPlaceholder')}
-          aria-label={message('library.search')}
-          onChange={(event) => setQuery(event.target.value)}
-        />
+        <div className="library-toolbar-row">
+          <input
+            type="search"
+            className="library-search"
+            value={query}
+            placeholder={message('library.searchPlaceholder')}
+            aria-label={message('library.search')}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+          <button type="button" className="library-import" onClick={() => void importFolder()}>
+            {message('library.importFolder')}
+          </button>
+        </div>
+        {importStatus ? (
+          <p className="library-import-status" role="status" aria-live="polite">
+            {importStatus}
+          </p>
+        ) : null}
         {shownAssets.length === 0 ? (
           <p className="library-empty">
             {searchResults !== null ? message('library.searchNoResults') : message('library.emptyGrid')}

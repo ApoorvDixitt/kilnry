@@ -1755,6 +1755,34 @@ kbd {
   width: 100%;
 }
 
+.library-toolbar-row {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.library-toolbar-row .library-search {
+  margin-bottom: 0;
+}
+
+.library-import {
+  background: var(--surface-2);
+  border: 1px solid var(--border-control);
+  border-radius: 999px;
+  color: var(--text);
+  cursor: pointer;
+  flex: none;
+  font-size: 12px;
+  padding: 8px 14px;
+  white-space: nowrap;
+}
+
+.library-import-status {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin: 8px 0 0;
+}
+
 .library-search:focus-visible {
   border-color: var(--ring);
   outline: none;
