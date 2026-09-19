@@ -5,6 +5,8 @@
 
 import { spawnSync } from 'node:child_process';
 
+import { checkCommitSubject, SUBJECT_RULE_BASE } from './commit-subject';
+
 const ownerName = 'Apoorv Dixit';
 const allowedEmails = new Set(['177645159+ApoorvDixitt@users.noreply.github.com']);
 const bannedPaths = [
@@ -74,6 +76,27 @@ for (const record of log
   if (/^(Co-authored-by|Signed-off-by|Generated-by):/im.test(body))
     failures.push(`${hash}: prohibited trailer`);
   if (!['G', 'U'].includes(signature)) unsigned.push(hash);
+}
+
+// Decision D-50: every commit made after the M2 completion commit must have a
+// subject a stranger can read. Older history predates the rule and is exempt.
+const basePresent = git(['rev-parse', '--verify', '--quiet', `${SUBJECT_RULE_BASE}^{commit}`], true).trim();
+if (basePresent) {
+  const range = git(['log', `${SUBJECT_RULE_BASE}..HEAD`, '--no-merges', '--format=%H%x1f%B%x1e'], true);
+  for (const record of range
+    .split('\x1e')
+    .map((item) => item.trim())
+    .filter(Boolean)) {
+    const [hash = '', message = ''] = record.split('\x1f');
+    const changed = git(['show', '--name-only', '--format=', hash], true).split('\n').filter(Boolean);
+    const touchesProductCode = changed.some(
+      (path) => path.startsWith('apps/') || path.startsWith('packages/'),
+    );
+    const reason = checkCommitSubject({ message, touchesProductCode });
+    if (reason) failures.push(`${hash}: unreadable commit subject — ${reason}`);
+  }
+} else {
+  process.stdout.write('Subject-format base commit not present (shallow clone); skipping subject check.\n');
 }
 
 if (failures.length > 0) {

@@ -26,3 +26,19 @@ const path = join(gitDir, 'hooks', 'pre-commit');
 writeFileSync(path, hook, { encoding: 'utf8', mode: 0o755 });
 chmodSync(path, 0o755);
 process.stdout.write('Installed the Kilnry pre-commit hook.\n');
+
+// The commit-msg hook checks the proposed message against decision D-50 so an
+// unreadable subject or a prohibited trailer is caught before the commit lands,
+// not only later in continuous integration.
+const commitMsgHook = `#!/bin/sh
+# Kilnry — https://github.com/ApoorvDixitt/kilnry
+# Copyright (c) 2026 Apoorv Dixit. Licensed under the Sustainable Use License 1.0.
+# SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
+# See LICENSE.md in the repository root. You may not remove or obscure this notice.
+set -eu
+pnpm exec tsx scripts/check-commit-msg.ts "$1"
+`;
+const commitMsgPath = join(gitDir, 'hooks', 'commit-msg');
+writeFileSync(commitMsgPath, commitMsgHook, { encoding: 'utf8', mode: 0o755 });
+chmodSync(commitMsgPath, 0o755);
+process.stdout.write('Installed the Kilnry commit-msg hook.\n');
