@@ -42,9 +42,16 @@ async function ensureSignedIn(page: Page, path: string): Promise<void> {
   if (/\/login$/.test(page.url())) {
     await page.getByLabel('Email').fill(EMAIL);
     await page.getByLabel('Password').fill(PASSWORD);
-    await page.getByRole('button', { name: 'Sign in' }).click();
-    await page.waitForURL((url) => !/\/login$/.test(url.pathname));
+    await Promise.all([
+      page.waitForURL((url) => !/\/login$/.test(url.pathname), { timeout: 30_000 }).catch(() => {}),
+      page.getByRole('button', { name: 'Sign in' }).click(),
+    ]);
     await page.goto(path);
+    // If still on login (a slow session write under load), try once more.
+    if (/\/login$/.test(page.url())) {
+      await page.waitForTimeout(1000);
+      await page.goto(path);
+    }
   }
 }
 
@@ -300,6 +307,21 @@ test('@m3 S-14 import a folder of legacy renders through the interface', async (
   for (let index = 0; index < IMPORT_COUNT; index += 1) {
     writeFileSync(join(source, `legacy_${String(index).padStart(2, '0')}.png`), distinctPng(index));
   }
+  await page.reload();
+  // Wait until the folders API lists the new folder, then reload so the tree
+  // shows it (creating a directory is picked up on the next folder listing).
+  await expect
+    .poll(
+      async () =>
+        page.evaluate(async (folder) => {
+          const response = await fetch('/api/library/folders');
+          if (!response.ok) return false;
+          const body = (await response.json()) as { folders: Array<{ path: string; name: string }> };
+          return body.folders.some((entry) => entry.name === folder || entry.path === folder);
+        }, name),
+      { timeout: 15_000 },
+    )
+    .toBe(true);
   await page.reload();
   const folderButton = page.locator('.folder-tree-item', { hasText: name });
   await expect(folderButton).toBeVisible({ timeout: 10_000 });

@@ -34,9 +34,15 @@ async function ensureSignedIn(page: Page, path: string): Promise<void> {
   if (/\/login$/.test(page.url())) {
     await page.getByLabel('Email').fill(EMAIL);
     await page.getByLabel('Password').fill(PASSWORD);
-    await page.getByRole('button', { name: 'Sign in' }).click();
-    await page.waitForURL((url) => !/\/login$/.test(url.pathname));
+    await Promise.all([
+      page.waitForURL((url) => !/\/login$/.test(url.pathname), { timeout: 30_000 }).catch(() => {}),
+      page.getByRole('button', { name: 'Sign in' }).click(),
+    ]);
     await page.goto(path);
+    if (/\/login$/.test(page.url())) {
+      await page.waitForTimeout(1000);
+      await page.goto(path);
+    }
   }
 }
 

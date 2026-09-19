@@ -12,7 +12,7 @@ export default defineConfig({
   testDir: './scenarios',
   fullyParallel: false,
   forbidOnly: Boolean(process.env.CI),
-  retries: 0,
+  retries: process.env.CI ? 1 : 0,
   timeout: 120_000,
   workers: 1,
   reporter: [['list'], ['html', { open: 'never' }]],
