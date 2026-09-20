@@ -497,6 +497,8 @@
     "colStarted": "Started",
     "empty": "No jobs yet. Generate something.",
     "filteredEmpty": "No jobs match these filters.",
+    "offlineBar": "Offline. Jobs will resume when you reconnect.",
+    "waitingForNetwork": "Waiting for network",
     "cancel": "Cancel",
     "retry": "Retry",
     "checkStatus": "Check status",
