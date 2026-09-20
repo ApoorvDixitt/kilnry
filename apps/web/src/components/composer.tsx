@@ -17,6 +17,7 @@ import {
   type MentionSuggestion,
   type ResolvePreview,
 } from './composer-mentions-logic';
+import { BATCH_MAX, parseBatch } from './batch-logic';
 
 const MODES: ComposerMode[] = ['image', 'video', 'audio', 'workflow'];
 
@@ -113,6 +114,7 @@ export function Composer({
     model: string;
     params: ComposerParams;
     override_budget?: boolean;
+    batch_text?: string;
   }) => void;
   onStateChange?: (state: {
     mode: ComposerMode;
@@ -125,6 +127,8 @@ export function Composer({
 }): React.ReactNode {
   const [mode, setMode] = useState<ComposerMode>('image');
   const [prompt, setPrompt] = useState('');
+  const [batch, setBatch] = useState(false);
+  const [batchText, setBatchText] = useState('');
   const [selectedModel, setSelectedModel] = useState<string | 'auto'>('auto');
   const [params, setParams] = useState<ComposerParams>({ count: 1 });
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -285,52 +289,94 @@ export function Composer({
 
   function fire(override = false): void {
     if (state.disabled) return;
-    onGenerate?.({ mode, prompt, model: selectedModel, params, override_budget: override });
+    onGenerate?.({
+      mode,
+      prompt,
+      model: selectedModel,
+      params,
+      override_budget: override,
+      ...(batch ? { batch_text: batchText } : {}),
+    });
   }
+
+  const batchParse = batch ? parseBatch(batchText) : null;
 
   return (
     <section className="composer" aria-label={message('create.title')}>
       <ModeSegment mode={mode} onChange={switchMode} />
-      <div className="composer-prompt-wrap">
-        <textarea
-          ref={textareaRef}
-          className="composer-prompt"
-          value={prompt}
-          placeholder={message('create.composerPlaceholder')}
-          aria-label={message('create.composerPlaceholder')}
-          onChange={(event) => {
-            setPrompt(event.target.value);
-            refreshMentions(event.target.value, event.target.selectionStart ?? event.target.value.length);
-          }}
-          onKeyDown={(event) => {
-            if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-              event.preventDefault();
-              fire();
-            }
-            if (event.key === 'Escape' && mentionQuery) {
-              setMentionQuery(null);
-              setSuggestions([]);
-            }
-          }}
-        />
-        {mentionQuery && suggestions.length > 0 ? (
-          <ul className="mention-popover" role="listbox" aria-label={message('create.mentions.label')}>
-            {suggestions.map((item) => (
-              <li key={`${item.kind}:${item.handle}`}>
-                <button
-                  type="button"
-                  className="mention-option"
-                  onClick={() => acceptSuggestion(item.handle)}
-                >
-                  {item.thumb_url ? <img src={item.thumb_url} alt="" /> : <span className="mention-thumb" />}
-                  <span className="mention-handle">@{item.handle}</span>
-                  <span className="mention-kind">{item.kind}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        ) : null}
+      <div className="composer-batch-toggle">
+        <button
+          type="button"
+          className={batch ? 'is-on' : ''}
+          aria-pressed={batch}
+          onClick={() => setBatch((prior) => !prior)}
+        >
+          {message('create.batch.toggle')}
+        </button>
       </div>
+      {batch ? (
+        <div className="composer-batch">
+          <textarea
+            className="composer-prompt"
+            value={batchText}
+            placeholder={message('create.batch.placeholder')}
+            aria-label={message('create.batch.placeholder')}
+            onChange={(event) => setBatchText(event.target.value)}
+          />
+          <p className="composer-note">
+            {batchParse?.error
+              ? batchParse.error
+              : message('create.batch.count')
+                  .replace('{n}', String(batchParse?.lines.length ?? 0))
+                  .replace('{max}', String(BATCH_MAX))}
+          </p>
+        </div>
+      ) : (
+        <div className="composer-prompt-wrap">
+          <textarea
+            ref={textareaRef}
+            className="composer-prompt"
+            value={prompt}
+            placeholder={message('create.composerPlaceholder')}
+            aria-label={message('create.composerPlaceholder')}
+            onChange={(event) => {
+              setPrompt(event.target.value);
+              refreshMentions(event.target.value, event.target.selectionStart ?? event.target.value.length);
+            }}
+            onKeyDown={(event) => {
+              if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+                event.preventDefault();
+                fire();
+              }
+              if (event.key === 'Escape' && mentionQuery) {
+                setMentionQuery(null);
+                setSuggestions([]);
+              }
+            }}
+          />
+          {mentionQuery && suggestions.length > 0 ? (
+            <ul className="mention-popover" role="listbox" aria-label={message('create.mentions.label')}>
+              {suggestions.map((item) => (
+                <li key={`${item.kind}:${item.handle}`}>
+                  <button
+                    type="button"
+                    className="mention-option"
+                    onClick={() => acceptSuggestion(item.handle)}
+                  >
+                    {item.thumb_url ? (
+                      <img src={item.thumb_url} alt="" />
+                    ) : (
+                      <span className="mention-thumb" />
+                    )}
+                    <span className="mention-handle">@{item.handle}</span>
+                    <span className="mention-kind">{item.kind}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      )}
       {peopleCount >= 3 ? (
         <p className="composer-warning" role="status">
           {message('create.mentions.threePeople').replace('{n}', String(peopleCount))}

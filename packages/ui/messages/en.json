@@ -106,6 +106,11 @@
       "previewLabel": "What each mention injects",
       "threePeople": "{n} people in one shot. Most models keep 2 faces consistent; expect drift on the third."
     },
+    "batch": {
+      "toggle": "Batch",
+      "placeholder": "One prompt per line, up to 12. Add {aspect: \"1:1\", count: 2} to override a line.",
+      "count": "{n} of {max} prompts"
+    },
     "model": "No model connected",
     "estimate": "≈ $0.00",
     "generate": "Generate",

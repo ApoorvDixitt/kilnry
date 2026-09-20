@@ -4280,3 +4280,34 @@ html[data-motion='reduced'] *::after {
   border-radius: 999px;
   padding: 2px 8px;
 }
+
+/* Composer batch mode (F-CRE-09) */
+.composer-batch-toggle {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 4px;
+}
+.composer-batch-toggle button {
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+.composer-batch-toggle button.is-on {
+  background: var(--accent-subtle-bg);
+  color: var(--accent-subtle-text);
+}
+.composer-batch .composer-prompt {
+  min-height: 140px;
+  font-family: var(--mono);
+  font-size: 13px;
+}
+.composer-note {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}

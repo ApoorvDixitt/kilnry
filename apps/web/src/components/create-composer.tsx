@@ -11,6 +11,7 @@ import { apiFetch } from '../lib/api-client';
 import { message } from '../lib/messages';
 import type { ApiEstimate, ApiModel } from '../lib/composer-types';
 import { Composer } from './composer';
+import { batchRequests, parseBatch } from './batch-logic';
 import type { ComposerMode } from './model-picker';
 import type { ComposerParams } from './param-chips';
 import { ResultTileActions, type TileCapabilities } from './result-tile-actions';
@@ -204,6 +205,51 @@ export function CreateComposer(): React.ReactNode {
     }
   }
 
+  async function generateBatch(text: string, model: string): Promise<void> {
+    const parse = parseBatch(text);
+    if (parse.error || parse.lines.length === 0) return;
+    const requests = batchRequests(parse, { kind: 'image', model }).map((request) => ({
+      index: request.index,
+      kind: request.kind,
+      prompt: request.prompt,
+      model: request.model,
+      params: { quality: 'standard', width: 1024, height: 1024, ...request.params },
+    }));
+    const groupTiles = requests.map((request) => ({
+      id: crypto.randomUUID(),
+      jobId: '',
+      status: 'queued',
+      stepLabel: stepFor('queued', 'auto'),
+      provider: 'auto',
+      prompt: request.prompt,
+    }));
+    setTiles((prior) => [...groupTiles, ...prior]);
+    try {
+      const body = await json<{ jobs: Array<{ index?: number; job_id: string }> }>(
+        await apiFetch('/api/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ requests, client_request_id: crypto.randomUUID() }),
+        }),
+      );
+      await Promise.all(
+        body.jobs.map((job, position) => {
+          const tile = groupTiles[job.index ?? position];
+          if (!tile) return Promise.resolve();
+          setTiles((prior) => prior.map((t) => (t.id === tile.id ? { ...t, jobId: job.job_id } : t)));
+          return poll(tile.id, job.job_id);
+        }),
+      );
+    } catch (cause) {
+      const messageText = cause instanceof Error ? cause.message : message('create.proof.requestFailed');
+      setTiles((prior) =>
+        prior.map((t) =>
+          groupTiles.some((g) => g.id === t.id) ? { ...t, status: 'failed', error: messageText } : t,
+        ),
+      );
+    }
+  }
+
   return (
     <section className="create-composer">
       <div className="create-results" aria-live="polite">
@@ -287,7 +333,10 @@ export function CreateComposer(): React.ReactNode {
         estimate={estimate}
         budgets={budgets}
         onStateChange={onStateChange}
-        onGenerate={(payload) => void generate(payload.override_budget)}
+        onGenerate={(payload) => {
+          if (payload.batch_text) void generateBatch(payload.batch_text, payload.model);
+          else void generate(payload.override_budget);
+        }}
         seed={seed}
       />
     </section>
