@@ -13,6 +13,7 @@ import { ollamaAdapter } from './ollama/index.js';
 import { openaiAdapter } from './openai/index.js';
 import { openRouterAdapter } from './openrouter/index.js';
 import { pollinationsAdapter } from './pollinations/index.js';
+import { replicateAdapter } from './replicate/index.js';
 
 export * from './elevenlabs/index.js';
 export * from './fal/index.js';
@@ -23,6 +24,7 @@ export * from './ollama/index.js';
 export * from './openai/index.js';
 export * from './openrouter/index.js';
 export * from './pollinations/index.js';
+export * from './replicate/index.js';
 
 export const adapters: AdapterRegistry = {
   fal: falAdapter,
@@ -32,6 +34,7 @@ export const adapters: AdapterRegistry = {
   elevenlabs: elevenlabsAdapter,
   minimax: minimaxAdapter,
   higgsfield: higgsfieldAdapter,
+  replicate: replicateAdapter,
   ollama: ollamaAdapter,
   pollinations: pollinationsAdapter,
 };
