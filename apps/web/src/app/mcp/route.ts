@@ -12,7 +12,10 @@
 // server core and its transport.
 
 import { handleMcpRequest } from '@kilnry/mcp';
+import { KILNRY_TOOLS } from '@kilnry/core';
+import { adapters } from '@kilnry/providers';
 import { authenticateMcp, isAllowedMcpHost } from '../../server/mcp';
+import { ensureRuntimeEngine, runtimeServices } from '../../server/runtime';
 
 // Next must run this on the Node.js runtime (the transport and token store use
 // Node APIs) and never cache it.
@@ -39,7 +42,18 @@ async function handle(request: Request): Promise<Response> {
     });
   }
 
-  return handleMcpRequest(request, { version: SERVER_VERSION, scope: auth.scope, tools: [] });
+  const services = await runtimeServices();
+  const engine = await ensureRuntimeEngine().catch(() => undefined);
+  return handleMcpRequest(request, {
+    version: SERVER_VERSION,
+    tools: KILNRY_TOOLS,
+    services: {
+      db: services.database,
+      scope: auth.scope,
+      adapters,
+      ...(engine ? { engine } : {}),
+    },
+  });
 }
 
 export async function POST(request: Request): Promise<Response> {

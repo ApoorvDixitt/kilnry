@@ -1,0 +1,76 @@
+// Kilnry — https://github.com/ApoorvDixitt/kilnry
+// Copyright (c) 2026 Apoorv Dixit. Licensed under the Sustainable Use License 1.0.
+// SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
+// See LICENSE.md in the repository root. You may not remove or obscure this notice.
+
+// The shared tool contract (TRD-10 §2.9). One module per tool exports a
+// KilnryTool; two thin registrars (the Model Context Protocol server and, in a
+// later milestone, Chat) wrap the same definitions so both surfaces run exactly
+// one implementation. Each tool has a name, a short description, flat Zod input
+// and output schemas, behaviour annotations, and an async execute.
+
+import type { ZodTypeAny } from 'zod';
+import type { DatabaseState } from '@kilnry/db';
+import type { JobEngine } from '../jobs/engine.js';
+import type { AdapterRegistry } from '../providers/adapter.js';
+
+// Behaviour hints a client host reads before calling a tool (TRD-10 §2.3).
+export interface ToolAnnotations {
+  readOnlyHint?: boolean;
+  destructiveHint?: boolean;
+  idempotentHint?: boolean;
+  openWorldHint?: boolean;
+}
+
+// The caller's scope and the services a tool needs to run. Read-only catalogue
+// tools use only the database; pricing and provider tools also need the job
+// engine and the provider adapters (both core objects). Spending tools receive
+// more in later units.
+export interface ToolServices {
+  db: DatabaseState;
+  scope: 'full' | 'read_only';
+  engine?: JobEngine;
+  adapters?: AdapterRegistry;
+}
+
+// A tool result: a human summary for content[0].text (≤ 600 chars, no raw JSON)
+// and structuredContent matching the tool's outputSchema (TRD-10 §2.4).
+export interface ToolResult {
+  text: string;
+  structuredContent: Record<string, unknown>;
+}
+
+// One tool. inputSchema and outputSchema are flat records of Zod fields so the
+// Model Context Protocol server can pass them straight to registerTool.
+export interface KilnryTool {
+  name: string;
+  description: string;
+  inputSchema: Record<string, ZodTypeAny>;
+  outputSchema: Record<string, ZodTypeAny>;
+  annotations: ToolAnnotations;
+  execute: (input: Record<string, unknown>, services: ToolServices) => Promise<ToolResult>;
+}
+
+// A read-only token may call only tools whose readOnlyHint is true (TRD-10 §7).
+export function toolAllowedForScope(
+  tool: Pick<KilnryTool, 'annotations'>,
+  scope: 'full' | 'read_only',
+): boolean {
+  if (scope === 'full') return true;
+  return tool.annotations.readOnlyHint === true;
+}
+
+// A structured error result (TRD-10 §2.8): tools never throw; they return an
+// error object under structuredContent.error with a code from TRD-20.
+export function toolError(
+  code: string,
+  message: string,
+  extra: { retryable?: boolean; provider?: string; provider_code?: string } = {},
+): ToolResult {
+  return {
+    text: message,
+    structuredContent: {
+      error: { code, message, retryable: extra.retryable ?? false, ...extra },
+    },
+  };
+}

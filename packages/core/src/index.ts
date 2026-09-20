@@ -35,6 +35,7 @@ export * from './characters/state-groups.js';
 export * from './characters/voices.js';
 export * from './characters/resolve-db.js';
 export * from './mcp/tokens.js';
+export * from './tools/index.js';
 export * from './providers/adapter.js';
 export * from './providers/service.js';
 export * from './registry/estimator.js';

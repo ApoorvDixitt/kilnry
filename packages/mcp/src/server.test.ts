@@ -5,14 +5,12 @@
 
 import { describe, expect, it } from 'vitest';
 import * as z from 'zod';
-import {
-  MCP_INSTRUCTIONS,
-  createKilnryMcpServer,
-  toolAllowedForScope,
-  type McpToolDefinition,
-} from './server.js';
+import { toolAllowedForScope, type KilnryTool, type ToolServices } from '@kilnry/core';
+import { MCP_INSTRUCTIONS, TOOLS_LIST_TTL_MS, createKilnryMcpServer } from './server.js';
 
-function readOnlyTool(name: string): McpToolDefinition {
+const services = { db: {} as never, scope: 'full' } as ToolServices;
+
+function readOnlyTool(name: string): KilnryTool {
   return {
     name,
     description: 'A read-only tool.',
@@ -23,7 +21,7 @@ function readOnlyTool(name: string): McpToolDefinition {
   };
 }
 
-function spendingTool(name: string): McpToolDefinition {
+function spendingTool(name: string): KilnryTool {
   return {
     name,
     description: 'A tool that changes state.',
@@ -40,6 +38,10 @@ describe('MCP server core (F-MCP-01)', () => {
     expect(Buffer.byteLength(MCP_INSTRUCTIONS, 'utf8')).toBeLessThanOrEqual(1536);
   });
 
+  it('caches tools/list for five minutes', () => {
+    expect(TOOLS_LIST_TTL_MS).toBe(300_000);
+  });
+
   it('lets a full token run any tool but a read-only token only read-only tools', () => {
     expect(toolAllowedForScope(readOnlyTool('kilnry_models'), 'read_only')).toBe(true);
     expect(toolAllowedForScope(spendingTool('kilnry_generate'), 'read_only')).toBe(false);
@@ -49,7 +51,7 @@ describe('MCP server core (F-MCP-01)', () => {
   it('builds a server with the given tools without throwing', () => {
     const server = createKilnryMcpServer({
       version: '0.2.0',
-      scope: 'full',
+      services,
       tools: [spendingTool('kilnry_generate'), readOnlyTool('kilnry_models')],
     });
     expect(server).toBeDefined();
