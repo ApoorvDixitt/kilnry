@@ -10,15 +10,18 @@
 
 export * from './types.js';
 export * from './discovery.js';
+export * from './generation.js';
 export * from './read.js';
 
 import { DISCOVERY_TOOLS } from './discovery.js';
+import { GENERATION_TOOLS } from './generation.js';
 import { READ_TOOLS } from './read.js';
 import type { KilnryTool } from './types.js';
 
 // Every Kilnry tool in TRD-10 §3 order. Remaining groups are appended as they
-// land (§3.2 generation and transforms, §3.6 jobs and publishing).
-export const KILNRY_TOOLS: KilnryTool[] = [...DISCOVERY_TOOLS, ...READ_TOOLS];
+// land (§3.3 library writes, §3.4 characters writes, §3.5
+// presets/workflows/skills, §3.6 publishing and widgets).
+export const KILNRY_TOOLS: KilnryTool[] = [...DISCOVERY_TOOLS, ...GENERATION_TOOLS, ...READ_TOOLS];
 
 // Look up a tool by its canonical name.
 export function toolByName(name: string): KilnryTool | undefined {
