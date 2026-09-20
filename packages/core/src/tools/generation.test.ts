@@ -72,6 +72,14 @@ describe('generation tools (F-MCP-02 §3.2, §3.6)', () => {
       { db: state, scope: 'full' },
     );
     expect((result.structuredContent.error as { code: string }).code).toBe('NO_PROVIDER');
+
+    const unsupported = await transformTool.execute(
+      { op: 'lipsync', source: 'x' },
+      { db: state, scope: 'full' },
+    );
+    const err = unsupported.structuredContent.error as { code: string; message: string };
+    expect(err.code).toBe('NO_PROVIDER');
+    expect(err.message).toContain('upscale_image');
   });
 
   it('lists jobs with structured content on a fresh install', async () => {

@@ -16,6 +16,8 @@ import { FFMPEG_OPS, isSupportedFfmpegOp, runFfmpegOp } from '@kilnry/media';
 import { probeMedia } from '@kilnry/media';
 import { confirmationDecision } from '../budget/confirmation.js';
 import { ANALYZE_TASKS, CHEAPEST_VLM, analyzeMedia, isSupportedAnalyzeTask } from '../characters/analyze.js';
+import { loadRegistry, providerRouteStates } from '../registry/store.js';
+import type { Capability } from '../types.js';
 import { getAssetDetail } from '../library/assets.js';
 import { indexAsset } from '../library/index.js';
 import { resolveInRoot } from '../library/containment.js';
@@ -189,13 +191,93 @@ export const transformTool: KilnryTool = {
     error: z.record(z.string(), z.unknown()).optional(),
   },
   annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
-  async execute(): Promise<ToolResult> {
-    // The transform providers are wired in a later milestone; until then the
-    // tool reports that no provider is configured rather than charging.
-    return toolError(
-      'NO_PROVIDER',
-      'Transform operations need a provider that arrives in a later milestone.',
+  async execute(input, services: ToolServices): Promise<ToolResult> {
+    const op = typeof input.op === 'string' ? input.op : '';
+    const source = typeof input.source === 'string' ? input.source : '';
+    if (!source) return toolError('INVALID_INPUT', 'A source is required.');
+
+    // Only the operations backed by a routable capability run in M4; the rest
+    // are named as not available.
+    const CAPABILITY_FOR: Record<string, Capability> = {
+      upscale_image: 'upscale_image',
+      bg_remove: 'bg_remove',
+      reframe: 'reframe_image',
+    };
+    const capability = CAPABILITY_FOR[op];
+    if (!capability) {
+      return toolError(
+        'NO_PROVIDER',
+        `The ${op || 'requested'} operation is not available yet. Supported now: upscale_image, bg_remove, reframe. The rest arrive in a later milestone.`,
+      );
+    }
+    if (!services.engine) {
+      return toolError('NO_PROVIDER', 'Transforms are unavailable because the engine is not running.');
+    }
+
+    // Is any connected provider offering this capability?
+    const [registry, providers] = await Promise.all([
+      loadRegistry(services.db),
+      providerRouteStates(services.db),
+    ]);
+    const connected = registry.models.some(
+      (model) =>
+        (model.capabilities as readonly string[]).includes(capability) &&
+        providers[model.provider]?.connected,
     );
+    if (!connected) {
+      return toolError('NO_PROVIDER', `No connected provider offers ${op}. Add a key that supports it.`);
+    }
+
+    const params = (input.params as Record<string, unknown> | undefined) ?? {};
+    const confirm = typeof input.confirm_cost_usd === 'number' ? input.confirm_cost_usd : undefined;
+    const request = {
+      kind: 'image',
+      capability,
+      prompt: op,
+      params,
+      medias: [{ role: 'source', ref: source }],
+      count: 1,
+      injections: [],
+    };
+    try {
+      const priced = await services.engine.estimate(request as never, {});
+      const usd = priced.estimate.authoritative_usd ?? priced.estimate.estimate_usd;
+      const decision = confirmationDecision({
+        estimateUsd: usd,
+        confirmCostUsd: confirm,
+        autoApproveBelowUsd: services.autoApproveBelowUsd,
+      });
+      if (!decision.proceed) {
+        return {
+          text: `About $${usd.toFixed(2)} to ${op}. Confirm to run.`,
+          structuredContent: {
+            needs_confirmation: true,
+            jobs: [
+              {
+                estimate_usd: priced.estimate.estimate_usd,
+                route: priced.estimate.route,
+                status: 'estimated',
+              },
+            ],
+          },
+        };
+      }
+      const job = await services.engine.createJob({
+        request: request as never,
+        confirmed_cost_usd: priced.estimate.estimate_usd,
+        confirmed_by: 'mcp',
+      });
+      return {
+        text: `Started ${op} for about $${usd.toFixed(2)}.`,
+        structuredContent: {
+          jobs: [{ job_id: job.job_id, status: job.status, estimate_usd: priced.estimate.estimate_usd }],
+        },
+      };
+    } catch (error) {
+      const code =
+        error && typeof error === 'object' && 'code' in error ? String(error.code) : 'PROVIDER_ERROR';
+      return toolError(code, error instanceof Error ? error.message : 'The transform failed.');
+    }
   },
 };
 
