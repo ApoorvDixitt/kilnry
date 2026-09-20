@@ -90,18 +90,18 @@ Status: complete. GitHub [`ci` run 35531635405](https://github.com/ApoorvDixitt/
 
 Implemented F-ONB-01 (fix); F-CHR-01, 02, 03, 04, 05, 06, 09, 11, 13; F-ELM-01, 02, 03; F-VOI-01, 04; F-CRE-02, 09, 10; F-LIB-07, 11, 12; F-MCP-01, 02, 05, 06; F-JOB-05. The six TRD-14 §7 worked examples pass byte-exact as unit tests; every new Generate surface goes through the M2 engine's estimate, budget and confirmation.
 
-Test counts by suite (uncached `turbo run test --force`): core 235, provider 22, media 27, launcher 16, mcp, web node 40; `test:browser` 102; `e2e --grep @m4` 8; `e2e --grep "@m3|@gate"` 13. Keyboard, axe WCAG 2.2 AA (zero critical or serious on every touched route), reduced motion (both switches) and the accent lint pass; light and dark 1440×900 screenshots are in `e2e/output/`, and `e2e/__snapshots__/characters-{light,dark}.png` are the Characters baseline against `glance-characters.png` / `-dark.png`.
+Test counts by suite (uncached `turbo run test --force`): core 235, provider 22, media 27, launcher 16, mcp, web node 40; `test:browser` 102; `e2e --grep @m4` 8; `e2e --grep "@m3|@gate"` 13. Keyboard, axe WCAG 2.2 AA (zero critical or serious on every touched route), reduced motion (both switches) and the accent lint pass; light and dark 1440×900 screenshots are in `e2e/output/`, and `e2e/__snapshots__/characters-{light,dark}.png` are the Characters baseline against `glance-characters{,-dark}.png`.
 
-MCP matrix (`@matrix`, `KILNRY_TEST_MSW=1`) marks PASS only for what it runs. `endpoint-http.json`: a Streamable HTTP check that `tools/list` is 20 tools, byte-identical across two calls, with annotations, plus the cache hint, the `kilnry_generate` money-round-trip and a `resources/list` read. `stdio-bridge.json`: a real round-trip through the launcher `kilnry mcp` bridge asserting the same 20 tools. MCP Inspector `--cli` is PASS only when it answers non-interactively, else manual-only. Claude Code (HTTP and stdio), Codex CLI, Claude Desktop and Cursor are manual-only with their exact snippet and check.
+MCP matrix (`@matrix`, `KILNRY_TEST_MSW=1`) marks PASS only for what it runs. `endpoint-http.json`: a Streamable HTTP check that `tools/list` is 20 tools, byte-identical across two calls, with annotations, plus the cache hint, the `kilnry_generate` money-round-trip and a `resources/list` read. `stdio-bridge.json`: a real round-trip through the launcher `kilnry mcp` bridge asserting the same 20 tools. MCP Inspector `--cli` is PASS only when it answers non-interactively, else manual-only. Claude Code (HTTP and stdio), Codex CLI, Claude Desktop and Cursor are manual-only with their snippet and check.
 
 Notes and decisions:
 
 - `5a20fd7` (F-CHR-01) had its run cancelled by the old cancel-in-progress; later green runs verify it. `2ad270d` set it false.
 - The FFmpeg-in-CI failures were the static-build host being unreachable, not the code; the install now retries via `nick-fields/retry`.
-- The base system prompt lives at `packages/skills/prompts/base-system.md`: TRD-13 §8 and TRD-11 §3 win over PRD-13 §1's `packages/core/src/agent/system-prompt.md`, which is unused.
+- Base system prompt: `packages/skills/prompts/base-system.md` (TRD-13 §8, TRD-11 §3) wins over PRD-13 §1's unused `packages/core/src/agent/system-prompt.md`.
 - `c0eb5c1`'s subject reads `(F-CHR-11)` but the change is F-LIB-11; history is not rewritten.
 - `08f4a9f` only planned the reference sheet; `c52eeea` runs it through the engine, splits panels with sharp, and writes role/view/lineage sidecars.
-- Not-available MCP operations, by owning milestone: `kilnry_library_manage.export_bundle`, `kilnry_voices` preview/clone, most `kilnry_transform` ops → M5; `kilnry_ffmpeg` extras and `kilnry_analyze` extras → M6/later; presets/workflows/skills lists → M5/M6; `kilnry_publish` → deployer app (D-17); `kilnry_transform` face-swap always rejects.
+- Not-available MCP operations by owning milestone: `kilnry_library_manage.export_bundle`, `kilnry_voices` preview/clone, most `kilnry_transform` ops → M5; `kilnry_ffmpeg` and `kilnry_analyze` extras → M6/later; presets/workflows/skills lists → M5/M6; `kilnry_publish` → deployer (D-17); `kilnry_transform` face-swap always rejects.
 - F-CHR-13, F-ELM-03 and F-VOI-04 are surfaced in the composer and covered by the `@m4` scenarios.
 - MCP tokens are 32-byte secrets stored as a SHA-256 hash compared in constant time (high-entropy, not argon2id; default; adjustable).
 
