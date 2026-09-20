@@ -41,12 +41,11 @@ jobs:
         # installs the current release static build (FFmpeg 7), which the doctor
         # requires (major version 7 or newer) and which the media tests need. The
         # action occasionally fails to read the release version from GitHub when
-        # the API is rate-limited; the token and retries make that transient error
-        # recover on its own instead of failing an otherwise-green run.
+        # the API is rate-limited; passing the workflow token authenticates that
+        # read so it is not rate-limited, which is the cause of the transient error.
         uses: federicocarboni/setup-ffmpeg@37062fbf7149fc5578d6c57e08aed62458b375d6 # v3.1
         with:
           github-token: ${{ github.token }}
-          retries: 3
       - name: Check licence headers
         run: pnpm check:headers
       - name: Check provenance
