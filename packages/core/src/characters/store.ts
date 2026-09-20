@@ -244,9 +244,9 @@ async function loadBoundVoice(
 interface AddReferenceInput {
   asset_id: string;
   role: string;
-  view?: string;
-  label?: string;
-  weight?: number;
+  view?: string | undefined;
+  label?: string | undefined;
+  weight?: number | undefined;
 }
 
 // Add references to a Character's current version, or fork a new unfrozen version

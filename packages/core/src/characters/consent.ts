@@ -23,8 +23,8 @@ export interface SetConsentInput {
   // The three choices offered in the gate: "This is me" (self), "I have written
   // permission" (written, evidence attached), "Neither" (none, training blocked).
   status: ConsentStatus;
-  evidence_asset_id?: string;
-  license?: 'private' | 'cc0' | 'cc-by' | 'commercial-release';
+  evidence_asset_id?: string | undefined;
+  license?: 'private' | 'cc0' | 'cc-by' | 'commercial-release' | undefined;
 }
 
 // Consent is satisfied for training and likeness send when the person is not real,
