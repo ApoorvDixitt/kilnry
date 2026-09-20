@@ -57,19 +57,24 @@ export function providerHttpError(
   const metadata = value?.error?.metadata;
   const openRouterModerated =
     status === 403 && Boolean(metadata && ('reasons' in metadata || 'patterns' in metadata));
+  const openaiModerated = value?.error?.code === 'moderation_blocked';
   const details = {
     http_status: status,
     billed: falModerated ? 'maybe' : 'no',
     ...(retryAfter === undefined ? {} : { retry_after_s: retryAfter }),
   };
 
-  if (falModerated || openRouterModerated) {
+  if (falModerated || openRouterModerated || openaiModerated) {
     return new KilnryError(
       'MODERATION_REJECTED',
       message("Blocked by the provider's content filter. Not charged.", providerText),
       {
         provider,
-        provider_code: falModerated ? 'content_policy_violation' : 'moderation',
+        provider_code: falModerated
+          ? 'content_policy_violation'
+          : openaiModerated
+            ? 'moderation_blocked'
+            : 'moderation',
         retryable: false,
         details,
       },
