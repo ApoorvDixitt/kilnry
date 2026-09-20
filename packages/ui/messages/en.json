@@ -349,6 +349,13 @@
       "ollamaTools": "tools",
       "ollamaNoTools": "no tool calling",
       "ollamaVision": "vision",
+      "higgsfieldHelp": "Cinematic image and video, opt-in. Trains on inputs and outputs.",
+      "higgsfieldNoticeTitle": "Before you connect Higgsfield",
+      "higgsfieldNoticeBody": "Higgsfield's Terms of Use (effective 2026-07-26; 2026-08-27 for older accounts) state in §4.4 that your inputs and outputs \"may be used by Company to train, develop, enhance, evolve, and improve its AI models\". The only opt-out is deleting content or your account; Enterprise Agreement customers are excluded from training. You keep rights to outputs and may use them commercially.",
+      "higgsfieldNoticeRouting": "Kilnry marks Higgsfield as training-on-inputs and excludes it from Auto routing while \"Avoid providers that train on inputs\" is on. You can still pick Higgsfield models by name.",
+      "higgsfieldNoticeRetention": "Higgsfield keeps outputs for at least 7 days. Kilnry downloads every result to your Library immediately.",
+      "higgsfieldNoticeCheckbox": "I have read this and want to connect Higgsfield.",
+      "higgsfieldNoticeSource": "https://higgsfield.ai/terms-of-use-agreement",
       "status": {
         "ok": "Connected",
         "degraded": "Paused after errors",

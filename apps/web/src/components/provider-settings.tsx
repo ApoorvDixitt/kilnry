@@ -13,7 +13,7 @@ import { apiFetch } from '../lib/api-client';
 import { message } from '../lib/messages';
 import { RecoveryProof, type RecoveryConfirmation } from './recovery-proof';
 
-type ProviderId = 'fal' | 'openrouter' | 'pollinations';
+type ProviderId = 'fal' | 'openrouter' | 'pollinations' | 'higgsfield';
 interface ProviderSummary {
   id: string;
   display_name: string;
@@ -59,7 +59,10 @@ function detect(value: string): ProviderId | undefined {
   const candidates = detectProviderKey(value);
   if (candidates.length !== 1) return undefined;
   const provider = candidates[0]?.provider;
-  return provider === 'fal' || provider === 'openrouter' || provider === 'pollinations'
+  return provider === 'fal' ||
+    provider === 'openrouter' ||
+    provider === 'pollinations' ||
+    provider === 'higgsfield'
     ? provider
     : undefined;
 }
@@ -80,6 +83,7 @@ export function ProviderSettings({
   const [caps, setCaps] = useState<Record<string, string>>({});
   const [concurrency, setConcurrency] = useState<Record<string, string>>({});
   const [ollama, setOllama] = useState<OllamaDetection>();
+  const [higgsfieldAccepted, setHiggsfieldAccepted] = useState(false);
 
   // Probe the local Ollama runtime on open and every sixty seconds while the
   // Providers page is visible (F-PRV-08). The probe is loopback-only; a missing
@@ -129,7 +133,7 @@ export function ProviderSettings({
       const response = await apiFetch(`/api/providers/${selected}/key`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key }),
+        body: JSON.stringify({ key, ...(selected === 'higgsfield' ? { accept_tos: true } : {}) }),
       });
       const body = await responseJson<{
         recovery_kit?: string;
@@ -281,11 +285,44 @@ export function ProviderSettings({
             <option value="fal">fal</option>
             <option value="openrouter">OpenRouter</option>
             <option value="pollinations">Pollinations</option>
+            <option value="higgsfield">Higgsfield</option>
           </select>
-          <button className="settings-primary" type="submit" disabled={pending || key.length < 8}>
+          <button
+            className="settings-primary"
+            type="submit"
+            disabled={
+              pending || key.length < 8 || ((detected ?? provider) === 'higgsfield' && !higgsfieldAccepted)
+            }
+          >
             {pending ? message('settings.providers.testing') : message('settings.providers.testAndSave')}
           </button>
         </div>
+        {(detected ?? provider) === 'higgsfield' ? (
+          <section
+            className="provider-notice"
+            aria-label={message('settings.providers.higgsfieldNoticeTitle')}
+          >
+            <h4>{message('settings.providers.higgsfieldNoticeTitle')}</h4>
+            <p>{message('settings.providers.higgsfieldNoticeBody')}</p>
+            <p>{message('settings.providers.higgsfieldNoticeRouting')}</p>
+            <p>{message('settings.providers.higgsfieldNoticeRetention')}</p>
+            <a
+              href={message('settings.providers.higgsfieldNoticeSource')}
+              target="_blank"
+              rel="noreferrer noopener"
+            >
+              {message('settings.providers.higgsfieldNoticeSource')}
+            </a>
+            <label className="provider-notice-consent">
+              <input
+                type="checkbox"
+                checked={higgsfieldAccepted}
+                onChange={(event) => setHiggsfieldAccepted(event.target.checked)}
+              />
+              {message('settings.providers.higgsfieldNoticeCheckbox')}
+            </label>
+          </section>
+        ) : null}
         <small>
           {detected
             ? message('settings.providers.detected').replace('{provider}', detected)

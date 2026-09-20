@@ -174,12 +174,37 @@ export async function connectProvider(input: {
   key: string;
   label?: string;
   save_anyway?: boolean;
+  accept_tos?: boolean;
   fetch?: typeof fetch;
 }): Promise<{
   provider: ProviderSummary;
   recovery_kit?: string;
   test: { ok: boolean; latency_ms?: number; model_count?: number; error?: ReturnType<KilnryError['toJSON']> };
 }> {
+  // Higgsfield is opt-in (D-44, F-PRV-06): its key cannot be saved until the
+  // Terms-of-Use training notice has been acknowledged in this request or on a
+  // prior connect. The acknowledgement time is kept in providers.extra.
+  if (input.provider === 'higgsfield') {
+    const rows = await input.state.db
+      .select({ extra: providers.extra })
+      .from(providers)
+      .where(eq(providers.id, 'higgsfield'));
+    const alreadyAccepted = typeof rows[0]?.extra.accepted_tos_at === 'string';
+    if (!alreadyAccepted && !input.accept_tos) {
+      throw new KilnryError(
+        'CONFIRMATION_REQUIRED',
+        'Read and accept the Higgsfield notice before connecting the key.',
+        { provider: 'higgsfield', retryable: false },
+      );
+    }
+    if (input.accept_tos && !alreadyAccepted) {
+      const extra = { ...(rows[0]?.extra ?? {}), accepted_tos_at: new Date().toISOString() };
+      await input.state.db
+        .update(providers)
+        .set({ extra, updatedAt: new Date() })
+        .where(eq(providers.id, 'higgsfield'));
+    }
+  }
   const tested = await testProvider({
     state: input.state,
     keyStore: input.keyStore,

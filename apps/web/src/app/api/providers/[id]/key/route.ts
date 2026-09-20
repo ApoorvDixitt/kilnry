@@ -21,6 +21,7 @@ const Input = z.object({
   key: z.string().min(8).max(512),
   label: z.string().max(80).optional(),
   save_anyway: z.boolean().default(false),
+  accept_tos: z.boolean().default(false),
 });
 
 async function providerFrom(id: string, key?: string) {
@@ -54,6 +55,7 @@ export async function PUT(request: Request, context: { params: Promise<{ id: str
       key: input.key,
       ...(input.label === undefined ? {} : { label: input.label }),
       save_anyway: input.save_anyway,
+      accept_tos: input.accept_tos,
     });
     return NextResponse.json({
       ...result,

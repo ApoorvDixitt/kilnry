@@ -11,7 +11,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { closeDatabaseState, createDatabase } from '@kilnry/db';
 import { KilnryError } from '../errors.js';
 import type { ProviderAdapter } from './adapter.js';
-import { listProviders, refreshProviderPrices, updateProviderControls } from './service.js';
+import { listProviders, connectProvider, refreshProviderPrices, updateProviderControls } from './service.js';
 import { loadRegistry, seedRegistry } from '../registry/store.js';
 import { ProviderKeyStore } from '../security/key-store.js';
 
@@ -100,5 +100,84 @@ describe('provider price refresh', () => {
       max_concurrency: 1,
       price_stale: false,
     });
+  });
+});
+
+describe('Higgsfield opt-in notice gate (F-PRV-06, D-44)', () => {
+  function higgsfieldAdapter(): ProviderAdapter {
+    return {
+      id: 'higgsfield',
+      display_name: 'Higgsfield fixture',
+      base_url: 'https://fixture.invalid',
+      key_detection: null,
+      concurrency: { default: 1, max_known: 1 },
+      retention_days: 7,
+      training_on_inputs: true,
+      supports_authoritative_estimate: true,
+      idempotency: 'none',
+      testKey: () => Promise.resolve({ ok: true, latency_ms: 1 }),
+      listModels: () => Promise.resolve([]),
+      submit: () => Promise.reject(new Error('not used')),
+      poll: () => Promise.reject(new Error('not used')),
+      cancel: () => Promise.resolve({ ok: false }),
+      download: () => Promise.resolve([]),
+      normalizeError: (error) =>
+        error instanceof KilnryError
+          ? error
+          : new KilnryError('PROVIDER_ERROR', 'Fixture failed.', { cause: error }),
+    };
+  }
+
+  async function fixture(): Promise<{
+    state: ReturnType<typeof createDatabase>;
+    keyStore: ProviderKeyStore;
+  }> {
+    const dataDir = mkdtempSync(join(tmpdir(), 'kilnry-higgsfield-'));
+    const state = createDatabase(dataDir, { memory: true });
+    disposers.push(async () => {
+      await closeDatabaseState(state);
+      rmSync(dataDir, { recursive: true, force: true });
+    });
+    await state.ready;
+    await seedRegistry(state);
+    const keyStore = new ProviderKeyStore({
+      dataDir,
+      database: state,
+      environment: { KILNRY_MASTER_KEY: randomBytes(32).toString('hex') },
+    });
+    await keyStore.initialize();
+    return { state, keyStore };
+  }
+
+  const key = ['0'.repeat(8), '-0000-0000-0000-', '0'.repeat(12), ':', 'a'.repeat(24)].join('');
+
+  it('refuses to connect until the notice is acknowledged', async () => {
+    const { state, keyStore } = await fixture();
+    await expect(
+      connectProvider({
+        state,
+        keyStore,
+        adapters: { higgsfield: higgsfieldAdapter() },
+        provider: 'higgsfield',
+        key,
+      }),
+    ).rejects.toMatchObject({ code: 'CONFIRMATION_REQUIRED' });
+  });
+
+  it('connects and stores accepted_tos_at once acknowledged', async () => {
+    const { state, keyStore } = await fixture();
+    const result = await connectProvider({
+      state,
+      keyStore,
+      adapters: { higgsfield: higgsfieldAdapter() },
+      provider: 'higgsfield',
+      key,
+      accept_tos: true,
+    });
+    expect(result.test.ok).toBe(true);
+    const summary = (await listProviders(state, { higgsfield: higgsfieldAdapter() })).find(
+      (provider) => provider.id === 'higgsfield',
+    );
+    expect(summary?.connected).toBe(true);
   });
 });
