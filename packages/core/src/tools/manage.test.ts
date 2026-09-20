@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -11,6 +11,7 @@ import { closeDatabaseState, createDatabase } from '@kilnry/db';
 import {
   MANAGE_TOOLS,
   charactersManageTool,
+  libraryManageTool,
   presetsTool,
   skillsTool,
   uiTool,
@@ -18,8 +19,10 @@ import {
 } from './manage.js';
 
 const disposers: Array<() => Promise<void>> = [];
+const roots: string[] = [];
 afterEach(async () => {
   for (const dispose of disposers.splice(0).reverse()) await dispose();
+  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
 async function db(): Promise<Awaited<ReturnType<typeof createDatabase>>> {
@@ -81,5 +84,34 @@ describe('management and template tools (F-MCP-02 §3.3–§3.6)', () => {
     const result = await uiTool.execute({ view: 'job_progress' }, { db: state, scope: 'read_only' });
     expect(result.structuredContent.resource_uri).toBe('ui://kilnry/job_progress');
     expect(typeof result.structuredContent.fallback_text).toBe('string');
+  });
+
+  it('kilnry_library_manage reports no Library and refuses export_bundle precisely', async () => {
+    const state = await db();
+    const noRoot = await libraryManageTool.execute(
+      { action: 'delete', asset_ids: ['x'] },
+      { db: state, scope: 'full' },
+    );
+    expect((noRoot.structuredContent.error as { code: string }).code).toBe('NOT_FOUND');
+
+    const bundle = await libraryManageTool.execute(
+      { action: 'export_bundle' },
+      { db: state, scope: 'full', libraryRoot: '/tmp/x', libraryId: 'L' },
+    );
+    const err = bundle.structuredContent.error as { code: string; message: string };
+    expect(err.code).toBe('NO_PROVIDER');
+    expect(err.message).toContain('F-LIB-14');
+  });
+
+  it('kilnry_library_manage creates a folder under the Library root', async () => {
+    const state = await db();
+    const root = mkdtempSync(join(tmpdir(), 'kilnry-lib-'));
+    roots.push(root);
+    const result = await libraryManageTool.execute(
+      { action: 'create_folder', new_name: 'Campaign A' },
+      { db: state, scope: 'full', libraryRoot: root, libraryId: 'L' },
+    );
+    expect(result.structuredContent.ok).toBe(true);
+    expect(existsSync(join(root, 'Campaign A'))).toBe(true);
   });
 });

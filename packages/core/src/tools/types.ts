@@ -34,6 +34,10 @@ export interface ToolServices {
   // Generations at or below this cost run without a confirmation round trip
   // (F-MCP-06). Absent means every non-zero spend needs confirmation.
   autoApproveBelowUsd?: number;
+  // The Library root and its id, for tools that read or change files on disk
+  // (kilnry_library_manage, kilnry_import). Absent when the Library is not set.
+  libraryRoot?: string;
+  libraryId?: string;
 }
 
 // A tool result: a human summary for content[0].text (≤ 600 chars, no raw JSON)

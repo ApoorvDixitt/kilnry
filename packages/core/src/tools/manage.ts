@@ -12,8 +12,16 @@
 // pipeline arrives in a later milestone return a clear not-available result.
 
 import * as z from 'zod';
+import { rename as fsRename, copyFile, mkdir } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import { createCharacter } from '../characters/store.js';
 import { setConsent } from '../characters/consent.js';
+import { createFolder } from '../library/folders.js';
+import { deleteAssetToTrash, restoreAsset, updateAssetMetadata } from '../library/assets.js';
+import { getAssetDetail } from '../library/assets.js';
+import { indexAsset } from '../library/index.js';
+import { resolveInRoot } from '../library/containment.js';
+import { sidecarPath } from '../library/sidecar.js';
 import { toolError, type KilnryTool, type ToolResult, type ToolServices } from './types.js';
 
 const MediaRef = z.string();
@@ -47,8 +55,86 @@ export const libraryManageTool: KilnryTool = {
     error: z.record(z.string(), z.unknown()).optional(),
   },
   annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
-  async execute(): Promise<ToolResult> {
-    return toolError('NO_PROVIDER', 'Library changes over the tool interface arrive in a later milestone.');
+  async execute(input, services: ToolServices): Promise<ToolResult> {
+    const root = services.libraryRoot;
+    const libraryId = services.libraryId;
+    if (!root || !libraryId) return toolError('NOT_FOUND', 'The Library root is not configured yet.');
+    const action = typeof input.action === 'string' ? input.action : '';
+    const assetIds = Array.isArray(input.asset_ids) ? (input.asset_ids as string[]) : [];
+
+    if (action === 'export_bundle') {
+      return toolError('NO_PROVIDER', 'Exporting a bundle is F-LIB-14 and arrives in a later milestone.');
+    }
+    if (action === 'create_folder') {
+      const name = typeof input.new_name === 'string' ? input.new_name : '';
+      const parent = typeof input.to_folder === 'string' ? input.to_folder : '';
+      if (!name) return toolError('INVALID_INPUT', 'A folder needs a name.');
+      await createFolder(root, parent, name);
+      return {
+        text: `Created folder ${parent ? `${parent}/` : ''}${name}.`,
+        structuredContent: { ok: true },
+      };
+    }
+
+    if (assetIds.length === 0) return toolError('INVALID_INPUT', 'This action needs one or more asset ids.');
+    const affected: Array<{ asset_id?: string; from?: string; to?: string }> = [];
+    try {
+      for (const assetId of assetIds) {
+        if (action === 'delete') {
+          await deleteAssetToTrash(services.db, root, libraryId, assetId);
+          affected.push({ asset_id: assetId });
+        } else if (action === 'restore') {
+          await restoreAsset(services.db, root, assetId);
+          affected.push({ asset_id: assetId });
+        } else if (action === 'tag' || action === 'untag') {
+          const detail = await getAssetDetail(services.db, root, assetId);
+          const current = new Set(detail.tags);
+          for (const tag of (input.tags as string[] | undefined) ?? []) {
+            if (action === 'tag') current.add(tag);
+            else current.delete(tag);
+          }
+          await updateAssetMetadata(services.db, root, libraryId, assetId, { tags: [...current] });
+          affected.push({ asset_id: assetId });
+        } else if (action === 'set_prompt' || action === 'write_sidecar') {
+          const prompt = typeof input.prompt === 'string' ? input.prompt : undefined;
+          await updateAssetMetadata(services.db, root, libraryId, assetId, {
+            ...(prompt !== undefined ? { prompt } : {}),
+            ...(Array.isArray(input.tags) ? { tags: input.tags as string[] } : {}),
+          });
+          affected.push({ asset_id: assetId });
+        } else if (action === 'move' || action === 'rename' || action === 'copy') {
+          const from = await getAssetDetail(services.db, root, assetId);
+          const fromAbs = (await resolveInRoot(root, from.path, { mustExist: true })).abs;
+          const name = action === 'rename' && typeof input.new_name === 'string' ? input.new_name : null;
+          const folder = action !== 'rename' && typeof input.to_folder === 'string' ? input.to_folder : null;
+          const baseName = name ?? from.path.split('/').at(-1)!;
+          const destFolderAbs = folder
+            ? (await resolveInRoot(root, folder, { mustExist: false })).abs
+            : dirname(fromAbs);
+          await mkdir(destFolderAbs, { recursive: true, mode: 0o700 });
+          const destAbs = join(destFolderAbs, baseName);
+          if (action === 'copy') {
+            await copyFile(fromAbs, destAbs);
+          } else {
+            await fsRename(fromAbs, destAbs);
+            await fsRename(sidecarPath(fromAbs), sidecarPath(destAbs)).catch(() => undefined);
+          }
+          const destRel = destAbs.startsWith(root) ? destAbs.slice(root.length + 1) : baseName;
+          const indexed = await indexAsset(services.db, root, destRel, libraryId);
+          affected.push({ asset_id: indexed.sidecar.asset_id, from: from.path, to: destRel });
+        } else {
+          return toolError('INVALID_INPUT', `Unknown Library action: ${action}.`);
+        }
+      }
+    } catch (error) {
+      const code =
+        error && typeof error === 'object' && 'code' in error ? String(error.code) : 'INVALID_INPUT';
+      return toolError(code, error instanceof Error ? error.message : 'Could not change the Library.');
+    }
+    return {
+      text: `${action} affected ${affected.length} item(s).`,
+      structuredContent: { ok: true, affected },
+    };
   },
 };
 

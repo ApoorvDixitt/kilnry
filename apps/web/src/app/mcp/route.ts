@@ -12,7 +12,7 @@
 // server core and its transport.
 
 import { handleMcpRequest } from '@kilnry/mcp';
-import { KILNRY_TOOLS } from '@kilnry/core';
+import { KILNRY_TOOLS, libraryMarker, loadConfig } from '@kilnry/core';
 import { adapters } from '@kilnry/providers';
 import { authenticateMcp, isAllowedMcpHost } from '../../server/mcp';
 import { ensureRuntimeEngine, runtimeServices } from '../../server/runtime';
@@ -44,6 +44,8 @@ async function handle(request: Request): Promise<Response> {
 
   const services = await runtimeServices();
   const engine = await ensureRuntimeEngine().catch(() => undefined);
+  const config = loadConfig();
+  const marker = config.library_root ? await libraryMarker(config.library_root).catch(() => null) : null;
   return handleMcpRequest(request, {
     version: SERVER_VERSION,
     tools: KILNRY_TOOLS,
@@ -52,6 +54,8 @@ async function handle(request: Request): Promise<Response> {
       scope: auth.scope,
       adapters,
       ...(engine ? { engine } : {}),
+      ...(config.library_root ? { libraryRoot: config.library_root } : {}),
+      ...(marker ? { libraryId: marker.library_id } : {}),
     },
   });
 }
