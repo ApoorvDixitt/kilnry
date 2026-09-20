@@ -6,6 +6,42 @@
 // Framework-free helpers and types for the Character detail page (F-CHR-03),
 // unit-tested without a browser.
 
+// One step of a reference-sheet run as shown on the detail page (F-CHR-04).
+export interface SheetStepView {
+  id: string;
+  name: string;
+  kind: string;
+  status?: string;
+}
+
+// The reference-sheet run state the detail page tracks.
+export interface SheetState {
+  steps: SheetStepView[];
+  runId: string | null;
+  status: string | null;
+}
+
+// The response shape from build_sheet / approve_sheet / deny_sheet.
+export interface SheetResponse {
+  run_id?: string;
+  status?: string;
+  plan?: { steps: SheetStepView[] };
+  run?: { status: string; steps: SheetStepView[] };
+}
+
+// Fold a sheet response into the next detail-page state: the run's live steps
+// win over the initial plan; the run id is remembered; the status comes from the
+// run or the top-level field.
+export function sheetView(previous: SheetState, body: SheetResponse | null): SheetState {
+  if (!body) return { ...previous, steps: [] };
+  const steps = body.run?.steps ?? body.plan?.steps ?? previous.steps;
+  return {
+    steps,
+    runId: body.run_id ?? previous.runId,
+    status: body.run?.status ?? body.status ?? previous.status,
+  };
+}
+
 export interface Reference {
   id: string;
   asset_id: string;

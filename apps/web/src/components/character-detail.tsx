@@ -12,9 +12,12 @@ import { message } from '../lib/messages';
 import {
   consentSatisfiedView,
   partitionReferences,
+  sheetView,
   wordCount,
   type FullCharacterView,
   type Reference,
+  type SheetResponse,
+  type SheetState,
   type UsageAsset,
 } from './character-detail-logic';
 
@@ -29,9 +32,7 @@ export function CharacterDetail({ handle }: { handle: string }): React.ReactNode
   const [tab, setTab] = useState<DetailTab>('sheet');
   const [usage, setUsage] = useState<UsageAsset[] | null>(null);
   const [error, setError] = useState<string>();
-  const [sheetSteps, setSheetSteps] = useState<Array<{ id: string; name: string; kind: string }> | null>(
-    null,
-  );
+  const [sheet, setSheet] = useState<SheetState>({ steps: [], runId: null, status: null });
   const [building, setBuilding] = useState(false);
 
   const buildSheet = useCallback(() => {
@@ -41,17 +42,28 @@ export function CharacterDetail({ handle }: { handle: string }): React.ReactNode
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'build_sheet', handle }),
     })
-      .then((response) =>
-        response.ok
-          ? (response.json() as Promise<{
-              plan?: { steps: Array<{ id: string; name: string; kind: string }> };
-            }>)
-          : null,
-      )
-      .then((body) => setSheetSteps(body?.plan?.steps ?? []))
-      .catch(() => setSheetSteps([]))
+      .then((response) => (response.ok ? (response.json() as Promise<SheetResponse>) : null))
+      .then((body) => setSheet((prev) => sheetView(prev, body)))
+      .catch(() => setSheet((prev) => sheetView(prev, null)))
       .finally(() => setBuilding(false));
   }, [handle]);
+
+  const decideSheet = useCallback((action: 'approve_sheet' | 'deny_sheet') => {
+    setSheet((prev) => {
+      if (!prev.runId) return prev;
+      setBuilding(true);
+      void apiFetch('/api/characters/manage', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, run_id: prev.runId }),
+      })
+        .then((response) => (response.ok ? (response.json() as Promise<SheetResponse>) : null))
+        .then((body) => setSheet((current) => sheetView(current, body)))
+        .catch(() => undefined)
+        .finally(() => setBuilding(false));
+      return prev;
+    });
+  }, []);
 
   useEffect(() => {
     void fetch(`/api/characters/${encodeURIComponent(handle)}`)
@@ -141,14 +153,38 @@ export function CharacterDetail({ handle }: { handle: string }): React.ReactNode
 
       {tab === 'sheet' ? (
         <section className="character-detail-body">
-          {sheetSteps && sheetSteps.length > 0 ? (
+          {sheet.steps.length > 0 ? (
             <ol className="sheet-plan" aria-label={message('characters.detail.buildSheet')}>
-              {sheetSteps.map((step) => (
-                <li key={step.id} data-kind={step.kind}>
+              {sheet.steps.map((step) => (
+                <li key={step.id} data-kind={step.kind} data-status={step.status ?? ''}>
                   {step.kind === 'approval' ? message('characters.detail.sheetApproval') : step.name}
                 </li>
               ))}
             </ol>
+          ) : null}
+          {sheet.status === 'awaiting_approval' ? (
+            <div
+              className="sheet-approval"
+              role="group"
+              aria-label={message('characters.detail.sheetApproval')}
+            >
+              <button
+                type="button"
+                className="btn"
+                disabled={building}
+                onClick={() => decideSheet('approve_sheet')}
+              >
+                {message('characters.detail.approveTurnaround')}
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                disabled={building}
+                onClick={() => decideSheet('deny_sheet')}
+              >
+                {message('characters.detail.denyTurnaround')}
+              </button>
+            </div>
           ) : null}
           {item.references.length === 0 ? (
             <p className="muted">{message('characters.detail.noReferences')}</p>

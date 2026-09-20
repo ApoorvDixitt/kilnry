@@ -14,8 +14,12 @@ import {
   removeReference,
   setConsent,
   linkStateVariant,
-  planSheet,
   approvalIndex,
+  startSheetRun,
+  advanceSheetRun,
+  approveSheetRun,
+  denySheetRun,
+  getSheetRun,
   suggestStateHandle,
   type CharacterKind,
 } from '@kilnry/core';
@@ -23,6 +27,7 @@ import { characters } from '@kilnry/db';
 import { eq } from 'drizzle-orm';
 import { assertMayMutate, errorResponse, requireSessionOrBearer } from '../../../../server/http';
 import { runtimeServices } from '../../../../server/runtime';
+import { sheetEngine, sheetSink } from '../../../../server/sheet-sink';
 
 const Kind = z.enum(['character', 'prop', 'environment', 'style']);
 const Role = z.enum(['anchor', 'turnaround', 'expression', 'outfit', 'state', 'prop']);
@@ -37,8 +42,11 @@ const Body = z.object({
     'set_consent',
     'add_state_variant',
     'build_sheet',
+    'approve_sheet',
+    'deny_sheet',
   ]),
   handle: z.string().optional(),
+  run_id: z.string().optional(),
   kind: Kind.optional(),
   display_name: z.string().min(1).max(120).optional(),
   description: z.string().max(2000).optional(),
@@ -111,6 +119,19 @@ export async function POST(request: Request): Promise<Response> {
       return NextResponse.json({ item });
     }
 
+    if (body.action === 'approve_sheet' || body.action === 'deny_sheet') {
+      // Approve or deny the turnaround at the sheet run's checkpoint (F-CHR-04).
+      if (!body.run_id) throw new KilnryError('INVALID_INPUT', 'A run id is required.');
+      if (body.action === 'deny_sheet') {
+        const status = await denySheetRun(db, body.run_id);
+        return NextResponse.json({ run: await getSheetRun(db, body.run_id), status });
+      }
+      const engine = await sheetEngine();
+      const sink = await sheetSink();
+      const status = await approveSheetRun(db, engine, sink, body.run_id);
+      return NextResponse.json({ run: await getSheetRun(db, body.run_id), status });
+    }
+
     if (!body.handle) throw new KilnryError('INVALID_INPUT', 'A handle is required.');
     const head = await lookupHandle(db, body.handle);
     if (!head) throw new KilnryError('NOT_FOUND', `@${body.handle.replace(/^@/, '')} is not a Character.`);
@@ -151,21 +172,38 @@ export async function POST(request: Request): Promise<Response> {
       const item = await loadFullCharacter(db, variant.handle);
       return NextResponse.json({ item });
     } else if (body.action === 'build_sheet') {
-      // Plan the reference-sheet pipeline (F-CHR-04): the turnaround sheets and
-      // their split come first, then an approval checkpoint, then the expression
-      // grid and any variants. The plan is returned so the detail screen can show
-      // the steps and the approval; running each step goes through the engine.
+      // Start the reference-sheet run on the minimal executor (F-CHR-04): plan
+      // the steps, submit the first turnaround sheet job with the anchor as the
+      // reference, drive the machine to the approval checkpoint, and return the
+      // run id with its steps so the detail screen can show progress and approve.
       const full = await loadFullCharacter(db, head.handle);
       const short =
         `${(full.appearance.descriptor ?? '').split('.')[0] ?? ''}. ${(full.appearance.anchors ?? []).join(', ')}`.trim();
-      const steps = planSheet({
+      const anchorAssetId =
+        full.references.find((reference) => reference.role === 'anchor')?.asset_id ?? null;
+      const folder = `People/${head.handle}`;
+      const engine = await sheetEngine();
+      const sink = await sheetSink();
+      const started = await startSheetRun(db, engine, {
+        characterId: head.id,
+        anchorAssetId,
+        folder,
         short,
         ...(body.sheet?.views ? { views: body.sheet.views as never } : {}),
         ...(body.sheet?.expressions !== undefined ? { expressions: body.sheet.expressions } : {}),
         ...(body.sheet?.outfits ? { outfits: body.sheet.outfits } : {}),
         ...(body.sheet?.states ? { states: body.sheet.states } : {}),
       });
-      return NextResponse.json({ plan: { steps, approval_at: approvalIndex(steps) } });
+      // Advance until the machine submits a job (running) or reaches approval.
+      let status = await advanceSheetRun(db, engine, sink, started.run_id);
+      for (let guard = 0; guard < 20 && status === 'running'; guard += 1) {
+        status = await advanceSheetRun(db, engine, sink, started.run_id);
+      }
+      return NextResponse.json({
+        run_id: started.run_id,
+        status,
+        plan: { steps: started.steps, approval_at: approvalIndex(started.steps) },
+      });
     }
 
     const item = await loadFullCharacter(db, head.handle);

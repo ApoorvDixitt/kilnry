@@ -4,7 +4,7 @@
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
 import { describe, expect, it } from 'vitest';
-import { partitionReferences, wordCount } from './character-detail-logic';
+import { partitionReferences, sheetView, wordCount } from './character-detail-logic';
 
 const ref = (role: string, extra: Record<string, string> = {}) => ({
   id: crypto.randomUUID(),
@@ -34,5 +34,46 @@ describe('wordCount', () => {
   it('counts words and treats blank as zero', () => {
     expect(wordCount('a woman with a bob')).toBe(5);
     expect(wordCount('   ')).toBe(0);
+  });
+});
+
+describe('sheetView (F-CHR-04)', () => {
+  const empty = { steps: [], runId: null, status: null };
+
+  it('records the plan, run id and status from a build response', () => {
+    const next = sheetView(empty, {
+      run_id: 'run_1',
+      status: 'awaiting_approval',
+      plan: {
+        steps: [
+          { id: 'sheet_a', name: 'Turnaround sheet A', kind: 'generate' },
+          { id: 'approve_turnaround', name: 'Approve the turnaround', kind: 'approval' },
+        ],
+      },
+    });
+    expect(next.runId).toBe('run_1');
+    expect(next.status).toBe('awaiting_approval');
+    expect(next.steps).toHaveLength(2);
+  });
+
+  it('prefers the run steps over the plan and keeps the run id', () => {
+    const seeded = { steps: [], runId: 'run_1', status: 'awaiting_approval' };
+    const next = sheetView(seeded, {
+      run: {
+        status: 'completed',
+        steps: [{ id: 'expressions', name: 'Expression grid', kind: 'generate', status: 'completed' }],
+      },
+      status: 'completed',
+    });
+    expect(next.status).toBe('completed');
+    expect(next.runId).toBe('run_1');
+    expect(next.steps[0]?.status).toBe('completed');
+  });
+
+  it('clears the steps on a failed response', () => {
+    expect(
+      sheetView({ steps: [{ id: 'x', name: 'x', kind: 'generate' }], runId: 'r', status: 'running' }, null)
+        .steps,
+    ).toEqual([]);
   });
 });

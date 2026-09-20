@@ -36,6 +36,7 @@ export * from './characters/voices.js';
 export * from './characters/resolve-db.js';
 export * from './characters/sheet-prompts.js';
 export * from './characters/sheet.js';
+export * from './characters/sheet-run.js';
 export * from './budget/confirmation.js';
 export * from './mcp/tokens.js';
 export * from './tools/index.js';
