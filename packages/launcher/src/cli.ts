@@ -6,6 +6,7 @@
 import { parseArgs } from 'node:util';
 import { printDoctor, requestReindex, runDoctor } from './commands/doctor.js';
 import { startServer } from './commands/start.js';
+import { runMcpBridge } from './commands/mcp.js';
 
 const version = process.env.npm_package_version ?? '0.0.0';
 
@@ -33,8 +34,12 @@ async function main(): Promise<void> {
   }
   if (parsed.values.help) {
     process.stdout.write(
-      'Usage: kilnry [start] [--port 3123] [--no-open]\n       kilnry doctor [--json] [--reindex]\n',
+      'Usage: kilnry [start] [--port 3123] [--no-open]\n       kilnry doctor [--json] [--reindex]\n       kilnry mcp\n',
     );
+    return;
+  }
+  if (command === 'mcp') {
+    process.exitCode = await runMcpBridge();
     return;
   }
   if (command === 'doctor') {

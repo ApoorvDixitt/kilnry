@@ -22,6 +22,11 @@ export const KilnryConfigSchema = z.object({
   onboarding_complete: z.boolean().default(false),
   update_check: z.boolean().default(false),
   update_channel: z.enum(['stable', 'beta']).default('stable'),
+  // The default Model Context Protocol (MCP) bearer token used by the stdio
+  // bridge (npx kilnry mcp). Written when the default token is minted in
+  // Settings › MCP (F-MCP-05); absent until then. Stored here so the bridge can
+  // read it without opening the database (D-12).
+  mcp_token: z.string().optional(),
 });
 
 export type KilnryConfig = z.infer<typeof KilnryConfigSchema>;

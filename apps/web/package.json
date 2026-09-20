@@ -18,6 +18,7 @@
     "@better-auth/drizzle-adapter": "1.7.5",
     "@kilnry/core": "workspace:*",
     "@kilnry/db": "workspace:*",
+    "@kilnry/mcp": "workspace:*",
     "@kilnry/media": "workspace:*",
     "@kilnry/providers": "workspace:*",
     "@kilnry/ui": "workspace:*",
