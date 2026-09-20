@@ -167,7 +167,7 @@ export const transformTool: KilnryTool = {
     error: z.record(z.string(), z.unknown()).optional(),
   },
   annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
-  async execute(_input, _services: ToolServices): Promise<ToolResult> {
+  async execute(): Promise<ToolResult> {
     // The transform providers are wired in a later milestone; until then the
     // tool reports that no provider is configured rather than charging.
     return toolError(
@@ -193,7 +193,7 @@ export const ffmpegTool: KilnryTool = {
     error: z.record(z.string(), z.unknown()).optional(),
   },
   annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
-  async execute(_input, _services: ToolServices): Promise<ToolResult> {
+  async execute(): Promise<ToolResult> {
     return toolError(
       'NO_PROVIDER',
       'Local media assembly over the tool interface arrives in a later milestone.',
@@ -227,7 +227,7 @@ export const analyzeTool: KilnryTool = {
     error: z.record(z.string(), z.unknown()).optional(),
   },
   annotations: { readOnlyHint: true, openWorldHint: true },
-  async execute(_input, _services: ToolServices): Promise<ToolResult> {
+  async execute(): Promise<ToolResult> {
     return toolError(
       'NO_PROVIDER',
       'Media analysis needs a vision-language provider that arrives in a later milestone.',
