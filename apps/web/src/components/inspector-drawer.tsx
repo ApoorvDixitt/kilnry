@@ -82,6 +82,12 @@ export function InspectorDrawer({
         ) : null}
       </header>
 
+      {detail.kind === 'image' || detail.kind === 'video' ? (
+        <a className="inspector-edit" href={`/create?edit=${encodeURIComponent(detail.id)}`}>
+          {message('create.edit.action')}
+        </a>
+      ) : null}
+
       {tab === 'info' ? (
         <div className="inspector-body" role="tabpanel">
           <dl className="inspector-facts">

@@ -6,12 +6,14 @@
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { AnimatePresence, motion } from 'motion/react';
 import { apiFetch } from '../lib/api-client';
 import { message } from '../lib/messages';
 import type { ApiEstimate, ApiModel } from '../lib/composer-types';
 import { Composer } from './composer';
 import { batchRequests, parseBatch } from './batch-logic';
+import { editPayload, editSourceFromDetail, type EditAssetDetail, type EditSource } from './edit-logic';
 import type { ComposerMode } from './model-picker';
 import type { ComposerParams } from './param-chips';
 import { ResultTileActions, type TileCapabilities } from './result-tile-actions';
@@ -36,12 +38,15 @@ async function json<T>(response: Response): Promise<T> {
   return body;
 }
 
-function toEstimatePayload(state: {
-  mode: ComposerMode;
-  prompt: string;
-  model: string;
-  params: ComposerParams;
-}): Record<string, unknown> {
+function toEstimatePayload(
+  state: {
+    mode: ComposerMode;
+    prompt: string;
+    model: string;
+    params: ComposerParams;
+  },
+  edit?: EditSource | null,
+): Record<string, unknown> {
   const params: Record<string, unknown> = { quality: 'standard' };
   if (state.params.aspect_ratio) params.aspect_ratio = state.params.aspect_ratio;
   if (state.params.resolution) params.resolution = state.params.resolution;
@@ -50,6 +55,11 @@ function toEstimatePayload(state: {
   if (state.mode === 'image') {
     params.width = 1024;
     params.height = 1024;
+  }
+  // In edit mode the request routes to image_edit or video2video with the source
+  // recorded in medias[]; it is never a text-to-image request (F-CRE-10 AC 2).
+  if (edit) {
+    return editPayload(edit, { prompt: state.prompt, model: state.model, params });
   }
   return {
     kind: state.mode === 'workflow' ? 'image' : state.mode,
@@ -68,9 +78,43 @@ export function CreateComposer(): React.ReactNode {
   const [capabilities, setCapabilities] = useState<TileCapabilities>({ reveal: false });
   const [budgets, setBudgets] = useState<BudgetLine[]>([]);
   const [seed, setSeed] = useState<{ token: number; prompt: string }>();
+  const [edit, setEdit] = useState<EditSource | null>(null);
+  const editRef = useRef<EditSource | null>(null);
   const lastState = useRef<ReturnType<typeof toEstimatePayload> | null>(null);
   const lastPrompt = useRef('');
   const debounce = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const searchParams = useSearchParams();
+  const editAssetId = searchParams.get('edit');
+
+  // Opening Create with ?edit=<assetId> — the Library asset's Edit action —
+  // pre-attaches that asset as the Source and switches the composer to its kind
+  // (F-CRE-10 AC 1). A non-image/non-video or missing asset shows the source
+  // notice and leaves the composer in plain create mode.
+  useEffect(() => {
+    editRef.current = edit;
+  }, [edit]);
+
+  useEffect(() => {
+    if (!editAssetId) {
+      setEdit(null);
+      return;
+    }
+    let cancelled = false;
+    void fetch(`/api/library/asset/${encodeURIComponent(editAssetId)}`)
+      .then((response) => (response.ok ? (response.json() as Promise<{ asset: EditAssetDetail }>) : null))
+      .then((body) => {
+        if (cancelled) return;
+        const source = body?.asset ? editSourceFromDetail(body.asset) : null;
+        setEdit(source);
+        if (!source) setLoadError(message('create.edit.sourceMissing'));
+      })
+      .catch(() => {
+        if (!cancelled) setLoadError(message('create.edit.sourceMissing'));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [editAssetId]);
 
   useEffect(() => {
     void fetch('/api/models')
@@ -108,7 +152,7 @@ export function CreateComposer(): React.ReactNode {
         lastState.current = null;
         return;
       }
-      const payload = toEstimatePayload(state);
+      const payload = toEstimatePayload(state, editRef.current);
       lastState.current = payload;
       lastPrompt.current = state.prompt;
       if (debounce.current) clearTimeout(debounce.current);
@@ -338,6 +382,12 @@ export function CreateComposer(): React.ReactNode {
           else void generate(payload.override_budget);
         }}
         seed={seed}
+        {...(edit ? { edit } : {})}
+        onExitEdit={() => {
+          setEdit(null);
+          setLoadError(undefined);
+          window.history.replaceState(null, '', '/create');
+        }}
       />
     </section>
   );

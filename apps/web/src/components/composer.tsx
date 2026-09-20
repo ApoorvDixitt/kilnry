@@ -18,6 +18,7 @@ import {
   type ResolvePreview,
 } from './composer-mentions-logic';
 import { BATCH_MAX, parseBatch } from './batch-logic';
+import { editModeForKind, type EditSource } from './edit-logic';
 
 const MODES: ComposerMode[] = ['image', 'video', 'audio', 'workflow'];
 
@@ -103,6 +104,8 @@ export function Composer({
   onGenerate,
   onStateChange,
   seed,
+  edit,
+  onExitEdit,
 }: {
   models: PickerModel[];
   budgets?: BudgetLine[];
@@ -124,6 +127,8 @@ export function Composer({
     ready: boolean;
   }) => void;
   seed?: { token: number; prompt: string } | undefined;
+  edit?: EditSource | undefined;
+  onExitEdit?: (() => void) | undefined;
 }): React.ReactNode {
   const [mode, setMode] = useState<ComposerMode>('image');
   const [prompt, setPrompt] = useState('');
@@ -164,6 +169,16 @@ export function Composer({
       setPrompt(seed.prompt);
     }
   }, [seed]);
+
+  // Entering edit mode from a Library asset switches the composer to the source's
+  // kind (F-CRE-10 AC 1) and turns batch off — an edit refines one source.
+  const editAssetId = edit?.asset_id;
+  const editKind = edit?.kind;
+  useEffect(() => {
+    if (!editAssetId || !editKind) return;
+    setMode(editModeForKind(editKind));
+    setBatch(false);
+  }, [editAssetId, editKind]);
 
   const available = useMemo(() => modelsForMode(models, mode), [models, mode]);
   const hasAnyKey = models.some((model) => model.connected);
@@ -304,16 +319,28 @@ export function Composer({
   return (
     <section className="composer" aria-label={message('create.title')}>
       <ModeSegment mode={mode} onChange={switchMode} />
-      <div className="composer-batch-toggle">
-        <button
-          type="button"
-          className={batch ? 'is-on' : ''}
-          aria-pressed={batch}
-          onClick={() => setBatch((prior) => !prior)}
-        >
-          {message('create.batch.toggle')}
-        </button>
-      </div>
+      {edit ? (
+        <div className="composer-edit-banner" role="status">
+          <span className="composer-edit-title">
+            {message('create.edit.banner').replace('{file}', edit.file)}
+          </span>
+          <span className="composer-edit-hint">{message('create.edit.instructionHint')}</span>
+          <button type="button" className="composer-edit-exit" onClick={() => onExitEdit?.()}>
+            {message('create.edit.exit')}
+          </button>
+        </div>
+      ) : (
+        <div className="composer-batch-toggle">
+          <button
+            type="button"
+            className={batch ? 'is-on' : ''}
+            aria-pressed={batch}
+            onClick={() => setBatch((prior) => !prior)}
+          >
+            {message('create.batch.toggle')}
+          </button>
+        </div>
+      )}
       {batch ? (
         <div className="composer-batch">
           <textarea
@@ -337,8 +364,8 @@ export function Composer({
             ref={textareaRef}
             className="composer-prompt"
             value={prompt}
-            placeholder={message('create.composerPlaceholder')}
-            aria-label={message('create.composerPlaceholder')}
+            placeholder={edit ? message('create.edit.placeholder') : message('create.composerPlaceholder')}
+            aria-label={edit ? message('create.edit.placeholder') : message('create.composerPlaceholder')}
             onChange={(event) => {
               setPrompt(event.target.value);
               refreshMentions(event.target.value, event.target.selectionStart ?? event.target.value.length);

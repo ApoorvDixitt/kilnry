@@ -165,4 +165,38 @@ describe('Composer', () => {
     await act(async () => allow.click());
     expect(calls.at(-1)?.override_budget).toBe(true);
   });
+
+  it('shows the "Editing <file>" banner and the instruction placeholder in edit mode (F-CRE-10)', async () => {
+    const host = await render(
+      <Composer
+        models={[imageModel()]}
+        estimate={estimate}
+        now={NOW}
+        edit={{ asset_id: 'a1', kind: 'image', file: 'serum_hero.png' }}
+      />,
+    );
+    expect(host.querySelector('.composer-edit-banner')?.textContent).toContain('Editing serum_hero.png');
+    // Batch is hidden while editing a single source.
+    expect(host.querySelector('.composer-batch-toggle')).toBeNull();
+    const textarea = host.querySelector('textarea') as HTMLTextAreaElement;
+    expect(textarea.placeholder).toBe('Describe the change — what to keep, what to alter.');
+  });
+
+  it('calls onExitEdit when the leave-edit button is clicked (F-CRE-10)', async () => {
+    let exits = 0;
+    const host = await render(
+      <Composer
+        models={[imageModel()]}
+        estimate={estimate}
+        now={NOW}
+        edit={{ asset_id: 'v1', kind: 'video', file: 'clip_01.mp4' }}
+        onExitEdit={() => {
+          exits += 1;
+        }}
+      />,
+    );
+    const exit = host.querySelector('.composer-edit-exit') as HTMLButtonElement;
+    await act(async () => exit.click());
+    expect(exits).toBe(1);
+  });
 });

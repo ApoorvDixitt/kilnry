@@ -111,6 +111,14 @@
       "placeholder": "One prompt per line, up to 12. Add {aspect: \"1:1\", count: 2} to override a line.",
       "count": "{n} of {max} prompts"
     },
+    "edit": {
+      "banner": "Editing {file}",
+      "placeholder": "Describe the change — what to keep, what to alter.",
+      "instructionHint": "The prompt is an instruction; the source stays attached.",
+      "exit": "Leave edit mode",
+      "sourceMissing": "The source file moved or was deleted. Pick it again.",
+      "action": "Edit"
+    },
     "model": "No model connected",
     "estimate": "≈ $0.00",
     "generate": "Generate",

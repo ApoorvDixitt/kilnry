@@ -4311,3 +4311,48 @@ html[data-motion='reduced'] *::after {
   font-size: 12px;
   color: var(--muted);
 }
+
+/* Create edit mode (F-CRE-10) */
+.composer-edit-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+
+.composer-edit-title {
+  font-weight: 600;
+}
+
+.composer-edit-hint {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.composer-edit-exit {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.inspector-edit {
+  display: inline-block;
+  margin: 0 16px 8px;
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--accent);
+  text-decoration: none;
+  font-size: 13px;
+}
+
+.inspector-edit:hover {
+  background: var(--surface-2);
+}
