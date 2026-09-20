@@ -4452,3 +4452,23 @@ html[data-motion='reduced'] *::after {
   color: var(--muted);
   font-size: 13px;
 }
+
+/* Reference-sheet pipeline plan (F-CHR-04) */
+.sheet-plan {
+  list-style: decimal inside;
+  margin: 0 0 16px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+
+.sheet-plan li {
+  padding: 3px 0;
+  font-size: 13px;
+}
+
+.sheet-plan li[data-kind='approval'] {
+  color: var(--accent);
+  font-weight: 600;
+}

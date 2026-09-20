@@ -14,6 +14,8 @@ import {
   removeReference,
   setConsent,
   linkStateVariant,
+  planSheet,
+  approvalIndex,
   suggestStateHandle,
   type CharacterKind,
 } from '@kilnry/core';
@@ -34,6 +36,7 @@ const Body = z.object({
     'remove_reference',
     'set_consent',
     'add_state_variant',
+    'build_sheet',
   ]),
   handle: z.string().optional(),
   kind: Kind.optional(),
@@ -43,6 +46,14 @@ const Body = z.object({
   is_real_person: z.boolean().optional(),
   state_label: z.string().min(1).max(40).optional(),
   variant_handle: z.string().optional(),
+  sheet: z
+    .object({
+      views: z.array(z.string()).optional(),
+      expressions: z.boolean().optional(),
+      outfits: z.array(z.object({ label: z.string() })).optional(),
+      states: z.array(z.object({ label: z.string() })).optional(),
+    })
+    .optional(),
   from: z
     .object({
       asset_ids: z.array(z.string()).optional(),
@@ -139,6 +150,22 @@ export async function POST(request: Request): Promise<Response> {
       await linkStateVariant(db, head.handle, variant.handle);
       const item = await loadFullCharacter(db, variant.handle);
       return NextResponse.json({ item });
+    } else if (body.action === 'build_sheet') {
+      // Plan the reference-sheet pipeline (F-CHR-04): the turnaround sheets and
+      // their split come first, then an approval checkpoint, then the expression
+      // grid and any variants. The plan is returned so the detail screen can show
+      // the steps and the approval; running each step goes through the engine.
+      const full = await loadFullCharacter(db, head.handle);
+      const short =
+        `${(full.appearance.descriptor ?? '').split('.')[0] ?? ''}. ${(full.appearance.anchors ?? []).join(', ')}`.trim();
+      const steps = planSheet({
+        short,
+        ...(body.sheet?.views ? { views: body.sheet.views as never } : {}),
+        ...(body.sheet?.expressions !== undefined ? { expressions: body.sheet.expressions } : {}),
+        ...(body.sheet?.outfits ? { outfits: body.sheet.outfits } : {}),
+        ...(body.sheet?.states ? { states: body.sheet.states } : {}),
+      });
+      return NextResponse.json({ plan: { steps, approval_at: approvalIndex(steps) } });
     }
 
     const item = await loadFullCharacter(db, head.handle);

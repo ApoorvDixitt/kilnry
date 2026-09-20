@@ -698,7 +698,8 @@
       "notFound": "That character does not exist.",
       "loading": "Loading…",
       "noReferences": "No references yet. Add a photo or generate a sheet.",
-      "buildSheetDisabled": "The reference-sheet pipeline arrives later in this milestone."
+      "buildSheetDisabled": "The reference-sheet pipeline arrives later in this milestone.",
+      "sheetApproval": "Approve the turnaround before Kilnry spends on the rest"
     },
     "voices": {
       "previewText": "Hello from Kilnry. This is a short preview of how I sound.",
