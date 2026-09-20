@@ -118,11 +118,12 @@ export async function createCharacter(
     await tx.insert(characterVersions).values({
       characterId: id,
       version: 1,
-      appearance: (input.appearance ?? { descriptor: '', anchors: [], negative_traits: [] }) as Record<
-        string,
-        unknown
-      >,
-      injectionDefaults: (input.injection_defaults ?? null) as Record<string, unknown> | null,
+      appearance: (input.appearance ?? {
+        descriptor: '',
+        anchors: [],
+        negative_traits: [],
+      }) as unknown as Record<string, unknown>,
+      injectionDefaults: (input.injection_defaults ?? null) as unknown as Record<string, unknown> | null,
       castParams: (input.cast_params ?? null) as Record<string, unknown> | null,
       frozen: false,
       createdAt: now,
@@ -187,8 +188,15 @@ export async function loadVersion(
     .where(and(eq(characterReferences.characterId, characterId), eq(characterReferences.version, wanted)))
     .orderBy(characterReferences.position);
   const voice = await loadBoundVoice(state, characterId, wanted);
-  const appearance = (rows[0].appearance ?? {}) as Partial<Appearance>;
-  return {
+  const raw = (rows[0].appearance ?? {}) as Partial<Appearance>;
+  const appearance: Appearance = {
+    descriptor: raw.descriptor ?? '',
+    anchors: raw.anchors ?? [],
+    negative_traits: raw.negative_traits ?? [],
+    ...(raw.palette_hex ? { palette_hex: raw.palette_hex } : {}),
+    ...(raw.gendered_noun ? { gendered_noun: raw.gendered_noun } : {}),
+  };
+  const result: LoadedVersion = {
     id: characterId,
     handle: head[0].handle,
     kind: head[0].kind as CharacterKind,
@@ -196,26 +204,23 @@ export async function loadVersion(
     version: wanted,
     is_real_person: head[0].isRealPerson,
     consent_status: head[0].consentStatus as LoadedVersion['consent_status'],
-    appearance: {
-      descriptor: appearance.descriptor ?? '',
-      anchors: appearance.anchors ?? [],
-      negative_traits: appearance.negative_traits ?? [],
-      palette_hex: appearance.palette_hex,
-      gendered_noun: appearance.gendered_noun,
-    },
-    injection_defaults: (rows[0].injectionDefaults ?? undefined) as LoadedVersion['injection_defaults'],
+    appearance,
     references: refs.map((r) => ({
       id: r.id,
       asset_id: r.assetId,
       role: r.role,
-      view: r.view ?? undefined,
-      label: r.label ?? undefined,
       weight: Number(r.weight),
       position: r.position,
+      ...(r.view ? { view: r.view } : {}),
+      ...(r.label ? { label: r.label } : {}),
     })),
     frozen: rows[0].frozen,
-    voice,
+    ...(rows[0].injectionDefaults
+      ? { injection_defaults: rows[0].injectionDefaults as LoadedVersion['injection_defaults'] }
+      : {}),
+    ...(voice ? { voice } : {}),
   };
+  return result;
 }
 
 async function loadBoundVoice(
