@@ -13,6 +13,8 @@ import {
   lookupHandle,
   removeReference,
   setConsent,
+  linkStateVariant,
+  suggestStateHandle,
   type CharacterKind,
 } from '@kilnry/core';
 import { characters } from '@kilnry/db';
@@ -25,13 +27,22 @@ const Role = z.enum(['anchor', 'turnaround', 'expression', 'outfit', 'state', 'p
 const ConsentStatus = z.enum(['self', 'written', 'none', 'n/a']);
 
 const Body = z.object({
-  action: z.enum(['create', 'update', 'add_references', 'remove_reference', 'set_consent']),
+  action: z.enum([
+    'create',
+    'update',
+    'add_references',
+    'remove_reference',
+    'set_consent',
+    'add_state_variant',
+  ]),
   handle: z.string().optional(),
   kind: Kind.optional(),
   display_name: z.string().min(1).max(120).optional(),
   description: z.string().max(2000).optional(),
   tags: z.array(z.string()).max(20).optional(),
   is_real_person: z.boolean().optional(),
+  state_label: z.string().min(1).max(40).optional(),
+  variant_handle: z.string().optional(),
   from: z
     .object({
       asset_ids: z.array(z.string()).optional(),
@@ -113,6 +124,20 @@ export async function POST(request: Request): Promise<Response> {
     } else if (body.action === 'set_consent') {
       if (!body.consent) throw new KilnryError('INVALID_INPUT', 'Consent details are required.');
       await setConsent(db, head.id, body.consent);
+    } else if (body.action === 'add_state_variant') {
+      if (!body.state_label) throw new KilnryError('INVALID_INPUT', 'A state label is required.');
+      // A state variant is its own Element sharing the base's kind, linked by a
+      // state group (PRD-08 A2). Files are never shared between states.
+      const variantHandle = body.variant_handle ?? suggestStateHandle(head.handle, body.state_label);
+      const variant = await createCharacter(db, {
+        handle: variantHandle,
+        kind: head.kind as CharacterKind,
+        display_name: `${head.display_name} · ${body.state_label}`,
+        tags: [`state:${body.state_label}`],
+      });
+      await linkStateVariant(db, head.handle, variant.handle);
+      const item = await loadFullCharacter(db, variant.handle);
+      return NextResponse.json({ item });
     }
 
     const item = await loadFullCharacter(db, head.handle);
