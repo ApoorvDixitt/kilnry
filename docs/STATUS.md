@@ -66,8 +66,8 @@ Gate results:
 
 - Every required command passes: lint, typecheck, `test` (126 core, 22 provider, 13 media, 1 web), `test:browser` (97), smoke and acceptance E2E, canon/header/provenance/i18n/size, `audit --prod`, build.
 - Acceptance scenarios (PRD-21 numbering, by topic) S-01, S-02, S-07, S-08, S-09, S-13, S-14, S-25 and the unnumbered M3-VID pass as Playwright tests under strict mock service worker; continuous integration runs `@m3|@gate`.
-- Library performance: 10,000 synthetic assets scroll with a 95th-percentile main-thread frame time of 3.5 ms, well under 16.7 ms.
-- Keyboard, accessibility (axe WCAG 2.2 AA, zero critical or serious on every touched route), reduced motion (operating-system preference and Appearance setting) and the green-means-money accent lint pass.
+- Library performance: 10,000 synthetic assets scroll with a 95th-percentile main-thread frame time of 3.5 ms.
+- Keyboard, accessibility (axe WCAG 2.2 AA, zero critical or serious on every touched route), reduced motion (operating system and Appearance) and the green-means-money accent lint pass.
 
 Resolved canon conflicts:
 
@@ -78,9 +78,10 @@ Notes and decisions:
 
 - S-13 (rename outside Kilnry) failed until a real bug was fixed: the watcher ignored files whenever the Library root sat under a hidden folder; it now decides relative to the root (F-LIB-04). The scenario runs in the acceptance suite.
 - The audit log was built to complete F-SET-08, promised in M2 but never implemented.
-- The visual baseline is capture-only; a `toHaveScreenshot` comparison with masked dynamic areas, captured on the continuous-integration platform, is the M4 follow-up. The video scenario is skipped in continuous integration for the same machine-dependent reasons as the performance and visual suites.
+- The visual baseline is capture-only; a `toHaveScreenshot` comparison with masked dynamic areas, captured on the continuous-integration platform, is the M4 follow-up.
+- The video scenario now runs in continuous integration. It had failed there because the Ubuntu runner ships no FFmpeg, so it and the media pipeline unit test were skipping; continuous integration now installs FFmpeg 7 first.
 - The commit-subject check bans "updates"; it will need an exemption when the Updates page is built.
-- v0.1.0 was tagged by hand, not with `pnpm release minor`, because `commit-and-tag-version` rewrites the changelog into its own format and would discard the plain-English feature list.
+- v0.1.0 was tagged by hand, not with `pnpm release minor`, because `commit-and-tag-version` rewrites the changelog and would discard the plain-English feature list.
 - M3 was completed across two agent sessions; no tracked file depends on either agent.
 
 <!-- Kilnry © 2026 Apoorv Dixit · Sustainable Use License 1.0 · See LICENSE.md. -->
