@@ -23,6 +23,7 @@ export * from './library/sidecar.js';
 export * from './library/watcher.js';
 export * from './budget/enforcer.js';
 export * from './characters/store.js';
+export * from './characters/parse.js';
 export * from './providers/adapter.js';
 export * from './providers/service.js';
 export * from './registry/estimator.js';
