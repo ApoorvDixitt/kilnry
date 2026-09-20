@@ -11,7 +11,13 @@ import { assets, closeDatabaseState, createDatabase } from '@kilnry/db';
 import { eq } from 'drizzle-orm';
 import { prepareLibraryRoot } from './root.js';
 import { buildMinimalSidecar, indexAsset } from './index.js';
-import { deleteAssetToTrash, listAssets, restoreAsset, updateAssetMetadata } from './assets.js';
+import {
+  deleteAssetToTrash,
+  listAssets,
+  recoverAssetMetadata,
+  restoreAsset,
+  updateAssetMetadata,
+} from './assets.js';
 import { sidecarPath, writeSidecar } from './sidecar.js';
 
 const disposers: Array<() => Promise<void>> = [];
@@ -120,5 +126,15 @@ describe('trash', () => {
     expect(row!.path).toBe('inbox/asset.png');
     expect(row!.trashedAt).toBeNull();
     expect(existsSync(join(library, 'inbox', 'asset.png'))).toBe(true);
+  });
+});
+
+describe('recoverAssetMetadata', () => {
+  it('rebuilds a sidecar for an asset whose sidecar was deleted', async () => {
+    const { state, library, libraryId, file, assetId } = await setup();
+    rmSync(sidecarPath(file), { force: true });
+    expect(existsSync(sidecarPath(file))).toBe(false);
+    await recoverAssetMetadata(state, library, libraryId, assetId);
+    expect(existsSync(sidecarPath(file))).toBe(true);
   });
 });

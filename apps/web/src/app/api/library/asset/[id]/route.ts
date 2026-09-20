@@ -11,6 +11,7 @@ import {
   getAssetDetail,
   libraryMarker,
   loadConfig,
+  recoverAssetMetadata,
   restoreAsset,
   updateAssetMetadata,
 } from '@kilnry/core';
@@ -90,9 +91,14 @@ export async function POST(
     await requireSession();
     const { id } = await context.params;
     const body = (await request.json()) as { op?: string };
-    if (body.op !== 'restore') throw new KilnryError('INVALID_INPUT', 'Unknown asset operation.');
     const root = libraryRoot();
     const services = await runtimeServices();
+    if (body.op === 'recover') {
+      const marker = await libraryMarker(root);
+      const result = await recoverAssetMetadata(services.database, root, marker.library_id, id);
+      return NextResponse.json(result);
+    }
+    if (body.op !== 'restore') throw new KilnryError('INVALID_INPUT', 'Unknown asset operation.');
     await restoreAsset(services.database, root, id);
     return NextResponse.json({ ok: true });
   } catch (error) {

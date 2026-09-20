@@ -333,3 +333,23 @@ async function pathExists(path: string): Promise<boolean> {
     return false;
   }
 }
+
+// Rebuild one asset's sidecar from its embedded metadata (F-LIB-11 single-asset
+// recover). Re-indexing reads the file's PNG iTXt, A1111 parameters, XMP, MP4 or
+// ID3 tags and writes a fresh sidecar; returns whether embedded data was found.
+export async function recoverAssetMetadata(
+  state: DatabaseState,
+  root: string,
+  libraryId: string,
+  assetId: string,
+): Promise<{ recovered: boolean }> {
+  const [row] = await state.db.select().from(assets).where(eq(assets.id, assetId)).limit(1);
+  if (!row) throw new KilnryError('NOT_FOUND', 'That asset is not in the Library.');
+  const { indexAsset } = await import('./index.js');
+  const absolute = join(root, row.path);
+  // Remove the stale index row first so re-indexing inserts cleanly; the file and
+  // any embedded metadata are the source of truth for the rebuilt sidecar.
+  await state.db.delete(assets).where(eq(assets.id, assetId));
+  const result = await indexAsset(state, root, absolute, libraryId);
+  return { recovered: result.recovered };
+}
