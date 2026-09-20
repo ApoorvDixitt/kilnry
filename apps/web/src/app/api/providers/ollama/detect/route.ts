@@ -11,7 +11,7 @@
 import { NextResponse } from 'next/server';
 import { detectOllama } from '@kilnry/providers';
 import { loadConfig } from '@kilnry/core';
-import { errorResponse, requireSession } from '../../../../server/http';
+import { errorResponse, requireSession } from '../../../../../server/http';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';

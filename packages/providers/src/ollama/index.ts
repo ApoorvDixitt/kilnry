@@ -239,7 +239,8 @@ export const ollamaAdapter: ProviderAdapter = {
         { provider: 'ollama', retryable: false },
       );
     }
-    const model = request.model ?? 'qwen3:8b';
+    const requested = (request.params.extra as { model?: unknown } | undefined)?.model;
+    const model = typeof requested === 'string' && requested.length > 0 ? requested : 'qwen3:8b';
     const payload = {
       model,
       stream: false,
