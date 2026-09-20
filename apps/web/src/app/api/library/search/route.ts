@@ -11,9 +11,14 @@ import { runtimeServices } from '../../../../server/runtime';
 export async function GET(request: Request): Promise<Response> {
   try {
     await requireSession();
-    const query = new URL(request.url).searchParams.get('q') ?? '';
+    const params = new URL(request.url).searchParams;
+    const query = params.get('q') ?? '';
+    const character = params.get('character');
     const services = await runtimeServices();
     const parsed = parseSearchQuery(query);
+    // The Library "by character" filter (F-CHR-11) may arrive as a dedicated
+    // parameter as well as inline in the query.
+    if (character) parsed.handles.push(character.replace(/^@/, '').toLowerCase());
     const results = await searchAssets(services.database, parsed);
     return NextResponse.json({ assets: results });
   } catch (error) {

@@ -109,4 +109,19 @@ describe('searchAssets', () => {
     const rows = await searchAssets(state, parseSearchQuery('type:image', NOW));
     expect(rows.length).toBe(2);
   });
+
+  it('filters by character through the asset_characters lineage', async () => {
+    const { state } = await seededLibrary();
+    const { createCharacter, recordAssetCharacters } = await import('../characters/store.js');
+    const all = await searchAssets(state, parseSearchQuery('', NOW));
+    const chai = all.find((row) => row.path.includes('chai'))!;
+    const head = await createCharacter(state, { handle: 'maya', kind: 'character', display_name: 'Maya' });
+    await recordAssetCharacters(state, chai.id, [{ character_id: head.id, version: 1, strategy: 'text' }]);
+    const byHandle = await searchAssets(state, parseSearchQuery('@maya', NOW));
+    expect(byHandle.map((row) => row.id)).toEqual([chai.id]);
+    const byFilter = await searchAssets(state, parseSearchQuery('character:maya', NOW));
+    expect(byFilter.map((row) => row.id)).toEqual([chai.id]);
+    const noMatch = await searchAssets(state, parseSearchQuery('@nobody', NOW));
+    expect(noMatch).toHaveLength(0);
+  });
 });

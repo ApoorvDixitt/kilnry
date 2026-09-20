@@ -20,7 +20,7 @@ import {
   or,
   type SQL,
 } from 'drizzle-orm';
-import { assets, type DatabaseState } from '@kilnry/db';
+import { assets, assetCharacters, characters, characterHandleAliases, type DatabaseState } from '@kilnry/db';
 import { KilnryError } from '../errors.js';
 import type { AssetListItem, AssetSort } from './assets.js';
 
@@ -164,6 +164,9 @@ export function parseSearchQuery(input: string, now: Date = new Date()): ParsedQ
         case 'folder':
           query.folders.push(value);
           break;
+        case 'character':
+          query.handles.push(value.replace(/^@/, ''));
+          break;
         case 'has':
           query.has.push(value);
           break;
@@ -226,6 +229,37 @@ export async function searchAssets(state: DatabaseState, parsed: ParsedQuery): P
   for (const folder of parsed.folders) {
     const clause = or(eq(assets.folderPath, folder), ilike(assets.folderPath, `${folder}/%`));
     if (clause) conditions.push(clause);
+  }
+
+  // Filter by character (F-CHR-11, F-LIB-06): resolve each @handle to its id,
+  // following one rename alias, then keep only assets with a lineage row for it.
+  if (parsed.handles.length > 0) {
+    const ids = new Set<string>();
+    for (const handle of parsed.handles) {
+      const direct = await state.db
+        .select({ id: characters.id })
+        .from(characters)
+        .where(eq(characters.handle, handle))
+        .limit(1);
+      if (direct[0]) {
+        ids.add(direct[0].id);
+        continue;
+      }
+      const alias = await state.db
+        .select({ id: characterHandleAliases.characterId })
+        .from(characterHandleAliases)
+        .where(eq(characterHandleAliases.alias, handle))
+        .limit(1);
+      if (alias[0]) ids.add(alias[0].id);
+    }
+    const matching = await state.db
+      .select({ assetId: assetCharacters.assetId })
+      .from(assetCharacters)
+      .where(
+        ids.size > 0 ? inArray(assetCharacters.characterId, [...ids]) : eq(assetCharacters.characterId, '∅'),
+      );
+    const assetIds = matching.map((row) => row.assetId);
+    conditions.push(assetIds.length > 0 ? inArray(assets.id, assetIds) : eq(assets.id, '∅'));
   }
 
   if (parsed.costGt !== undefined) conditions.push(gt(assets.actualUsd, String(parsed.costGt)));
