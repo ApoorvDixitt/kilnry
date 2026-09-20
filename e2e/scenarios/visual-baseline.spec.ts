@@ -59,4 +59,17 @@ test('@visual capture Create light and dark and Library light at 1440x900', asyn
   await expect(page.getByRole('heading', { name: 'Library', exact: true })).toBeVisible();
   await page.waitForTimeout(400);
   await page.screenshot({ path: snap('library-light.png'), fullPage: false });
+
+  // The Characters screen light and dark, the baseline a reviewer compares
+  // against glance-characters.png and glance-characters-dark.png (M4).
+  await setTheme(page, 'light');
+  await ensureSignedIn(page, '/characters');
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: snap('characters-light.png'), fullPage: false });
+
+  await setTheme(page, 'dark');
+  await page.reload();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: snap('characters-dark.png'), fullPage: false });
 });

@@ -3644,11 +3644,16 @@ html[data-motion='reduced'] *::after {
   min-height: 0;
   flex: 1;
 }
-.characters-subtabs {
+.characters-header {
   display: flex;
   gap: 2px;
   padding: 10px 20px 0;
   border-bottom: 1px solid var(--border);
+  align-items: center;
+}
+.characters-subtabs {
+  display: flex;
+  gap: 2px;
   align-items: center;
 }
 .characters-subtabs button {

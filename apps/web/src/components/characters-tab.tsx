@@ -75,31 +75,33 @@ export function CharactersTab(): React.ReactNode {
 
   return (
     <div className="characters-page" data-testid="characters-tab">
-      <div className="characters-subtabs" role="tablist" aria-label={message('characters.title')}>
-        <button
-          role="tab"
-          aria-selected={tab === 'characters'}
-          className={tab === 'characters' ? 'on' : ''}
-          onClick={() => switchTab('characters')}
-        >
-          {message('characters.tabCharacters')} <span className="mono muted">{cards?.length ?? ''}</span>
-        </button>
-        <button
-          role="tab"
-          aria-selected={tab === 'elements'}
-          className={tab === 'elements' ? 'on' : ''}
-          onClick={() => switchTab('elements')}
-        >
-          {message('characters.tabElements')}
-        </button>
-        <button
-          role="tab"
-          aria-selected={tab === 'voices'}
-          className={tab === 'voices' ? 'on' : ''}
-          onClick={() => switchTab('voices')}
-        >
-          {message('characters.tabVoices')}
-        </button>
+      <div className="characters-header">
+        <div className="characters-subtabs" role="tablist" aria-label={message('characters.title')}>
+          <button
+            role="tab"
+            aria-selected={tab === 'characters'}
+            className={tab === 'characters' ? 'on' : ''}
+            onClick={() => switchTab('characters')}
+          >
+            {message('characters.tabCharacters')} <span className="mono muted">{cards?.length ?? ''}</span>
+          </button>
+          <button
+            role="tab"
+            aria-selected={tab === 'elements'}
+            className={tab === 'elements' ? 'on' : ''}
+            onClick={() => switchTab('elements')}
+          >
+            {message('characters.tabElements')}
+          </button>
+          <button
+            role="tab"
+            aria-selected={tab === 'voices'}
+            className={tab === 'voices' ? 'on' : ''}
+            onClick={() => switchTab('voices')}
+          >
+            {message('characters.tabVoices')}
+          </button>
+        </div>
         <span className="grow" />
         {tab === 'voices' ? null : (
           <Link

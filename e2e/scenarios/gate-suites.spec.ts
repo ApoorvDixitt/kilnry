@@ -24,6 +24,11 @@ const TOUCHED_ROUTES = [
   '/create',
   '/library',
   '/jobs',
+  '/characters',
+  '/characters?tab=elements',
+  '/characters?tab=voices',
+  '/characters/new',
+  '/settings/mcp',
   '/settings/budget',
   '/settings/appearance',
   '/settings/security',
@@ -196,7 +201,7 @@ test('@gate save light and dark screenshots of every touched route', async ({ pa
         document.documentElement.dataset.theme = value;
       }, theme);
       await page.waitForTimeout(300);
-      const slug = route.replace(/^\//, '').replace(/\//g, '-');
+      const slug = route.replace(/^\//, '').replace(/[/?=]/g, '-') || 'home';
       await page.screenshot({ path: join(outDir, `${slug}-${theme}.png`), fullPage: false });
     }
   }
