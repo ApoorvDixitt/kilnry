@@ -33,6 +33,22 @@ interface ApiError {
   error?: { message?: string };
 }
 
+interface OllamaModel {
+  name: string;
+  size_bytes: number | null;
+  parameter_size: string | null;
+  context_length: number | null;
+  tools: boolean;
+  vision: boolean;
+}
+
+interface OllamaDetection {
+  detected: boolean;
+  base_url: string;
+  models: OllamaModel[];
+  error?: string;
+}
+
 async function responseJson<T>(response: Response): Promise<T> {
   const body = (await response.json()) as T & ApiError;
   if (!response.ok) throw new Error(body.error?.message ?? message('settings.providers.requestFailed'));
@@ -63,6 +79,29 @@ export function ProviderSettings({
   const [recoveryConfirmation, setRecoveryConfirmation] = useState<RecoveryConfirmation>();
   const [caps, setCaps] = useState<Record<string, string>>({});
   const [concurrency, setConcurrency] = useState<Record<string, string>>({});
+  const [ollama, setOllama] = useState<OllamaDetection>();
+
+  // Probe the local Ollama runtime on open and every sixty seconds while the
+  // Providers page is visible (F-PRV-08). The probe is loopback-only; a missing
+  // Ollama resolves to detected:false and never surfaces as an error here.
+  useEffect(() => {
+    let active = true;
+    const probe = async (): Promise<void> => {
+      try {
+        const response = await fetch('/api/providers/ollama/detect');
+        const body = (await response.json()) as OllamaDetection;
+        if (active) setOllama(body);
+      } catch {
+        if (active) setOllama({ detected: false, base_url: 'http://127.0.0.1:11434', models: [] });
+      }
+    };
+    void probe();
+    const timer = setInterval(() => void probe(), 60_000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, []);
 
   const load = useCallback(async () => {
     const response = await fetch('/api/providers');
@@ -393,6 +432,48 @@ export function ProviderSettings({
           </section>
         ))}
       </div>
+      <section className="provider-card ollama-card" aria-label="Ollama">
+        <header>
+          <div>
+            <span className="provider-monogram" aria-hidden="true">
+              O
+            </span>
+            <div>
+              <h3>Ollama</h3>
+              <p>{message('settings.providers.ollamaHelp')}</p>
+            </div>
+          </div>
+          <span className={`provider-status is-${ollama?.detected ? 'ok' : 'not_connected'}`}>
+            <i />
+            {ollama?.detected
+              ? message('settings.providers.ollamaDetected').replace('{count}', String(ollama.models.length))
+              : message('settings.providers.ollamaMissing')}
+          </span>
+        </header>
+        {ollama?.detected && ollama.models.length > 0 ? (
+          <ul className="ollama-models">
+            {ollama.models.map((model) => (
+              <li key={model.name}>
+                <span className="ollama-model-name">{model.name}</span>
+                {model.parameter_size ? <span className="ollama-tag">{model.parameter_size}</span> : null}
+                {model.context_length ? (
+                  <span className="ollama-tag">{Math.round(model.context_length / 1024)}k ctx</span>
+                ) : null}
+                <span className={`ollama-tag ${model.tools ? 'is-tools' : 'is-disabled'}`}>
+                  {model.tools
+                    ? message('settings.providers.ollamaTools')
+                    : message('settings.providers.ollamaNoTools')}
+                </span>
+                {model.vision ? (
+                  <span className="ollama-tag is-vision">{message('settings.providers.ollamaVision')}</span>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="provider-hint">{ollama?.error ?? message('settings.providers.ollamaMissingHint')}</p>
+        )}
+      </section>
     </div>
   );
 }

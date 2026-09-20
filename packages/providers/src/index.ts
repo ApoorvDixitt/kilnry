@@ -5,15 +5,18 @@
 
 import type { AdapterRegistry } from '@kilnry/core';
 import { falAdapter } from './fal/index.js';
+import { ollamaAdapter } from './ollama/index.js';
 import { openRouterAdapter } from './openrouter/index.js';
 import { pollinationsAdapter } from './pollinations/index.js';
 
 export * from './fal/index.js';
+export * from './ollama/index.js';
 export * from './openrouter/index.js';
 export * from './pollinations/index.js';
 
 export const adapters: AdapterRegistry = {
   fal: falAdapter,
   openrouter: openRouterAdapter,
+  ollama: ollamaAdapter,
   pollinations: pollinationsAdapter,
 };

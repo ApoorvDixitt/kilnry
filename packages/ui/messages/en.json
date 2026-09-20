@@ -342,6 +342,13 @@
       "falHelp": "Images, video, audio, transforms, and training",
       "openrouterHelp": "Images, video, transcription, and language models",
       "pollinationsHelp": "Free image-only demo tier",
+      "ollamaHelp": "Local language and vision models, detected automatically. Free and offline.",
+      "ollamaDetected": "Detected · free · {count} models",
+      "ollamaMissing": "Not detected",
+      "ollamaMissingHint": "Ollama not found at localhost:11434. Install from ollama.com to chat offline for free.",
+      "ollamaTools": "tools",
+      "ollamaNoTools": "no tool calling",
+      "ollamaVision": "vision",
       "status": {
         "ok": "Connected",
         "degraded": "Paused after errors",
