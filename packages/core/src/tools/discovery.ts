@@ -10,6 +10,7 @@
 
 import * as z from 'zod';
 import { budgetStatus } from '../budget/enforcer.js';
+import { spendLedgerGrouped, type LedgerGroupBy } from '../budget/spend-ledger.js';
 import { loadRegistry, priceSummary, providerRouteStates } from '../registry/store.js';
 import { listProviders } from '../providers/service.js';
 import { toolError, type KilnryTool, type ToolResult, type ToolServices } from './types.js';
@@ -179,12 +180,32 @@ export const budgetTool: KilnryTool = {
   inputSchema: {
     action: z.enum(['status', 'ledger']).default('status'),
     period: z.enum(['today', 'month', 'session']).optional(),
+    group_by: z.enum(['provider', 'model', 'folder', 'character', 'day']).optional(),
   },
   outputSchema: {
     caps: z.array(z.record(z.string(), z.unknown())),
+    ledger: z.array(z.record(z.string(), z.unknown())).optional(),
   },
   annotations: { readOnlyHint: true },
-  async execute(_input, services: ToolServices): Promise<ToolResult> {
+  async execute(input, services: ToolServices): Promise<ToolResult> {
+    if (input.action === 'ledger') {
+      const now = new Date();
+      const from =
+        input.period === 'month'
+          ? new Date(now.getFullYear(), now.getMonth(), 1)
+          : new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const groupBy = (input.group_by as LedgerGroupBy | undefined) ?? 'provider';
+      const groups = await spendLedgerGrouped(services.db, { from, to: now, group_by: groupBy });
+      const total = groups.reduce((sum, group) => sum + group.actual_usd, 0);
+      const text =
+        groups.length === 0
+          ? 'No spend recorded for that period.'
+          : `$${total.toFixed(2)} across ${groups.length} ${groupBy}(s): ${groups
+              .slice(0, 5)
+              .map((group) => `${group.key} $${group.actual_usd.toFixed(2)}`)
+              .join(', ')}.`;
+      return { text, structuredContent: { caps: [], ledger: groups } };
+    }
     const lines = await budgetStatus(services.db.db);
     const caps = lines.map((line) => ({
       scope: line.scope,

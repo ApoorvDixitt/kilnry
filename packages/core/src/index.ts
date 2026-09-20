@@ -23,6 +23,7 @@ export * from './library/smart-folders.js';
 export * from './library/sidecar.js';
 export * from './library/watcher.js';
 export * from './budget/enforcer.js';
+export * from './budget/spend-ledger.js';
 export * from './characters/store.js';
 export * from './characters/parse.js';
 export * from './characters/resolver-types.js';
