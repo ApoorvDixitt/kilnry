@@ -36,6 +36,11 @@ jobs:
         run: corepack install --global pnpm@12.4.2
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+      - name: Install FFmpeg 7
+        # federicocarboni/setup-ffmpeg@v3.1 pinned by full commit SHA. On Linux it
+        # installs the current release static build (FFmpeg 7), which the doctor
+        # requires (major version 7 or newer) and which the media tests need.
+        uses: federicocarboni/setup-ffmpeg@37062fbf7149fc5578d6c57e08aed62458b375d6 # v3.1
       - name: Check licence headers
         run: pnpm check:headers
       - name: Check provenance
