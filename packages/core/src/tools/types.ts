@@ -42,6 +42,9 @@ export interface ToolServices {
   // for the vision-language analyze tool. Absent when no key is configured.
   openrouterKey?: string;
   assetUrl?: (assetId: string) => string;
+  // The bundled and installed skill roots for the kilnry_skills tool (F-SKL-01).
+  // Absent means no skills are available and listing returns an empty set.
+  skillsRoots?: { bundled: string; installed?: string };
 }
 
 // A tool result: a human summary for content[0].text (≤ 600 chars, no raw JSON)

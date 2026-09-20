@@ -16,6 +16,7 @@ import { rename as fsRename, copyFile, mkdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { createCharacter } from '../characters/store.js';
 import { setConsent } from '../characters/consent.js';
+import { listSkills, loadSkill, loadSkillFile } from '../skills/loader.js';
 import { createFolder } from '../library/folders.js';
 import { deleteAssetToTrash, restoreAsset, updateAssetMetadata } from '../library/assets.js';
 import { getAssetDetail } from '../library/assets.js';
@@ -328,7 +329,7 @@ export const workflowsTool: KilnryTool = {
 export const skillsTool: KilnryTool = {
   name: 'kilnry_skills',
   description:
-    'Discover then load agent instructions: list skills (a short entry each), load one skill body in full, or load a file referenced inside a skill. The base instructions tell an agent to list first and load exactly one. Returns the skills, a skill body, or a file. Read-only. Bundled skills arrive in a later milestone, so listing returns an empty set for now.',
+    'Discover then load agent instructions: list skills (a short entry each), load one skill body in full, or load a file referenced inside a skill. The base instructions tell an agent to list first and load exactly one. Returns the skills, a skill body, or a file. Read-only.',
   inputSchema: {
     action: z.enum(['list', 'load', 'load_file']).default('list'),
     name: z.string().optional(),
@@ -337,13 +338,47 @@ export const skillsTool: KilnryTool = {
   },
   outputSchema: {
     skills: z.array(z.record(z.string(), z.unknown())).optional(),
+    skill: z.record(z.string(), z.unknown()).optional(),
+    file: z.record(z.string(), z.unknown()).optional(),
     error: z.record(z.string(), z.unknown()).optional(),
   },
   annotations: { readOnlyHint: true },
-  async execute(input): Promise<ToolResult> {
+  async execute(input, services: ToolServices): Promise<ToolResult> {
     const action = typeof input.action === 'string' ? input.action : 'list';
-    if (action === 'list') return { text: 'No skills yet.', structuredContent: { skills: [] } };
-    return toolError('NOT_FOUND', 'No such skill; bundled skills arrive in a later milestone.');
+    const roots = services.skillsRoots;
+    if (!roots) return { text: 'No skills directory is configured.', structuredContent: { skills: [] } };
+
+    if (action === 'list') {
+      const query = typeof input.query === 'string' ? input.query.toLowerCase() : undefined;
+      const all = await listSkills(roots);
+      const skills = query
+        ? all.filter((skill) =>
+            `${skill.name} ${skill.description} ${skill.tags.join(' ')}`.toLowerCase().includes(query),
+          )
+        : all;
+      const text =
+        skills.length === 0
+          ? 'No skills installed.'
+          : `${skills.length} skill(s): ${skills.map((skill) => skill.name).join(', ')}.`;
+      return { text, structuredContent: { skills } };
+    }
+
+    if (action === 'load') {
+      if (typeof input.name !== 'string')
+        return toolError('INVALID_INPUT', 'Loading a skill needs its name.');
+      const skill = await loadSkill(roots, input.name);
+      if (!skill) return toolError('NOT_FOUND', `No enabled skill named "${input.name}".`);
+      return {
+        text: `Loaded skill ${skill.name}.`,
+        structuredContent: { skill },
+      };
+    }
+
+    if (typeof input.name !== 'string' || typeof input.path !== 'string')
+      return toolError('INVALID_INPUT', 'Loading a skill file needs the skill name and a relative path.');
+    const file = await loadSkillFile(roots, input.name, input.path);
+    if (!file) return toolError('NOT_FOUND', `No such file "${input.path}" inside skill "${input.name}".`);
+    return { text: `Loaded ${file.path} from ${input.name}.`, structuredContent: { file } };
   },
 };
 
