@@ -216,7 +216,9 @@ export async function loadVersion(
     })),
     frozen: rows[0].frozen,
     ...(rows[0].injectionDefaults
-      ? { injection_defaults: rows[0].injectionDefaults as LoadedVersion['injection_defaults'] }
+      ? {
+          injection_defaults: rows[0].injectionDefaults as NonNullable<LoadedVersion['injection_defaults']>,
+        }
       : {}),
     ...(voice ? { voice } : {}),
   };
