@@ -84,4 +84,25 @@ Notes and decisions:
 - v0.1.0 was tagged by hand, not with `pnpm release minor`, because `commit-and-tag-version` rewrites the changelog and would discard the plain-English feature list.
 - M3 was completed across two agent sessions; no tracked file depends on either agent.
 
+## M4 · Characters, Elements, Voices, MCP · 2026-09-21
+
+Status: complete. GitHub [`ci` run 35531635405](https://github.com/ApoorvDixitt/kilnry/actions/runs/35531635405) passed on the final head before the release.
+
+Implemented F-ONB-01 (fix); F-CHR-01, 02, 03, 04, 05, 06, 09, 11, 13; F-ELM-01, 02, 03; F-VOI-01, 04; F-CRE-02, 09, 10; F-LIB-07, 11, 12; F-MCP-01, 02, 05, 06; F-JOB-05. The six TRD-14 §7 worked examples pass byte-exact as unit tests; every new Generate surface (variants, edit, MCP) goes through the M2 engine's estimate, budget and confirmation.
+
+Test counts by suite (uncached `turbo run test --force`): core 235, provider 22, media 27, launcher 16, mcp, web node 40; `test:browser` 102; `e2e --grep @m4` 8; `e2e --grep "@m3|@gate"` 13. Keyboard, axe WCAG 2.2 AA (zero critical or serious on `/characters`, its elements and voices tabs, `/characters/new`, `/create`, `/library`, `/jobs`, `/settings/mcp`), reduced motion (both switches) and the accent lint pass; light and dark 1440×900 screenshots are in `e2e/output/`, and `e2e/__snapshots__/characters-{light,dark}.png` are the Characters baseline to compare against `glance-characters.png` / `-dark.png`.
+
+MCP matrix (`@matrix`, `KILNRY_TEST_MSW=1`): `tools/list` returns exactly 20 tools, byte-identical across calls, each with annotations and a five-minute cache hint. Transcripts under `e2e/output/mcp/`: MCP Inspector, Claude Code (HTTP and stdio), Codex CLI — pass over Streamable HTTP; Claude Desktop and Cursor recorded manual-only with their snippets.
+
+Notes and decisions:
+
+- `5a20fd7` (F-CHR-01) had its own run cancelled by the old cancel-in-progress; verified by later green runs. `2ad270d` set it false.
+- The FFmpeg-in-CI failures were the static-build host (johnvansickle.com) being unreachable, not the code; the install now retries via `nick-fields/retry`, and one release-adjacent run was re-run after the host recovered.
+- `c0eb5c1`'s subject reads `(F-CHR-11)` but the change is F-LIB-11 (recover metadata); history is not rewritten.
+- `08f4a9f` only planned the reference sheet; `c52eeea` runs it through the engine, splits panels with sharp, and registers each view with role/view/lineage sidecars.
+- The appearance-descriptor prompt lives as a code asset per D-47a; the provenance check was narrowed accordingly.
+- Not-available MCP operations, by owning milestone: `kilnry_library_manage.export_bundle` → F-LIB-14 (M5); `kilnry_ffmpeg` burn_captions/overlay/fade/normalise/silence-trim → M6; `kilnry_analyze` ocr/transcribe/qa/consistency/palette/faces/compare → later; `kilnry_transform` outpaint/lipsync/dubbing/voice-change/transcribe (+ face-swap always rejects) → M5/M6; `kilnry_voices` preview/clone → M5; presets/workflows/skills lists → M5/M6; `kilnry_publish` → deployer app (D-17).
+- F-CHR-13, F-ELM-03 and F-VOI-04 are surfaced in the composer and covered by the @m4 scenarios.
+- MCP tokens are 32-byte secrets stored as a SHA-256 hash compared in constant time rather than argon2id, since they are high-entropy (default; adjustable).
+
 <!-- Kilnry © 2026 Apoorv Dixit · Sustainable Use License 1.0 · See LICENSE.md. -->

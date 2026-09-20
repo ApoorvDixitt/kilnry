@@ -4,6 +4,40 @@ All notable changes to Kilnry are documented here. The format follows Keep a Cha
 
 ## [Unreleased]
 
+### Added
+
+- Characters tab: a card grid with anchor thumbnail, `@handle`, tags, version and usage count (F-CHR-01).
+- Create a Character from one photo, a Library asset, or a text description; the cast builder is present but disabled until a later milestone (F-CHR-02).
+- Character detail with a reference sheet, identities, voice, usage and settings tabs; the training and cloning actions are disabled until a later milestone (F-CHR-03).
+- Reference-sheet pipeline that turns an anchor into turnaround view files and an expression grid, pausing at an approval checkpoint before spending on the rest (F-CHR-04).
+- A vision-language appearance descriptor with visual anchors and negative traits, generated at creation and editable (F-CHR-05).
+- A consent and licence gate that blocks training and likeness use for a real person until consent is set (F-CHR-06).
+- `@handle` mentions in any prompt resolve to the best consistency input for the chosen model, with a hover preview of what will be sent (F-CHR-09).
+- Usage tab and a Library filter that shows every asset made with a character (F-CHR-11).
+- A three-or-more-people warning surfaced in the composer for multi-character scenes (F-CHR-13).
+- Elements tab for props, environments and styles with `@handle` mentions (F-ELM-01).
+- Create an Element from an asset or upload, with state variants kept as linked but separate Elements (F-ELM-02).
+- Element injection sends the reference with an appearance-only instruction (F-ELM-03).
+- Voices tab listing provider presets with language, gender, style tags and price; previews arrive with the providers in a later milestone (F-VOI-01).
+- `@voice` mentions bind a voice to a Character in the resolver (F-VOI-04).
+- `@` mention autocomplete in the composer with a live preview of what each mention injects (F-CRE-02).
+- Variants and a batch of up to twelve independent prompts through the same estimate and generate paths (F-CRE-09).
+- Edit mode: pick a Library asset, describe the change, and route to image edit or video-to-video (F-CRE-10).
+- Smart folders: saved searches shown in the Library tree (F-LIB-07).
+- Recover a lost sidecar from a file's embedded metadata, and `kilnry doctor --reindex` (F-LIB-11).
+- Free-form tags and colour labels on assets, filterable in search (F-LIB-12).
+- A Model Context Protocol server over loopback HTTP at `/mcp` with bearer tokens, plus a stdio bridge `npx kilnry mcp` (F-MCP-01).
+- Twenty MCP tools with annotations, structured output and short descriptions, backing Chat and MCP from one implementation (F-MCP-02).
+- Per-client MCP tokens with names, scopes, last-used and revoke, and Settings › MCP with the four client connection snippets (F-MCP-05).
+- Spending tools confirm the cost before charging and honour budget caps (F-MCP-06).
+- Offline resilience: jobs queue while offline and resume, re-polling running jobs by provider id on reconnect (F-JOB-05).
+
+### Fixed
+
+- The one-time setup link now regenerates on every boot so an install can never lock itself out (F-ONB-01).
+- Edit mode reads its source on the server so the composer is in the initial HTML and the slash-to-focus shortcut works (F-CRE-10).
+- The agent-prompt-file check is narrowed to the places agent files live, so product prompt assets are allowed (D-47a).
+
 ## [0.1.0] - 2026-09-20
 
 Kilnry v0.1.0 · first usable build (M1–M3).
