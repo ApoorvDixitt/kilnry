@@ -89,8 +89,26 @@ export async function startSheetRun(
       ...(Object.keys(stepInputs).length > 0 ? { inputs: stepInputs } : {}),
     });
   }
-  await submitGenerate(db, engine, runId, steps[0]?.id ?? '', input);
+  await submitFirstStep(db, engine, runId, steps, input);
   return { run_id: runId, steps };
+}
+
+// Submit the first generate step if there is one; failures are non-fatal here so
+// the plan is always returned and the run can be advanced or retried later.
+async function submitFirstStep(
+  db: DatabaseState,
+  engine: SheetEngine,
+  runId: string,
+  steps: SheetStep[],
+  input: { anchorAssetId: string | null; model?: string },
+): Promise<void> {
+  const first = steps.find((step) => step.kind === 'generate');
+  if (!first) return;
+  try {
+    await submitGenerate(db, engine, runId, first.id, input);
+  } catch {
+    // Leave the step pending; advanceSheetRun will retry the submission.
+  }
 }
 
 // Submit a generate step's job with the anchor as a reference image and mark the

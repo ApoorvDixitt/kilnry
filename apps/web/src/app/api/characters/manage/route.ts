@@ -195,9 +195,16 @@ export async function POST(request: Request): Promise<Response> {
         ...(body.sheet?.states ? { states: body.sheet.states } : {}),
       });
       // Advance until the machine submits a job (running) or reaches approval.
-      let status = await advanceSheetRun(db, engine, sink, started.run_id);
-      for (let guard = 0; guard < 20 && status === 'running'; guard += 1) {
+      // A submit failure (for example no connected image model in this
+      // workspace) does not lose the plan; the run stays resumable.
+      let status = 'running';
+      try {
         status = await advanceSheetRun(db, engine, sink, started.run_id);
+        for (let guard = 0; guard < 20 && status === 'running'; guard += 1) {
+          status = await advanceSheetRun(db, engine, sink, started.run_id);
+        }
+      } catch {
+        status = 'running';
       }
       return NextResponse.json({
         run_id: started.run_id,
