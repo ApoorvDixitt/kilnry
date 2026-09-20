@@ -11,6 +11,7 @@
 // full money-round-trip rules are tightened in the confirmation unit (F-MCP-06).
 
 import * as z from 'zod';
+import { confirmationDecision } from '../budget/confirmation.js';
 import { toolError, type KilnryTool, type ToolResult, type ToolServices } from './types.js';
 
 const MediaRef = z.string();
@@ -88,9 +89,16 @@ export const generateTool: KilnryTool = {
       }
     }
 
-    // Money-round-trip (SEP-2322): without an acknowledged cost within ten
-    // percent of the estimate, return needs_confirmation and do not charge.
-    if (confirm === undefined || confirm < total * 0.9) {
+    // Money-round-trip (SEP-2322, F-MCP-06): proceed only when the caller
+    // acknowledged a cost within ten percent of the estimate, or the whole
+    // estimate is at or below the auto-approve threshold; otherwise return
+    // needs_confirmation and do not charge.
+    const decision = confirmationDecision({
+      estimateUsd: total,
+      confirmCostUsd: confirm,
+      autoApproveBelowUsd: services.autoApproveBelowUsd,
+    });
+    if (!decision.proceed) {
       return {
         text: `About $${total.toFixed(2)} for ${priced.length} request(s). Confirm to run.`,
         structuredContent: {
@@ -106,32 +114,39 @@ export const generateTool: KilnryTool = {
       };
     }
 
-    // Confirmed: create a job per request.
+    // Confirmed or auto-approved: create a job per request. A budget cap that
+    // would be exceeded surfaces as a structured BUDGET_EXCEEDED error.
     const created: Array<Record<string, unknown>> = [];
     for (const entry of priced) {
       const request = entry.request;
-      const job = await services.engine.createJob({
-        request: {
-          kind: (request.kind as string) ?? 'image',
-          prompt: (request.prompt as string) ?? '',
-          model: request.model === 'auto' ? undefined : (request.model as string | undefined),
-          params: (request.params as Record<string, unknown>) ?? {},
-          medias: [],
-          count: (request.count as number) ?? 1,
-          injections: [],
-        } as never,
-        confirmed_cost_usd: entry.estimate_usd,
-        confirmed_by: 'mcp',
-        ...(typeof input.client_request_id === 'string'
-          ? { client_request_id: `${input.client_request_id}:${entry.index}` }
-          : {}),
-      });
-      created.push({
-        index: entry.index,
-        job_id: job.job_id,
-        status: job.status,
-        estimate_usd: entry.estimate_usd,
-      });
+      try {
+        const job = await services.engine.createJob({
+          request: {
+            kind: (request.kind as string) ?? 'image',
+            prompt: (request.prompt as string) ?? '',
+            model: request.model === 'auto' ? undefined : (request.model as string | undefined),
+            params: (request.params as Record<string, unknown>) ?? {},
+            medias: [],
+            count: (request.count as number) ?? 1,
+            injections: [],
+          } as never,
+          confirmed_cost_usd: entry.estimate_usd,
+          confirmed_by: 'mcp',
+          ...(typeof input.client_request_id === 'string'
+            ? { client_request_id: `${input.client_request_id}:${entry.index}` }
+            : {}),
+        });
+        created.push({
+          index: entry.index,
+          job_id: job.job_id,
+          status: job.status,
+          estimate_usd: entry.estimate_usd,
+        });
+      } catch (error) {
+        const code =
+          error && typeof error === 'object' && 'code' in error ? String(error.code) : 'PROVIDER_ERROR';
+        return toolError(code, error instanceof Error ? error.message : 'Could not start a job.');
+      }
     }
     return {
       text: `Started ${created.length} job(s) for about $${total.toFixed(2)}.`,

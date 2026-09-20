@@ -31,6 +31,9 @@ export interface ToolServices {
   scope: 'full' | 'read_only';
   engine?: JobEngine;
   adapters?: AdapterRegistry;
+  // Generations at or below this cost run without a confirmation round trip
+  // (F-MCP-06). Absent means every non-zero spend needs confirmation.
+  autoApproveBelowUsd?: number;
 }
 
 // A tool result: a human summary for content[0].text (≤ 600 chars, no raw JSON)
