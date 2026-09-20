@@ -7,10 +7,12 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { apiFetch } from '../lib/api-client';
 import { message } from '../lib/messages';
 import { canCreate, handleValidity, suggestHandle, type CreatePath } from './create-character-logic';
+
+type ElementKind = 'prop' | 'environment' | 'style';
 
 function format(template: string, values: Record<string, string | number>): string {
   return template.replace(/\{(\w+)\}/g, (_, key: string) => String(values[key] ?? ''));
@@ -25,7 +27,10 @@ const PATHS: Array<{ id: CreatePath; label: string }> = [
 
 export function CreateCharacter(): React.ReactNode {
   const router = useRouter();
-  const [path, setPath] = useState<CreatePath>('photo');
+  const params = useSearchParams();
+  const isElement = params.get('kind') === 'element';
+  const [elementKind, setElementKind] = useState<ElementKind>('prop');
+  const [path, setPath] = useState<CreatePath>(isElement ? 'library' : 'photo');
   const [displayName, setDisplayName] = useState('');
   const [handle, setHandle] = useState('');
   const [handleEdited, setHandleEdited] = useState(false);
@@ -107,7 +112,7 @@ export function CreateCharacter(): React.ReactNode {
       const body = {
         action: 'create' as const,
         handle: handle.trim().toLowerCase(),
-        kind: 'character' as const,
+        kind: isElement ? elementKind : ('character' as const),
         display_name: displayName.trim(),
         ...(description.trim() ? { description: description.trim() } : {}),
         ...(tags.trim()
@@ -118,7 +123,7 @@ export function CreateCharacter(): React.ReactNode {
                 .filter(Boolean),
             }
           : {}),
-        is_real_person: isRealPerson,
+        ...(isElement ? {} : { is_real_person: isRealPerson }),
         ...(path === 'text' && textBody.trim() ? { from: { text: textBody.trim() } } : {}),
         ...(references ? { references } : {}),
       };
@@ -131,7 +136,7 @@ export function CreateCharacter(): React.ReactNode {
       if (!response.ok || !parsed.item)
         throw new Error(parsed.error?.message ?? 'Could not create the character.');
       // Record consent immediately for a real person so the gate is answered.
-      if (isRealPerson) {
+      if (!isElement && isRealPerson) {
         await apiFetch('/api/characters/manage', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -148,6 +153,8 @@ export function CreateCharacter(): React.ReactNode {
       setSaving(false);
     }
   }, [
+    isElement,
+    elementKind,
     path,
     handle,
     displayName,
@@ -167,11 +174,11 @@ export function CreateCharacter(): React.ReactNode {
         <Link className="create-character-back" href="/characters">
           ← {message('characters.create.back')}
         </Link>
-        <h1>{message('characters.create.title')}</h1>
+        <h1>{isElement ? message('characters.create.titleElement') : message('characters.create.title')}</h1>
       </div>
 
       <div className="create-character-segments" role="tablist">
-        {PATHS.map((option) => (
+        {PATHS.filter((option) => !(isElement && option.id === 'cast')).map((option) => (
           <button
             key={option.id}
             role="tab"
@@ -191,6 +198,20 @@ export function CreateCharacter(): React.ReactNode {
       ) : null}
 
       <div className="create-character-form">
+        {isElement ? (
+          <label>
+            {message('characters.create.elementKind')}
+            <select
+              value={elementKind}
+              onChange={(event) => setElementKind(event.target.value as ElementKind)}
+            >
+              <option value="prop">{message('characters.create.kindProp')}</option>
+              <option value="environment">{message('characters.create.kindEnvironment')}</option>
+              <option value="style">{message('characters.create.kindStyle')}</option>
+            </select>
+          </label>
+        ) : null}
+
         <label>
           {message('characters.create.displayName')}
           <input
@@ -243,16 +264,18 @@ export function CreateCharacter(): React.ReactNode {
           />
         </label>
 
-        <label className="create-character-toggle">
-          <input
-            type="checkbox"
-            checked={isRealPerson}
-            onChange={(event) => setIsRealPerson(event.target.checked)}
-          />
-          {message('characters.create.realPerson')}
-        </label>
+        {isElement ? null : (
+          <label className="create-character-toggle">
+            <input
+              type="checkbox"
+              checked={isRealPerson}
+              onChange={(event) => setIsRealPerson(event.target.checked)}
+            />
+            {message('characters.create.realPerson')}
+          </label>
+        )}
 
-        {isRealPerson ? (
+        {!isElement && isRealPerson ? (
           <fieldset className="create-character-consent">
             <legend>{message('characters.consent.title')}</legend>
             <p>{message('characters.consent.clauseHiggsfield')}</p>

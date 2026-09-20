@@ -585,6 +585,11 @@
     "headerHelp": "Kilnry never sends the whole sheet. It picks the strongest method each model supports: trained identity, then reference images, then the written descriptor.",
     "create": {
       "title": "New character",
+      "titleElement": "New element",
+      "elementKind": "Kind",
+      "kindProp": "Prop",
+      "kindEnvironment": "Environment",
+      "kindStyle": "Style",
       "fromPhoto": "From photo",
       "fromLibrary": "From Library",
       "fromText": "From text",

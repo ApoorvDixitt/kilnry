@@ -30,17 +30,31 @@ export function CharactersTab(): React.ReactNode {
 
   const load = useCallback(() => {
     setCards(null);
-    void fetch('/api/characters?kind=character')
-      .then((response) => response.json() as Promise<{ items: CharacterCard[]; error?: { message: string } }>)
-      .then((body) => {
-        if (body.error) throw new Error(body.error.message);
-        setCards(body.items);
+    // The list route filters by a single kind; for Elements we ask for each kind
+    // and merge, so props, environments and styles all appear on the tab.
+    const requests =
+      tab === 'elements'
+        ? ['prop', 'environment', 'style'].map((kind) => `/api/characters?kind=${kind}`)
+        : ['/api/characters?kind=character'];
+    void Promise.all(
+      requests.map((request) =>
+        fetch(request).then(
+          (response) => response.json() as Promise<{ items: CharacterCard[]; error?: { message: string } }>,
+        ),
+      ),
+    )
+      .then((bodies) => {
+        const merged = bodies.flatMap((body) => {
+          if (body.error) throw new Error(body.error.message);
+          return body.items;
+        });
+        setCards(merged);
       })
       .catch((cause: unknown) => {
         setError(cause instanceof Error ? cause.message : String(cause));
         setCards([]);
       });
-  }, []);
+  }, [tab]);
 
   useEffect(() => {
     load();
@@ -86,8 +100,11 @@ export function CharactersTab(): React.ReactNode {
           {message('characters.tabVoices')}
         </button>
         <span className="grow" />
-        <Link className="characters-new" href="/characters/new">
-          ＋ {message('characters.new')}
+        <Link
+          className="characters-new"
+          href={tab === 'elements' ? '/characters/new?kind=element' : '/characters/new'}
+        >
+          ＋ {tab === 'elements' ? message('characters.newElement') : message('characters.new')}
         </Link>
       </div>
 
@@ -95,10 +112,14 @@ export function CharactersTab(): React.ReactNode {
         <input
           type="search"
           className="characters-search"
-          placeholder={message('characters.search')}
+          placeholder={
+            tab === 'elements' ? message('characters.searchElements') : message('characters.search')
+          }
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          aria-label={message('characters.search')}
+          aria-label={
+            tab === 'elements' ? message('characters.searchElements') : message('characters.search')
+          }
         />
         <label className="characters-sort">
           {message('characters.sort')}
@@ -121,15 +142,24 @@ export function CharactersTab(): React.ReactNode {
         </div>
       ) : visible.length === 0 && cards && cards.length === 0 ? (
         <div className="characters-empty">
-          <h2>{message('characters.emptyTitle')}</h2>
-          <p>{message('characters.emptyBody')}</p>
+          <h2>
+            {tab === 'elements' ? message('characters.emptyElementsTitle') : message('characters.emptyTitle')}
+          </h2>
+          <p>
+            {tab === 'elements' ? message('characters.emptyElementsBody') : message('characters.emptyBody')}
+          </p>
           <div className="characters-empty-actions">
-            <Link className="btn primary" href="/characters/new">
-              {message('characters.new')}
+            <Link
+              className="btn primary"
+              href={tab === 'elements' ? '/characters/new?kind=element' : '/characters/new'}
+            >
+              {tab === 'elements' ? message('characters.newElement') : message('characters.new')}
             </Link>
-            <button className="btn" type="button" disabled title="M4">
-              {message('characters.importBundle')}
-            </button>
+            {tab === 'elements' ? null : (
+              <button className="btn" type="button" disabled title="M4">
+                {message('characters.importBundle')}
+              </button>
+            )}
           </div>
         </div>
       ) : visible.length === 0 ? (
@@ -195,6 +225,7 @@ function CharacterGridCard({ card }: { card: CharacterCard }): React.ReactNode {
         <span className="character-name">{card.display_name}</span>
       </div>
       <div className="character-tags">
+        {card.kind !== 'character' ? <span className="character-tag muted">{card.kind}</span> : null}
         {card.tags.slice(0, 2).map((tag) => (
           <span key={tag} className="character-tag">
             {tag}
