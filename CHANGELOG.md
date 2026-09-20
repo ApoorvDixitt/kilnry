@@ -4,6 +4,8 @@ All notable changes to Kilnry are documented here. The format follows Keep a Cha
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-21
+
 ### Added
 
 - Characters tab: a card grid with anchor thumbnail, `@handle`, tags, version and usage count (F-CHR-01).
