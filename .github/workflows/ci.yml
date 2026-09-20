@@ -37,15 +37,27 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       - name: Install FFmpeg 7
-        # federicocarboni/setup-ffmpeg@v3.1 pinned by full commit SHA. On Linux it
-        # installs the current release static build (FFmpeg 7), which the doctor
-        # requires (major version 7 or newer) and which the media tests need. The
-        # action occasionally fails to read the release version from GitHub when
-        # the API is rate-limited; passing the workflow token authenticates that
-        # read so it is not rate-limited, which is the cause of the transient error.
-        uses: federicocarboni/setup-ffmpeg@37062fbf7149fc5578d6c57e08aed62458b375d6 # v3.1
+        # The release static build lives at johnvansickle.com, a third-party host
+        # that occasionally times out; that read, not any GitHub rate limit, is
+        # what intermittently failed the setup-ffmpeg action and turned an
+        # otherwise-green run red. Wrapping the download in nick-fields/retry
+        # (pinned by full commit SHA) retries the timeout up to three times and
+        # installs the FFmpeg 7 static build the doctor and media tests need.
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
         with:
-          github-token: ${{ github.token }}
+          max_attempts: 3
+          timeout_minutes: 5
+          retry_on: error
+          command: |
+            set -euo pipefail
+            tmp="$(mktemp -d)"
+            curl -fsSL --retry 3 --retry-delay 5 -o "$tmp/ffmpeg.tar.xz" \
+              https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz
+            tar -xf "$tmp/ffmpeg.tar.xz" -C "$tmp"
+            dir="$(find "$tmp" -maxdepth 1 -type d -name 'ffmpeg-*-static' | head -n1)"
+            sudo install -m755 "$dir/ffmpeg" /usr/local/bin/ffmpeg
+            sudo install -m755 "$dir/ffprobe" /usr/local/bin/ffprobe
+            ffmpeg -version | head -n1
       - name: Check licence headers
         run: pnpm check:headers
       - name: Check provenance
