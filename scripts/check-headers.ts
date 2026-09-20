@@ -42,7 +42,13 @@ function isExempt(path: string): boolean {
 }
 
 function markdownNeedsSourceHeader(path: string): boolean {
-  return path.startsWith('apps/docs/content/') || path.startsWith('packages/skills/');
+  // Product prompt assets (D-47a) and documentation content carry the licence as
+  // a leading HTML comment, which the loader strips, rather than a footer.
+  return (
+    path.startsWith('apps/docs/content/') ||
+    path.startsWith('packages/skills/') ||
+    path.endsWith('.prompt.md')
+  );
 }
 
 function styleFor(path: string): 'slash' | 'hash' | 'css' | 'html' | 'sql' | 'footer' | undefined {

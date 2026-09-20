@@ -9,3 +9,7 @@
 **/coverage/**
 test-results/**
 playwright-report/**
+
+# Prompt assets are verbatim product content; reformatting would change the text
+# sent to the model (D-47a).
+**/*.prompt.md

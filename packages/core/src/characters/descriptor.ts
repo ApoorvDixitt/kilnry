@@ -3,18 +3,24 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import * as z from 'zod';
 import { KilnryError } from '../errors.js';
 
-// The vision-language model prompt (TRD-14 §8), verbatim. The specification places
-// it in descriptor.prompt.md, but decision D-47 forbids tracking any *.prompt.md
-// file, so the canonical copy lives here as an exported constant instead.
-export const DESCRIPTOR_PROMPT = `You describe a person or figure for image and video generation. Look at the image(s) and return JSON only.
-Rules: 60–120 words in "descriptor", present tense, no name, no age as a number (use ranges like "early thirties"), no ethnicity guesses — describe skin tone as observed; include hair (shape, length, colour, fringe), face marks, eyewear, facial hair, build, and the exact outfit in the anchor image.
-"anchors": 3–5 short noun phrases that make this person recognisable across scenes (hair shape and colour, a distinguishing mark, a signature item). Never more than 5.
-"negative_traits": 0–3 things the person does NOT have that models commonly add (e.g. "glasses", "beard", "hat").
-"palette_hex": up to 4 hex colours of skin, hair, and the main garment.
-"gendered_noun": one of "woman", "man", "person", "figure" as best fits the image; use "person" when unsure.`;
+// Load the vision-language model prompt from the markdown file the workflow
+// specification (TRD-12 §9) loads with file(). Decision D-47a allows this product
+// prompt asset under packages/**. The leading HTML licence comment is stripped so
+// only the prompt text reaches the model. The exported name is unchanged so every
+// caller keeps working.
+function loadDescriptorPrompt(): string {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const raw = readFileSync(join(here, 'descriptor.prompt.md'), 'utf8');
+  return raw.replace(/^<!--[\s\S]*?-->\s*/, '').trim();
+}
+
+export const DESCRIPTOR_PROMPT = loadDescriptorPrompt();
 
 // The cheapest vision-language model, per TRD-14 §8.
 export const DESCRIPTOR_MODEL = 'google/gemini-3.1-flash-lite';

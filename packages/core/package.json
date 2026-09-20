@@ -30,7 +30,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc -b",
+    "build": "tsc -b && node ../../scripts/copy-assets.mjs src dist .prompt.md",
     "typecheck": "tsc -b --pretty false",
     "test": "vitest run --passWithNoTests --exclude 'dist/**'"
   },
