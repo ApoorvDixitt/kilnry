@@ -478,7 +478,9 @@
       "save": "Save caps",
       "saved": "Budget caps saved.",
       "saveFailed": "Kilnry could not save the budget caps.",
-      "spent": "{spent} of {cap} used"
+      "spent": "{spent} of {cap} used",
+      "staleTitle": "Stale price guard",
+      "staleBody": "Kilnry refuses to price a job with data older than 30 days. Refresh a provider's prices in Settings › Providers, or acknowledge the estimate to override once; every override is recorded in the security audit log."
     }
   },
   "placeholder": {

@@ -28,6 +28,18 @@ export async function POST(request: Request): Promise<Response> {
         meta: { confirmed_cost_usd: input.confirmed_cost_usd ?? null },
       });
     }
+    // Overriding the 30-day price-staleness guard (F-PRV-07) is recorded too, so
+    // a spend priced on stale data is always traceable in the audit log.
+    if (input.allow_stale_price) {
+      const services = await runtimeServices();
+      await services.database.db.insert(auditEvents).values({
+        id: ulid(),
+        actor: `user:${session.user.id}`,
+        action: 'price.stale_override',
+        target: input.model ?? 'auto',
+        meta: { confirmed_cost_usd: input.confirmed_cost_usd ?? null },
+      });
+    }
     const result = await engine.createJob({
       request: canonical.request,
       constraints: canonical.constraints,

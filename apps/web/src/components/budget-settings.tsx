@@ -120,6 +120,11 @@ export function BudgetSettings(): React.ReactNode {
           {status}
         </p>
       </div>
+
+      <section className="budget-stale-policy" aria-label={message('settings.budget.staleTitle')}>
+        <h3>{message('settings.budget.staleTitle')}</h3>
+        <p>{message('settings.budget.staleBody')}</p>
+      </section>
     </form>
   );
 }
