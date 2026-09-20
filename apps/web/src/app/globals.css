@@ -4203,3 +4203,80 @@ html[data-motion='reduced'] *::after {
 .voices-note {
   padding: 16px 0;
 }
+
+/* Composer @ mentions (F-CRE-02) */
+.composer-prompt-wrap {
+  position: relative;
+}
+.mention-popover {
+  position: absolute;
+  left: 0;
+  top: 100%;
+  z-index: 20;
+  margin: 4px 0 0;
+  padding: 4px;
+  list-style: none;
+  min-width: 240px;
+  max-height: 260px;
+  overflow: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-popover);
+}
+.mention-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  background: none;
+  color: var(--text);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  font: inherit;
+}
+.mention-option:hover,
+.mention-option:focus-visible {
+  background: var(--accent-subtle-bg);
+}
+.mention-option img,
+.mention-thumb {
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  object-fit: cover;
+  background: var(--surface-2);
+}
+.mention-handle {
+  font-family: var(--mono);
+  font-size: 13px;
+}
+.mention-kind {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 11px;
+}
+.composer-warning {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--warning-bg);
+  color: var(--warning);
+  font-size: 12px;
+}
+.composer-resolve {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.composer-resolve-chip {
+  font-size: 11px;
+  font-family: var(--mono);
+  background: var(--accent-subtle-bg);
+  color: var(--accent-subtle-text);
+  border-radius: 999px;
+  padding: 2px 8px;
+}

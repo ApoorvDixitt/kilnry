@@ -101,6 +101,11 @@
     "emptyAction": "Provider setup coming next",
     "shortcut": "Press / to focus the composer once generation is connected.",
     "composerPlaceholder": "Describe what you want to make…",
+    "mentions": {
+      "label": "Character, element and voice suggestions",
+      "previewLabel": "What each mention injects",
+      "threePeople": "{n} people in one shot. Most models keep 2 faces consistent; expect drift on the third."
+    },
     "model": "No model connected",
     "estimate": "≈ $0.00",
     "generate": "Generate",

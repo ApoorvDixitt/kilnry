@@ -10,6 +10,13 @@ import { message } from '../lib/messages';
 import { ModelPicker, type ComposerMode, type PickerModel } from './model-picker';
 import { ParamChips, type ComposerParams, type ParamsSchema } from './param-chips';
 import { CostStrip, type BudgetLine, type CostEstimate } from './cost-strip';
+import {
+  acceptMention,
+  activeMentionQuery,
+  distinctPeople,
+  type MentionSuggestion,
+  type ResolvePreview,
+} from './composer-mentions-logic';
 
 const MODES: ComposerMode[] = ['image', 'video', 'audio', 'workflow'];
 
@@ -124,6 +131,26 @@ export function Composer({
   const [budgetAskDismissed, setBudgetAskDismissed] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  // @ mention autocomplete (F-CRE-02): suggestions for the token at the caret and
+  // a live resolver preview of what each mention injects for the chosen model.
+  const [mentionQuery, setMentionQuery] = useState<{ query: string; start: number } | null>(null);
+  const [suggestions, setSuggestions] = useState<MentionSuggestion[]>([]);
+  const [preview, setPreview] = useState<ResolvePreview | null>(null);
+
+  const refreshMentions = useCallback((text: string, caret: number) => {
+    const active = activeMentionQuery(text, caret);
+    if (!active) {
+      setMentionQuery(null);
+      setSuggestions([]);
+      return;
+    }
+    setMentionQuery(active);
+    void fetch(`/api/characters/mentions?q=${encodeURIComponent(active.query)}&limit=8`)
+      .then((response) => response.json() as Promise<{ items: MentionSuggestion[] }>)
+      .then((body) => setSuggestions(body.items))
+      .catch(() => setSuggestions([]));
+  }, []);
+
   // When a result tile asks to reuse its prompt, the page bumps the seed token
   // and the composer adopts that prompt text once per new token.
   const appliedSeed = useRef<number | undefined>(undefined);
@@ -202,6 +229,55 @@ export function Composer({
     return () => document.removeEventListener('keydown', onKey);
   }, [switchMode]);
 
+  // Live resolver preview: whenever the prompt has a mention, ask the resolver
+  // what each @handle injects for the chosen model, so the composer can show the
+  // strategy, warn on three or more people (F-CHR-13), and never send a literal
+  // @handle — the engine receives the resolved plan.
+  useEffect(() => {
+    if (!/(^|[\s(,"'])@[a-z0-9_-]{2,}/i.test(prompt)) {
+      setPreview(null);
+      return;
+    }
+    const resolveKind = mode === 'workflow' ? 'image' : mode;
+    const timer = setTimeout(() => {
+      void fetch('/api/characters/resolve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt,
+          kind: resolveKind,
+          ...(selectedModel !== 'auto' ? { model: selectedModel } : {}),
+        }),
+      })
+        .then((response) => response.json() as Promise<{ resolution?: ResolvePreview }>)
+        .then((body) => setPreview(body.resolution ?? null))
+        .catch(() => setPreview(null));
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [prompt, selectedModel, mode]);
+
+  const acceptSuggestion = useCallback(
+    (handle: string) => {
+      const caret = textareaRef.current?.selectionStart ?? prompt.length;
+      const active = mentionQuery ?? activeMentionQuery(prompt, caret);
+      if (!active) return;
+      const next = acceptMention(prompt, caret, active.start, handle);
+      setPrompt(next.text);
+      setMentionQuery(null);
+      setSuggestions([]);
+      requestAnimationFrame(() => {
+        const node = textareaRef.current;
+        if (node) {
+          node.focus();
+          node.setSelectionRange(next.caret, next.caret);
+        }
+      });
+    },
+    [prompt, mentionQuery],
+  );
+
+  const peopleCount = distinctPeople(preview ?? undefined);
+
   const modelChipLabel =
     selectedModel === 'auto'
       ? message('create.picker.auto')
@@ -215,20 +291,69 @@ export function Composer({
   return (
     <section className="composer" aria-label={message('create.title')}>
       <ModeSegment mode={mode} onChange={switchMode} />
-      <textarea
-        ref={textareaRef}
-        className="composer-prompt"
-        value={prompt}
-        placeholder={message('create.composerPlaceholder')}
-        aria-label={message('create.composerPlaceholder')}
-        onChange={(event) => setPrompt(event.target.value)}
-        onKeyDown={(event) => {
-          if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-            event.preventDefault();
-            fire();
-          }
-        }}
-      />
+      <div className="composer-prompt-wrap">
+        <textarea
+          ref={textareaRef}
+          className="composer-prompt"
+          value={prompt}
+          placeholder={message('create.composerPlaceholder')}
+          aria-label={message('create.composerPlaceholder')}
+          onChange={(event) => {
+            setPrompt(event.target.value);
+            refreshMentions(event.target.value, event.target.selectionStart ?? event.target.value.length);
+          }}
+          onKeyDown={(event) => {
+            if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+              event.preventDefault();
+              fire();
+            }
+            if (event.key === 'Escape' && mentionQuery) {
+              setMentionQuery(null);
+              setSuggestions([]);
+            }
+          }}
+        />
+        {mentionQuery && suggestions.length > 0 ? (
+          <ul className="mention-popover" role="listbox" aria-label={message('create.mentions.label')}>
+            {suggestions.map((item) => (
+              <li key={`${item.kind}:${item.handle}`}>
+                <button
+                  type="button"
+                  className="mention-option"
+                  onClick={() => acceptSuggestion(item.handle)}
+                >
+                  {item.thumb_url ? <img src={item.thumb_url} alt="" /> : <span className="mention-thumb" />}
+                  <span className="mention-handle">@{item.handle}</span>
+                  <span className="mention-kind">{item.kind}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
+      {peopleCount >= 3 ? (
+        <p className="composer-warning" role="status">
+          {message('create.mentions.threePeople').replace('{n}', String(peopleCount))}
+        </p>
+      ) : null}
+      {preview && preview.warnings.length > 0
+        ? preview.warnings
+            .filter((warning) => !warning.includes('distinct people'))
+            .map((warning) => (
+              <p key={warning} className="composer-warning" role="status">
+                {warning}
+              </p>
+            ))
+        : null}
+      {preview && preview.injections.length > 0 ? (
+        <div className="composer-resolve" aria-label={message('create.mentions.previewLabel')}>
+          {preview.injections.map((injection) => (
+            <span key={`${injection.handle}:${injection.strategy}`} className="composer-resolve-chip">
+              @{injection.handle} → {injection.strategy}
+            </span>
+          ))}
+        </div>
+      ) : null}
       <div className="composer-footer">
         <div className="composer-model">
           <button
