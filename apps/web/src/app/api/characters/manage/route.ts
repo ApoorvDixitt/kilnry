@@ -19,7 +19,7 @@ import {
 } from '@kilnry/core';
 import { characters } from '@kilnry/db';
 import { eq } from 'drizzle-orm';
-import { errorResponse, requireSession } from '../../../../server/http';
+import { assertMayMutate, errorResponse, requireSessionOrBearer } from '../../../../server/http';
 import { runtimeServices } from '../../../../server/runtime';
 
 const Kind = z.enum(['character', 'prop', 'environment', 'style']);
@@ -75,7 +75,8 @@ const Body = z.object({
 // spending actions (train, build_sheet) arrive with the reference-sheet pipeline.
 export async function POST(request: Request): Promise<Response> {
   try {
-    await requireSession();
+    const auth = await requireSessionOrBearer(request);
+    assertMayMutate(auth);
     const body = Body.parse(await request.json());
     const services = await runtimeServices();
     const db = services.database;

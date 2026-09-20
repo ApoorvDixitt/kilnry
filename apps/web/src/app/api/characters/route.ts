@@ -5,16 +5,17 @@
 
 import { NextResponse } from 'next/server';
 import { listCards, type CharacterKind } from '@kilnry/core';
-import { errorResponse, requireSession } from '../../../server/http';
+import { errorResponse, requireSessionOrBearer } from '../../../server/http';
 import { runtimeServices } from '../../../server/runtime';
 
 const KINDS: CharacterKind[] = ['character', 'prop', 'environment', 'style'];
 
 // List Characters (or Elements) for the grid. `?kind=` pins the tab; `?q=` and
-// `?tags=` filter (F-CHR-01, F-ELM-01).
+// `?tags=` filter (F-CHR-01, F-ELM-01). Readable by the owner session or an MCP
+// bearer token (F-MCP-05).
 export async function GET(request: Request): Promise<Response> {
   try {
-    await requireSession();
+    await requireSessionOrBearer(request);
     const params = new URL(request.url).searchParams;
     const kindParam = params.get('kind');
     const kind =

@@ -5,14 +5,14 @@
 
 import { NextResponse } from 'next/server';
 import { listVoices, type VoiceFilter } from '@kilnry/core';
-import { errorResponse, requireSession } from '../../../server/http';
+import { errorResponse, requireSessionOrBearer } from '../../../server/http';
 import { runtimeServices } from '../../../server/runtime';
 
 // List voices for the Voices tab (F-VOI-01): the shipped provider presets merged
 // with the user's cloned voices, filtered by provider, language, gender or type.
 export async function GET(request: Request): Promise<Response> {
   try {
-    await requireSession();
+    await requireSessionOrBearer(request);
     const params = new URL(request.url).searchParams;
     const filter: VoiceFilter = {
       ...(params.get('provider') ? { provider: params.get('provider')! } : {}),

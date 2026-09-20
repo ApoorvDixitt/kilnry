@@ -9,6 +9,7 @@ import * as z from 'zod';
 import { KilnryError, redact, ulid } from '@kilnry/core';
 import { currentSession } from './session';
 import { log } from './log';
+import { mayMutate, type RouteAuth } from './mcp-auth-logic';
 
 const statusByCode: Record<string, number> = {
   INVALID_INPUT: 400,
@@ -28,6 +29,28 @@ export async function requireSession(): Promise<NonNullable<Awaited<ReturnType<t
   const session = await currentSession();
   if (!session) throw new KilnryError('INVALID_INPUT', 'authentication required');
   return session;
+}
+
+// Authenticate a route by either the owner's session or a Model Context Protocol
+// (MCP) bearer token (F-MCP-05). Returns how the caller authenticated and, for a
+// bearer, its scope. A mutation must call assertMayMutate() so a read-only
+// bearer is refused before it changes anything; a session may always mutate.
+export type { RouteAuth };
+
+export async function requireSessionOrBearer(request: Request): Promise<RouteAuth> {
+  const session = await currentSession();
+  if (session) return { via: 'session' };
+  const { authenticateMcp } = await import('./mcp');
+  const bearer = await authenticateMcp(request);
+  if (bearer) return { via: 'bearer', scope: bearer.scope };
+  throw new KilnryError('INVALID_INPUT', 'authentication required');
+}
+
+// Refuse a mutation for a read-only bearer token (F-MCP-05, TRD-10 §7).
+export function assertMayMutate(auth: RouteAuth): void {
+  if (!mayMutate(auth)) {
+    throw new KilnryError('INVALID_INPUT', 'This token is read-only and cannot change anything.');
+  }
 }
 
 export async function errorResponse(error: unknown): Promise<Response> {

@@ -5,12 +5,12 @@
 
 import { NextResponse } from 'next/server';
 import { parseSearchQuery, searchAssets } from '@kilnry/core';
-import { errorResponse, requireSession } from '../../../../server/http';
+import { errorResponse, requireSessionOrBearer } from '../../../../server/http';
 import { runtimeServices } from '../../../../server/runtime';
 
 export async function GET(request: Request): Promise<Response> {
   try {
-    await requireSession();
+    await requireSessionOrBearer(request);
     const params = new URL(request.url).searchParams;
     const query = params.get('q') ?? '';
     const character = params.get('character');

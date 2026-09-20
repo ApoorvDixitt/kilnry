@@ -4356,3 +4356,79 @@ html[data-motion='reduced'] *::after {
 .inspector-edit:hover {
   background: var(--surface-2);
 }
+
+/* Settings › MCP (F-MCP-05) */
+.mcp-token-form {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  margin: 12px 0;
+}
+
+.mcp-token-secret {
+  padding: 12px;
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  background: var(--surface-2);
+  margin-bottom: 12px;
+}
+
+.mcp-token-secret code {
+  display: block;
+  word-break: break-all;
+  margin: 8px 0;
+  font-size: 13px;
+}
+
+.mcp-token-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mcp-token-list li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.mcp-token-list li[data-revoked='true'] {
+  opacity: 0.5;
+}
+
+.mcp-token-name {
+  font-weight: 600;
+}
+
+.mcp-token-used {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.mcp-client-tabs {
+  display: flex;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.mcp-client-tabs button.is-on {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.mcp-snippet {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-2);
+  overflow-x: auto;
+  font-size: 13px;
+}
