@@ -6,24 +6,10 @@
 import { spawnSync } from 'node:child_process';
 
 import { checkCommitSubject, SUBJECT_RULE_BASE } from './commit-subject';
+import { isBannedAgentPath } from './agent-paths';
 
 const ownerName = 'Apoorv Dixit';
 const allowedEmails = new Set(['177645159+ApoorvDixitt@users.noreply.github.com']);
-const bannedPaths = [
-  /^AGENTS\.md$/,
-  /^CLAUDE\.md$/,
-  /^GEMINI\.md$/,
-  /^\.cursor(?:\/|$)/,
-  /^\.cursorrules$/,
-  /^\.claude(?:\/|$)/,
-  /^\.codex(?:\/|$)/,
-  /^\.kiro(?:\/|$)/,
-  /^\.github\/copilot-instructions\.md$/,
-  /^\.windsurfrules$/,
-  /^\.aider/,
-  /^\.continue(?:\/|$)/,
-  /\.prompt\.md$/,
-];
 
 function git(args: string[], allowNoCommits = false): string {
   const result = spawnSync('git', args, { encoding: 'utf8' });
@@ -41,7 +27,7 @@ function git(args: string[], allowNoCommits = false): string {
 const failures: string[] = [];
 const tracked = git(['ls-files']).split('\n').filter(Boolean);
 for (const path of tracked) {
-  if (bannedPaths.some((pattern) => pattern.test(path))) failures.push(`tracked coding-agent file: ${path}`);
+  if (isBannedAgentPath(path)) failures.push(`tracked coding-agent file: ${path}`);
 }
 
 if (!process.env.CI) {
