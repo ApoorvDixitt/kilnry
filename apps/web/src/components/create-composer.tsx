@@ -6,7 +6,6 @@
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useSearchParams } from 'next/navigation';
 import { AnimatePresence, motion } from 'motion/react';
 import { apiFetch } from '../lib/api-client';
 import { message } from '../lib/messages';
@@ -70,7 +69,7 @@ function toEstimatePayload(
   };
 }
 
-export function CreateComposer(): React.ReactNode {
+export function CreateComposer({ editAssetId = null }: { editAssetId?: string | null }): React.ReactNode {
   const [models, setModels] = useState<ApiModel[]>([]);
   const [estimate, setEstimate] = useState<ApiEstimate | null>(null);
   const [tiles, setTiles] = useState<ResultTile[]>([]);
@@ -83,13 +82,12 @@ export function CreateComposer(): React.ReactNode {
   const lastState = useRef<ReturnType<typeof toEstimatePayload> | null>(null);
   const lastPrompt = useRef('');
   const debounce = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const searchParams = useSearchParams();
-  const editAssetId = searchParams.get('edit');
 
   // Opening Create with ?edit=<assetId> — the Library asset's Edit action —
   // pre-attaches that asset as the Source and switches the composer to its kind
   // (F-CRE-10 AC 1). A non-image/non-video or missing asset shows the source
-  // notice and leaves the composer in plain create mode.
+  // notice and leaves the composer in plain create mode. The query is read on the
+  // server and handed in as a prop, so the composer is in the initial HTML.
   useEffect(() => {
     editRef.current = edit;
   }, [edit]);
