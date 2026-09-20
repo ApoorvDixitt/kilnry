@@ -19,6 +19,7 @@ import { setConsent } from '../characters/consent.js';
 import { createFolder } from '../library/folders.js';
 import { deleteAssetToTrash, restoreAsset, updateAssetMetadata } from '../library/assets.js';
 import { getAssetDetail } from '../library/assets.js';
+import { importSources } from '../library/import.js';
 import { indexAsset } from '../library/index.js';
 import { resolveInRoot } from '../library/containment.js';
 import { sidecarPath } from '../library/sidecar.js';
@@ -150,11 +151,23 @@ export const importTool: KilnryTool = {
   },
   outputSchema: {
     assets: z.array(z.record(z.string(), z.unknown())).optional(),
+    errors: z.array(z.record(z.string(), z.unknown())).optional(),
     error: z.record(z.string(), z.unknown()).optional(),
   },
   annotations: { readOnlyHint: false, openWorldHint: true },
-  async execute(): Promise<ToolResult> {
-    return toolError('NO_PROVIDER', 'Importing over the tool interface arrives in a later milestone.');
+  async execute(input, services: ToolServices): Promise<ToolResult> {
+    const root = services.libraryRoot;
+    const libraryId = services.libraryId;
+    if (!root || !libraryId) return toolError('NOT_FOUND', 'The Library root is not configured yet.');
+    const sources = Array.isArray(input.sources) ? (input.sources as string[]) : [];
+    if (sources.length === 0) return toolError('INVALID_INPUT', 'Give at least one source to import.');
+    const targetFolder = typeof input.target_folder === 'string' ? input.target_folder : 'inbox';
+    const result = await importSources(services.db, root, libraryId, { sources, targetFolder });
+    const text =
+      result.assets.length === 0
+        ? `Imported nothing; ${result.errors.length} source(s) failed.`
+        : `Imported ${result.assets.length} of ${sources.length} source(s).`;
+    return { text, structuredContent: { assets: result.assets, errors: result.errors } };
   },
 };
 

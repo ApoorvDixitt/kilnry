@@ -3,12 +3,13 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
-import { opendir } from 'node:fs/promises';
-import { join, relative } from 'node:path';
+import { opendir, copyFile, mkdir, writeFile } from 'node:fs/promises';
+import { basename, join, relative } from 'node:path';
 import { createDerivatives } from '@kilnry/media';
 import type { DatabaseState } from '@kilnry/db';
 import { resolveInRoot } from './containment.js';
 import { indexAsset } from './index.js';
+import { safeFetch } from '../security/ssrf.js';
 
 export interface ImportReport {
   scanned: number;
@@ -84,4 +85,94 @@ export async function importFolder(
   }
 
   return { scanned: files.length, imported, recovered, errors };
+}
+
+// The result of importing a list of sources (kilnry_import, F-ONB-07): the
+// assets that landed and a per-source error list.
+export interface ImportSourcesResult {
+  assets: Array<{ source: string; asset_id: string; path: string; type: string }>;
+  errors: Array<{ source: string; code: string; message: string }>;
+}
+
+// A safe file name derived from a URL path or an absolute path.
+function importName(source: string): string {
+  try {
+    if (/^https?:\/\//i.test(source)) {
+      const name = basename(new URL(source).pathname) || 'import';
+      return name.replace(/[^\w.-]/g, '_');
+    }
+  } catch {
+    // Fall through to the path form.
+  }
+  return basename(source).replace(/[^\w.-]/g, '_') || 'import';
+}
+
+// Import each source into the target folder under the Library root. An https URL
+// is fetched through the SSRF-guarded fetch and written into the folder; an
+// absolute path is copied in. Every file is then indexed with a sidecar. Errors
+// are collected per source rather than aborting the whole call.
+export async function importSources(
+  state: DatabaseState,
+  root: string,
+  libraryId: string,
+  input: {
+    sources: string[];
+    targetFolder?: string;
+    dataDir?: string;
+    fetchImpl?: typeof safeFetch;
+  },
+): Promise<ImportSourcesResult> {
+  const fetchImpl = input.fetchImpl ?? safeFetch;
+  const folderRel = input.targetFolder ?? 'inbox';
+  const target = await resolveInRoot(root, folderRel, { mustExist: false });
+  await mkdir(target.abs, { recursive: true, mode: 0o700 });
+
+  const result: ImportSourcesResult = { assets: [], errors: [] };
+  for (const source of input.sources) {
+    try {
+      const dest = join(target.abs, importName(source));
+      if (/^https?:\/\//i.test(source)) {
+        const response = await fetchImpl(source);
+        if (!response.ok) throw new Error(`The source returned HTTP ${response.status}.`);
+        const bytes = Buffer.from(await response.arrayBuffer());
+        await writeFile(dest, bytes, { mode: 0o600 });
+      } else if (source.startsWith('/')) {
+        await copyFile(source, dest);
+      } else {
+        result.errors.push({
+          source,
+          code: 'INVALID_INPUT',
+          message: 'A source must be an https URL or an absolute path.',
+        });
+        continue;
+      }
+      const indexed = await indexAsset(state, root, relative(root, dest), libraryId);
+      if (input.dataDir) {
+        await createDerivatives({
+          source: dest,
+          dataDir: input.dataDir,
+          assetId: indexed.sidecar.asset_id,
+          mime: indexed.sidecar.file.mime,
+          ...(indexed.sidecar.file.duration_s === undefined
+            ? {}
+            : { durationS: indexed.sidecar.file.duration_s }),
+        });
+      }
+      result.assets.push({
+        source,
+        asset_id: indexed.sidecar.asset_id,
+        path: relative(root, dest),
+        type: indexed.sidecar.kind,
+      });
+    } catch (error) {
+      const code =
+        error && typeof error === 'object' && 'code' in error ? String(error.code) : 'PROVIDER_ERROR';
+      result.errors.push({
+        source,
+        code,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  return result;
 }

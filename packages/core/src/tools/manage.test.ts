@@ -3,14 +3,16 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { closeDatabaseState, createDatabase } from '@kilnry/db';
+import { ulid } from '../ids.js';
 import {
   MANAGE_TOOLS,
   charactersManageTool,
+  importTool,
   libraryManageTool,
   presetsTool,
   skillsTool,
@@ -113,5 +115,38 @@ describe('management and template tools (F-MCP-02 §3.3–§3.6)', () => {
     );
     expect(result.structuredContent.ok).toBe(true);
     expect(existsSync(join(root, 'Campaign A'))).toBe(true);
+  });
+
+  it('kilnry_import imports a local file and records a bad source in errors', async () => {
+    const state = await db();
+    const root = mkdtempSync(join(tmpdir(), 'kilnry-import-'));
+    roots.push(root);
+    const libraryId = ulid();
+    const localFile = join(root, 'src.png');
+    // A valid 1×1 PNG (probeMedia reads its dimensions via sharp).
+    writeFileSync(
+      localFile,
+      Buffer.from(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAAAAAA6fptVAAAACklEQVR4nGMAAQAABQABDQottAAAAABJRU5ErkJggg==',
+        'base64',
+      ),
+    );
+
+    const result = await importTool.execute(
+      { sources: [localFile, 'relative/not/allowed.png'], target_folder: 'inbox' },
+      { db: state, scope: 'full', libraryRoot: root, libraryId },
+    );
+    const assets = result.structuredContent.assets as Array<{ type: string }>;
+    const errors = result.structuredContent.errors as Array<{ source: string; code: string }>;
+    expect(assets).toHaveLength(1);
+    expect(assets[0]?.type).toBe('image');
+    expect(errors).toHaveLength(1);
+    expect(errors[0]?.code).toBe('INVALID_INPUT');
+  });
+
+  it('kilnry_import reports no Library when the root is unset', async () => {
+    const state = await db();
+    const result = await importTool.execute({ sources: ['/tmp/x.png'] }, { db: state, scope: 'full' });
+    expect((result.structuredContent.error as { code: string }).code).toBe('NOT_FOUND');
   });
 });
