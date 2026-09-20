@@ -548,6 +548,24 @@
       "cost": "Cost"
     }
   },
+  "characters": {
+    "consent": {
+      "title": "Is this a real person?",
+      "body": "Kilnry only trains a face or clones a voice for a real person once you confirm you have the right to.",
+      "realPerson": "This is a real person",
+      "fictional": "This is a fictional or invented character",
+      "self": "This is me",
+      "written": "I have written permission",
+      "writtenAttach": "Attach the signed release",
+      "neither": "Neither",
+      "neitherNote": "Training and voice cloning stay disabled until consent is set.",
+      "required": "Set consent before training or sending this likeness.",
+      "clauseHiggsfield": "Only upload photos of yourself, or of someone who has given you permission to use their likeness.",
+      "clauseReplicate": "Do not use images of other people without their consent.",
+      "clauseElevenlabs": "Only clone a voice you own or have explicit permission to use.",
+      "clauseMinimax": "You confirm you have the rights to the voice sample you upload."
+    }
+  },
   "health": {
     "ready": "Ready"
   }

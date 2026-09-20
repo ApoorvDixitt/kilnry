@@ -28,6 +28,7 @@ export * from './characters/resolver-types.js';
 export * from './characters/resolve.js';
 export * from './characters/emitters.js';
 export * from './characters/descriptor.js';
+export * from './characters/consent.js';
 export * from './providers/adapter.js';
 export * from './providers/service.js';
 export * from './registry/estimator.js';
