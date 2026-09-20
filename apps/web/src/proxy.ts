@@ -11,6 +11,7 @@ import { NextResponse } from 'next/server';
 import { ulid } from '@kilnry/core';
 import { defaultDataDir } from '@kilnry/core/config';
 import { takeRateLimit } from './server/rate-limit';
+import { message } from './lib/messages';
 
 const loopback = new Set(['localhost', '127.0.0.1', '::1', '[::1]', 'kilnry.local']);
 
@@ -73,7 +74,7 @@ function exchangeSetupToken(request: NextRequest): NextResponse | undefined {
   const left = Buffer.from(supplied);
   const right = Buffer.from(expected);
   const valid = age <= 10 * 60_000 && left.length === right.length && timingSafeEqual(left, right);
-  if (!valid) return new NextResponse('This setup link expired. Run pnpm dev again.', { status: 403 });
+  if (!valid) return new NextResponse(message('welcome.setupExpired'), { status: 403 });
   const response = NextResponse.redirect(new URL('/welcome', request.url));
   response.cookies.set('kilnry_setup', '1', { httpOnly: true, sameSite: 'lax', maxAge: 30 * 60, path: '/' });
   return response;

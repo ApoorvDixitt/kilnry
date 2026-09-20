@@ -83,7 +83,8 @@
     "emailInvalid": "Enter an email address. It's only used as your login name.",
     "genericError": "Kilnry couldn't save this step. Check the details and try again.",
     "progress": "Setup progress",
-    "localOnly": "127.0.0.1 · local only"
+    "localOnly": "127.0.0.1 · local only",
+    "setupExpired": "This setup link has expired. Start Kilnry again and open the new link it prints."
   },
   "login": {
     "title": "Welcome back",

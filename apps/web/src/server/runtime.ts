@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
-import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import {
@@ -52,13 +52,24 @@ function globalRuntime(): RuntimeGlobal {
 
 function ensureSetupToken(dataDir: string, port: number): void {
   const tokenPath = join(dataDir, 'first-run.token');
-  if (!existsSync(tokenPath)) {
-    const token = randomBytes(32).toString('hex');
-    writeFileSync(tokenPath, `${token}\n`, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
-    chmodSync(tokenPath, 0o600);
-  }
-  const token = readFileSync(tokenPath, 'utf8').trim();
+  // No local user exists yet, so onboarding is still open. Write a fresh token on
+  // every boot: the previous token may be older than the ten-minute window the proxy
+  // enforces (exchangeSetupToken in proxy.ts), which would lock the owner out forever.
+  // Rewriting the file also refreshes its modification time, so the printed link is
+  // always valid for ten minutes from this start. The mode stays 0600.
+  const token = writeSetupToken(tokenPath);
   process.stdout.write(`\nOpen this link to finish setup:\nhttp://127.0.0.1:${port}/welcome?t=${token}\n\n`);
+}
+
+/**
+ * Writes a fresh random setup token to `tokenPath` with mode 0600, replacing any
+ * existing token, and returns it. Exported for the runtime unit test.
+ */
+export function writeSetupToken(tokenPath: string): string {
+  const token = randomBytes(32).toString('hex');
+  writeFileSync(tokenPath, `${token}\n`, { encoding: 'utf8', mode: 0o600 });
+  chmodSync(tokenPath, 0o600);
+  return token;
 }
 
 async function boot(): Promise<void> {
