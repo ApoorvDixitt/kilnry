@@ -8,7 +8,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { closeDatabaseState, createDatabase } from '@kilnry/db';
-import { GENERATION_TOOLS, ffmpegTool, generateTool, jobsTool, transformTool } from './generation.js';
+import {
+  GENERATION_TOOLS,
+  analyzeTool,
+  ffmpegTool,
+  generateTool,
+  jobsTool,
+  transformTool,
+} from './generation.js';
 
 const disposers: Array<() => Promise<void>> = [];
 afterEach(async () => {
@@ -87,5 +94,19 @@ describe('generation tools (F-MCP-02 §3.2, §3.6)', () => {
     expect(err.code).toBe('NO_PROVIDER');
     expect(err.message).toContain('M6');
     expect(err.message).toContain('trim');
+  });
+
+  it('kilnry_analyze refuses unsupported tasks and a missing key precisely', async () => {
+    const state = await db();
+    const unsupported = await analyzeTool.execute(
+      { task: 'ocr', refs: ['a1'] },
+      { db: state, scope: 'full' },
+    );
+    const one = unsupported.structuredContent.error as { code: string; message: string };
+    expect(one.code).toBe('NO_PROVIDER');
+    expect(one.message).toContain('describe');
+
+    const noKey = await analyzeTool.execute({ task: 'describe', refs: ['a1'] }, { db: state, scope: 'full' });
+    expect((noKey.structuredContent.error as { code: string }).code).toBe('NO_PROVIDER');
   });
 });

@@ -38,6 +38,10 @@ export interface ToolServices {
   // (kilnry_library_manage, kilnry_import). Absent when the Library is not set.
   libraryRoot?: string;
   libraryId?: string;
+  // An OpenRouter key and a way to turn an asset id into a loopback media URL,
+  // for the vision-language analyze tool. Absent when no key is configured.
+  openrouterKey?: string;
+  assetUrl?: (assetId: string) => string;
 }
 
 // A tool result: a human summary for content[0].text (≤ 600 chars, no raw JSON)

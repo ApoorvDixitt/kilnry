@@ -35,6 +35,7 @@ export * from './characters/state-groups.js';
 export * from './characters/voices.js';
 export * from './characters/resolve-db.js';
 export * from './characters/sheet-prompts.js';
+export * from './characters/analyze.js';
 export * from './characters/sheet.js';
 export * from './characters/sheet-run.js';
 export * from './budget/confirmation.js';

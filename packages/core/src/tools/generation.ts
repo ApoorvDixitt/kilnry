@@ -15,6 +15,7 @@ import { basename, join } from 'node:path';
 import { FFMPEG_OPS, isSupportedFfmpegOp, runFfmpegOp } from '@kilnry/media';
 import { probeMedia } from '@kilnry/media';
 import { confirmationDecision } from '../budget/confirmation.js';
+import { ANALYZE_TASKS, CHEAPEST_VLM, analyzeMedia, isSupportedAnalyzeTask } from '../characters/analyze.js';
 import { getAssetDetail } from '../library/assets.js';
 import { indexAsset } from '../library/index.js';
 import { resolveInRoot } from '../library/containment.js';
@@ -285,18 +286,45 @@ export const analyzeTool: KilnryTool = {
     ]),
     refs: z.array(MediaRef).min(1).max(8),
     instructions: z.string().optional(),
+    model: z.string().optional(),
     confirm_cost_usd: z.number().optional(),
   },
   outputSchema: {
     text: z.string().optional(),
+    model: z.string().optional(),
     error: z.record(z.string(), z.unknown()).optional(),
   },
   annotations: { readOnlyHint: true, openWorldHint: true },
-  async execute(): Promise<ToolResult> {
-    return toolError(
-      'NO_PROVIDER',
-      'Media analysis needs a vision-language provider that arrives in a later milestone.',
-    );
+  async execute(input, services: ToolServices): Promise<ToolResult> {
+    const task = typeof input.task === 'string' ? input.task : '';
+    if (!isSupportedAnalyzeTask(task)) {
+      return toolError(
+        'NO_PROVIDER',
+        `The ${task || 'requested'} task is not available yet. Supported now: ${ANALYZE_TASKS.join(', ')}. The rest arrive in a later milestone.`,
+      );
+    }
+    if (!services.openrouterKey || !services.assetUrl) {
+      return toolError('NO_PROVIDER', 'Analysis needs an OpenRouter key; add one in Settings › Providers.');
+    }
+    const refs = Array.isArray(input.refs) ? (input.refs as string[]) : [];
+    if (refs.length === 0) return toolError('INVALID_INPUT', 'Give at least one reference to analyze.');
+    const assetUrl = services.assetUrl;
+    const imageUrls = refs.map((ref) => (ref.startsWith('http') ? ref : assetUrl(ref)));
+    const model = typeof input.model === 'string' ? input.model : CHEAPEST_VLM;
+    try {
+      const result = await analyzeMedia({
+        task,
+        imageUrls,
+        apiKey: services.openrouterKey,
+        model,
+        ...(typeof input.instructions === 'string' ? { instructions: input.instructions } : {}),
+      });
+      return { text: result.text, structuredContent: { text: result.text, model: result.model } };
+    } catch (error) {
+      const code =
+        error && typeof error === 'object' && 'code' in error ? String(error.code) : 'PROVIDER_ERROR';
+      return toolError(code, error instanceof Error ? error.message : 'The analysis failed.');
+    }
   },
 };
 

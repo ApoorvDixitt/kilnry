@@ -46,6 +46,7 @@ async function handle(request: Request): Promise<Response> {
   const engine = await ensureRuntimeEngine().catch(() => undefined);
   const config = loadConfig();
   const marker = config.library_root ? await libraryMarker(config.library_root).catch(() => null) : null;
+  const openrouterKey = await services.keyStore.get('openrouter').catch(() => undefined);
   return handleMcpRequest(request, {
     version: SERVER_VERSION,
     tools: KILNRY_TOOLS,
@@ -53,9 +54,11 @@ async function handle(request: Request): Promise<Response> {
       db: services.database,
       scope: auth.scope,
       adapters,
+      assetUrl: (assetId: string) => `http://127.0.0.1:${config.port}/api/media/${assetId}`,
       ...(engine ? { engine } : {}),
       ...(config.library_root ? { libraryRoot: config.library_root } : {}),
       ...(marker ? { libraryId: marker.library_id } : {}),
+      ...(openrouterKey ? { openrouterKey } : {}),
     },
   });
 }
