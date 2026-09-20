@@ -31,6 +31,7 @@ export * from './characters/descriptor.js';
 export * from './characters/consent.js';
 export * from './characters/full.js';
 export * from './characters/state-groups.js';
+export * from './characters/voices.js';
 export * from './characters/resolve-db.js';
 export * from './providers/adapter.js';
 export * from './providers/service.js';

@@ -647,6 +647,26 @@
       "noReferences": "No references yet. Add a photo or generate a sheet.",
       "buildSheetDisabled": "The reference-sheet pipeline arrives later in this milestone."
     },
+    "voices": {
+      "previewText": "Hello from Kilnry. This is a short preview of how I sound.",
+      "play": "Play preview",
+      "colName": "Name",
+      "colHandle": "Handle",
+      "colProvider": "Provider",
+      "colLanguage": "Language",
+      "colGender": "Gender",
+      "colTags": "Style",
+      "colPrice": "Price",
+      "colType": "Type",
+      "typePreset": "preset",
+      "typeClone": "clone",
+      "filterProvider": "Provider",
+      "filterLanguage": "Language",
+      "allProviders": "All providers",
+      "empty": "No voices match.",
+      "previewUnavailable": "Voice previews arrive with the text-to-speech adapters.",
+      "cloneDisabled": "Voice cloning arrives in a later release."
+    },
     "consent": {
       "title": "Is this a real person?",
       "body": "Kilnry only trains a face or clones a voice for a real person once you confirm you have the right to.",

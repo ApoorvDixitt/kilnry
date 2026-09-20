@@ -4162,3 +4162,44 @@ html[data-motion='reduced'] *::after {
   height: 100%;
   object-fit: cover;
 }
+
+/* Voices tab (F-VOI-01) */
+.voices-tab {
+  padding: 0 20px 24px;
+  overflow: auto;
+}
+.voices-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.voices-table th {
+  text-align: left;
+  color: var(--muted);
+  font-weight: 500;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.voices-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+.voices-play {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid var(--border-control);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+}
+.voices-tags {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.voices-empty,
+.voices-note {
+  padding: 16px 0;
+}

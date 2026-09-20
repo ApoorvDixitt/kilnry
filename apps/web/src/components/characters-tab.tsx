@@ -16,6 +16,7 @@ import {
   type CardSort,
   type CharacterCard,
 } from './characters-tab-logic';
+import { VoicesTab } from './voices-tab';
 
 type Tab = 'characters' | 'elements' | 'voices';
 
@@ -100,87 +101,99 @@ export function CharactersTab(): React.ReactNode {
           {message('characters.tabVoices')}
         </button>
         <span className="grow" />
-        <Link
-          className="characters-new"
-          href={tab === 'elements' ? '/characters/new?kind=element' : '/characters/new'}
-        >
-          ＋ {tab === 'elements' ? message('characters.newElement') : message('characters.new')}
-        </Link>
+        {tab === 'voices' ? null : (
+          <Link
+            className="characters-new"
+            href={tab === 'elements' ? '/characters/new?kind=element' : '/characters/new'}
+          >
+            ＋ {tab === 'elements' ? message('characters.newElement') : message('characters.new')}
+          </Link>
+        )}
       </div>
 
-      <div className="characters-filters">
-        <input
-          type="search"
-          className="characters-search"
-          placeholder={
-            tab === 'elements' ? message('characters.searchElements') : message('characters.search')
-          }
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          aria-label={
-            tab === 'elements' ? message('characters.searchElements') : message('characters.search')
-          }
-        />
-        <label className="characters-sort">
-          {message('characters.sort')}
-          <select value={sort} onChange={(event) => setSort(event.target.value as CardSort)}>
-            <option value="used">{message('characters.sortUsed')}</option>
-            <option value="name">{message('characters.sortName')}</option>
-            <option value="created">{message('characters.sortCreated')}</option>
-          </select>
-        </label>
-        <span className="characters-help" title={message('characters.headerHelp')} aria-hidden>
-          ⓘ
-        </span>
-      </div>
-
-      {visible === null ? (
-        <div className="characters-grid" aria-busy>
-          {Array.from({ length: 8 }).map((_, index) => (
-            <div key={index} className="character-card skeleton" />
-          ))}
-        </div>
-      ) : visible.length === 0 && cards && cards.length === 0 ? (
-        <div className="characters-empty">
-          <h2>
-            {tab === 'elements' ? message('characters.emptyElementsTitle') : message('characters.emptyTitle')}
-          </h2>
-          <p>
-            {tab === 'elements' ? message('characters.emptyElementsBody') : message('characters.emptyBody')}
-          </p>
-          <div className="characters-empty-actions">
-            <Link
-              className="btn primary"
-              href={tab === 'elements' ? '/characters/new?kind=element' : '/characters/new'}
-            >
-              {tab === 'elements' ? message('characters.newElement') : message('characters.new')}
-            </Link>
-            {tab === 'elements' ? null : (
-              <button className="btn" type="button" disabled title="M4">
-                {message('characters.importBundle')}
-              </button>
-            )}
-          </div>
-        </div>
-      ) : visible.length === 0 ? (
-        <div className="characters-empty">
-          <p>{message('characters.filteredZero')}</p>
-          <button className="btn" type="button" onClick={() => setQuery('')}>
-            {message('characters.clearFilters')}
-          </button>
-        </div>
+      {tab === 'voices' ? (
+        <VoicesTab />
       ) : (
-        <div className="characters-grid">
-          {visible.map((card) => (
-            <CharacterGridCard key={card.id} card={card} />
-          ))}
-        </div>
+        <>
+          <div className="characters-filters">
+            <input
+              type="search"
+              className="characters-search"
+              placeholder={
+                tab === 'elements' ? message('characters.searchElements') : message('characters.search')
+              }
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              aria-label={
+                tab === 'elements' ? message('characters.searchElements') : message('characters.search')
+              }
+            />
+            <label className="characters-sort">
+              {message('characters.sort')}
+              <select value={sort} onChange={(event) => setSort(event.target.value as CardSort)}>
+                <option value="used">{message('characters.sortUsed')}</option>
+                <option value="name">{message('characters.sortName')}</option>
+                <option value="created">{message('characters.sortCreated')}</option>
+              </select>
+            </label>
+            <span className="characters-help" title={message('characters.headerHelp')} aria-hidden>
+              ⓘ
+            </span>
+          </div>
+
+          {visible === null ? (
+            <div className="characters-grid" aria-busy>
+              {Array.from({ length: 8 }).map((_, index) => (
+                <div key={index} className="character-card skeleton" />
+              ))}
+            </div>
+          ) : visible.length === 0 && cards && cards.length === 0 ? (
+            <div className="characters-empty">
+              <h2>
+                {tab === 'elements'
+                  ? message('characters.emptyElementsTitle')
+                  : message('characters.emptyTitle')}
+              </h2>
+              <p>
+                {tab === 'elements'
+                  ? message('characters.emptyElementsBody')
+                  : message('characters.emptyBody')}
+              </p>
+              <div className="characters-empty-actions">
+                <Link
+                  className="btn primary"
+                  href={tab === 'elements' ? '/characters/new?kind=element' : '/characters/new'}
+                >
+                  {tab === 'elements' ? message('characters.newElement') : message('characters.new')}
+                </Link>
+                {tab === 'elements' ? null : (
+                  <button className="btn" type="button" disabled title="M4">
+                    {message('characters.importBundle')}
+                  </button>
+                )}
+              </div>
+            </div>
+          ) : visible.length === 0 ? (
+            <div className="characters-empty">
+              <p>{message('characters.filteredZero')}</p>
+              <button className="btn" type="button" onClick={() => setQuery('')}>
+                {message('characters.clearFilters')}
+              </button>
+            </div>
+          ) : (
+            <div className="characters-grid">
+              {visible.map((card) => (
+                <CharacterGridCard key={card.id} card={card} />
+              ))}
+            </div>
+          )}
+          {error ? (
+            <p className="characters-error" role="alert">
+              {error}
+            </p>
+          ) : null}
+        </>
       )}
-      {error ? (
-        <p className="characters-error" role="alert">
-          {error}
-        </p>
-      ) : null}
     </div>
   );
 }
