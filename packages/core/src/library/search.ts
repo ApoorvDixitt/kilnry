@@ -20,7 +20,14 @@ import {
   or,
   type SQL,
 } from 'drizzle-orm';
-import { assets, assetCharacters, characters, characterHandleAliases, type DatabaseState } from '@kilnry/db';
+import {
+  assets,
+  assetCharacters,
+  assetTags,
+  characters,
+  characterHandleAliases,
+  type DatabaseState,
+} from '@kilnry/db';
 import { KilnryError } from '../errors.js';
 import type { AssetListItem, AssetSort } from './assets.js';
 
@@ -224,6 +231,15 @@ export async function searchAssets(state: DatabaseState, parsed: ParsedQuery): P
   if (parsed.providers.length > 0) conditions.push(inArray(assets.providerId, parsed.providers));
   if (parsed.sources.length > 0) conditions.push(inArray(assets.source, parsed.sources));
   if (parsed.labels.length > 0) conditions.push(inArray(assets.label, parsed.labels));
+  // Tags filter (F-LIB-12): keep only assets carrying every requested tag.
+  for (const tag of parsed.tags) {
+    const tagged = await state.db
+      .select({ assetId: assetTags.assetId })
+      .from(assetTags)
+      .where(eq(assetTags.tag, tag));
+    const ids = tagged.map((row) => row.assetId);
+    conditions.push(ids.length > 0 ? inArray(assets.id, ids) : eq(assets.id, '∅'));
+  }
   for (const model of parsed.models) conditions.push(ilike(assets.modelId, `%${model}%`));
   for (const model of parsed.negModels) conditions.push(not(ilike(assets.modelId, `%${model}%`)));
   for (const folder of parsed.folders) {

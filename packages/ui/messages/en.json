@@ -538,6 +538,8 @@
       "count": "{n} selected",
       "delete": "Delete",
       "tag": "Tag",
+      "label": "Label",
+      "tagPrompt": "Add a tag to the selected files (lowercase, no spaces):",
       "clear": "Clear selection",
       "restore": "Restore",
       "deleteForever": "Delete forever",

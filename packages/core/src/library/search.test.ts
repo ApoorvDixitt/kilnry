@@ -110,6 +110,18 @@ describe('searchAssets', () => {
     expect(rows.length).toBe(2);
   });
 
+  it('filters by tag through the asset_tags index', async () => {
+    const { state, library } = await seededLibrary();
+    const all = await searchAssets(state, parseSearchQuery('', NOW));
+    const chai = all.find((row) => row.path.includes('chai'))!;
+    const prepared = await import('./reindex.js').then((m) => m.libraryMarker(library));
+    await updateAssetMetadata(state, library, prepared.library_id, chai.id, { tags: ['hero'] });
+    const tagged = await searchAssets(state, parseSearchQuery('tag:hero', NOW));
+    expect(tagged.map((row) => row.id)).toEqual([chai.id]);
+    const none = await searchAssets(state, parseSearchQuery('tag:missing', NOW));
+    expect(none).toHaveLength(0);
+  });
+
   it('filters by character through the asset_characters lineage', async () => {
     const { state } = await seededLibrary();
     const { createCharacter, recordAssetCharacters } = await import('../characters/store.js');

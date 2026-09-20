@@ -238,6 +238,12 @@ export function LibraryBrowser(): React.ReactNode {
           onDelete={() => void deleteSelected()}
           onRestore={() => void restoreSelected()}
           onClear={() => setSelection(new Set())}
+          onTag={(tag) => {
+            for (const id of selection) void patchAsset(id, { tags: [tag] });
+          }}
+          onLabel={(label) => {
+            for (const id of selection) void patchAsset(id, { label });
+          }}
         />
       </div>
       {detail ? (
