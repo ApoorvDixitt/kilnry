@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { closeDatabaseState, createDatabase } from '@kilnry/db';
-import { GENERATION_TOOLS, generateTool, jobsTool, transformTool } from './generation.js';
+import { GENERATION_TOOLS, ffmpegTool, generateTool, jobsTool, transformTool } from './generation.js';
 
 const disposers: Array<() => Promise<void>> = [];
 afterEach(async () => {
@@ -72,5 +72,20 @@ describe('generation tools (F-MCP-02 §3.2, §3.6)', () => {
     const result = await jobsTool.execute({ action: 'list' }, { db: state, scope: 'full' });
     expect(Array.isArray(result.structuredContent.jobs)).toBe(true);
     expect(result.structuredContent.all_terminal).toBe(true);
+  });
+
+  it('kilnry_ffmpeg needs a Library and names the milestone for an unsupported op', async () => {
+    const state = await db();
+    const noRoot = await ffmpegTool.execute({ op: 'trim', inputs: ['x'] }, { db: state, scope: 'full' });
+    expect((noRoot.structuredContent.error as { code: string }).code).toBe('NOT_FOUND');
+
+    const unsupported = await ffmpegTool.execute(
+      { op: 'burn_captions', inputs: ['x'] },
+      { db: state, scope: 'full', libraryRoot: '/tmp/x', libraryId: 'L' },
+    );
+    const err = unsupported.structuredContent.error as { code: string; message: string };
+    expect(err.code).toBe('NO_PROVIDER');
+    expect(err.message).toContain('M6');
+    expect(err.message).toContain('trim');
   });
 });

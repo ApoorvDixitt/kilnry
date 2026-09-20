@@ -11,7 +11,13 @@
 // full money-round-trip rules are tightened in the confirmation unit (F-MCP-06).
 
 import * as z from 'zod';
+import { basename, join } from 'node:path';
+import { FFMPEG_OPS, isSupportedFfmpegOp, runFfmpegOp } from '@kilnry/media';
+import { probeMedia } from '@kilnry/media';
 import { confirmationDecision } from '../budget/confirmation.js';
+import { getAssetDetail } from '../library/assets.js';
+import { indexAsset } from '../library/index.js';
+import { resolveInRoot } from '../library/containment.js';
 import { toolError, type KilnryTool, type ToolResult, type ToolServices } from './types.js';
 
 const MediaRef = z.string();
@@ -205,14 +211,58 @@ export const ffmpegTool: KilnryTool = {
   },
   outputSchema: {
     asset_id: z.string().optional(),
+    path: z.string().optional(),
+    log_tail: z.string().optional(),
+    probe: z.record(z.string(), z.unknown()).optional(),
     error: z.record(z.string(), z.unknown()).optional(),
   },
   annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
-  async execute(): Promise<ToolResult> {
-    return toolError(
-      'NO_PROVIDER',
-      'Local media assembly over the tool interface arrives in a later milestone.',
-    );
+  async execute(input, services: ToolServices): Promise<ToolResult> {
+    const root = services.libraryRoot;
+    const libraryId = services.libraryId;
+    if (!root || !libraryId) return toolError('NOT_FOUND', 'The Library root is not configured yet.');
+    const op = typeof input.op === 'string' ? input.op : '';
+    const refs = Array.isArray(input.inputs) ? (input.inputs as string[]) : [];
+    if (refs.length === 0) return toolError('INVALID_INPUT', 'This operation needs at least one input.');
+    const params = (input.params as Record<string, unknown> | undefined) ?? {};
+
+    if (!isSupportedFfmpegOp(op)) {
+      return toolError(
+        'NO_PROVIDER',
+        `The ${op || 'requested'} operation is not available yet. Supported now: ${FFMPEG_OPS.join(', ')}. Burning captions and the rest arrive in milestone M6.`,
+      );
+    }
+
+    const resolvePath = async (ref: string): Promise<string> => {
+      if (ref.startsWith('/')) return (await resolveInRoot(root, ref, { mustExist: true })).abs;
+      const detail = await getAssetDetail(services.db, root, ref);
+      return (await resolveInRoot(root, detail.path, { mustExist: true })).abs;
+    };
+    try {
+      const inputs = await Promise.all(refs.map(resolvePath));
+      if (op === 'probe') {
+        const probe = await probeMedia(inputs[0]!);
+        return {
+          text: `${probe.mime}${probe.width ? ` ${probe.width}×${probe.height}` : ''}.`,
+          structuredContent: { probe },
+        };
+      }
+      const inboxAbs = (await resolveInRoot(root, 'inbox', { mustExist: false })).abs;
+      const outName =
+        typeof input.output_name === 'string' && input.output_name
+          ? input.output_name
+          : `${basename(inputs[0]!).replace(/\.[^.]+$/, '')}_${op}${ffmpegExtension(op)}`;
+      const { log_tail } = await runFfmpegOp(op, inputs, join(inboxAbs, outName), params);
+      const indexed = await indexAsset(services.db, root, `inbox/${outName}`, libraryId);
+      return {
+        text: `${op} produced ${outName}.`,
+        structuredContent: { asset_id: indexed.sidecar.asset_id, path: `inbox/${outName}`, log_tail },
+      };
+    } catch (error) {
+      const code =
+        error && typeof error === 'object' && 'code' in error ? String(error.code) : 'PROVIDER_ERROR';
+      return toolError(code, error instanceof Error ? error.message : 'The FFmpeg operation failed.');
+    }
   },
 };
 
@@ -301,3 +351,12 @@ export const GENERATION_TOOLS: KilnryTool[] = [
   analyzeTool,
   jobsTool,
 ];
+
+// The output file extension for a local FFmpeg operation.
+function ffmpegExtension(op: string): string {
+  if (op === 'gif') return '.gif';
+  if (op === 'extract_audio') return '.mp3';
+  if (op === 'thumbnail' || op === 'sprite_sheet') return '.png';
+  if (op === 'extract_frames') return '_%04d.png';
+  return '.mp4';
+}

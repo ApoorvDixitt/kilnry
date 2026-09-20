@@ -7,6 +7,7 @@ export * from './metadata/index.js';
 export * from './metadata/png-itxt.js';
 export * from './probe.js';
 export * from './process.js';
+export * from './ffmpeg-ops.js';
 export * from './sheet-split.js';
 export * from './sniff.js';
 export * from './thumbnails.js';
