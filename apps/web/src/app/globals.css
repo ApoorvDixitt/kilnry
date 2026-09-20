@@ -3864,3 +3864,124 @@ html[data-motion='reduced'] *::after {
   color: var(--danger);
   font-size: 13px;
 }
+
+/* Create Character (F-CHR-02) */
+.create-character {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 24px 20px 48px;
+  width: 100%;
+}
+.create-character-top {
+  margin-bottom: 16px;
+}
+.create-character-back {
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 13px;
+}
+.create-character-top h1 {
+  margin: 8px 0 0;
+  font-size: 22px;
+}
+.create-character-segments {
+  display: inline-flex;
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  margin-bottom: 20px;
+}
+.create-character-segments button {
+  height: 36px;
+  padding: 0 14px;
+  background: var(--surface);
+  color: var(--muted);
+  border: 0;
+  border-right: 1px solid var(--border);
+  cursor: pointer;
+  font-size: 13px;
+}
+.create-character-segments button:last-child {
+  border-right: 0;
+}
+.create-character-segments button.on {
+  background: var(--accent-subtle-bg);
+  color: var(--accent-subtle-text);
+}
+.create-character-segments button:disabled {
+  color: var(--muted);
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.create-character-disabled {
+  color: var(--muted);
+  font-size: 13px;
+  margin: -8px 0 16px;
+}
+.create-character-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.create-character-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text);
+}
+.create-character-form input[type='text'],
+.create-character-form input[type='file'],
+.create-character-form textarea {
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--text);
+  padding: 8px 10px;
+  font: inherit;
+}
+.create-character-form textarea {
+  min-height: 84px;
+  resize: vertical;
+}
+.create-character-handle-state {
+  font-size: 12px;
+  color: var(--muted);
+}
+.create-character-toggle {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 8px;
+}
+.create-character-consent {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--surface);
+}
+.create-character-consent legend {
+  font-weight: 500;
+  padding: 0 4px;
+}
+.create-character-consent label {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+.create-character-consent-note,
+.create-character-note {
+  font-size: 12px;
+  color: var(--muted);
+}
+.create-character-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 8px;
+}
+.create-character-error {
+  color: var(--danger);
+  font-size: 13px;
+}
