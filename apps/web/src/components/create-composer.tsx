@@ -7,6 +7,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { SaveAsPreset, type ComposerSnapshot } from './save-as-preset';
+import { TransformsPanel } from './transforms-panel';
 import { AnimatePresence, motion } from 'motion/react';
 import { apiFetch } from '../lib/api-client';
 import { message } from '../lib/messages';
@@ -81,6 +82,7 @@ export function CreateComposer({ editAssetId = null }: { editAssetId?: string | 
   const [edit, setEdit] = useState<EditSource | null>(null);
   const [saving, setSaving] = useState(false);
   const [snapshot, setSnapshot] = useState<ComposerSnapshot | null>(null);
+  const [transformSource, setTransformSource] = useState<string | null>(null);
   const editRef = useRef<EditSource | null>(null);
   const lastState = useRef<ReturnType<typeof toEstimatePayload> | null>(null);
   const lastPrompt = useRef('');
@@ -357,6 +359,13 @@ export function CreateComposer({ editAssetId = null }: { editAssetId?: string | 
                           onDelete: () => setTiles((prior) => prior.filter((t) => t.id !== tile.id)),
                         }}
                       />
+                      <button
+                        type="button"
+                        className="result-tile-transform"
+                        onClick={() => setTransformSource(tile.assetId ?? null)}
+                      >
+                        {message('create.transform.open')}
+                      </button>
                     </figure>
                   ) : tile.status === 'moderated' ? (
                     <ModeratedTile
@@ -405,6 +414,9 @@ export function CreateComposer({ editAssetId = null }: { editAssetId?: string | 
           }}
           onClose={() => setSaving(false)}
         />
+      ) : null}
+      {transformSource !== null ? (
+        <TransformsPanel source={transformSource} onClose={() => setTransformSource(null)} />
       ) : null}
       <Composer
         models={models}

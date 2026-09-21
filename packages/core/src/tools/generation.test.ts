@@ -74,12 +74,17 @@ describe('generation tools (F-MCP-02 §3.2, §3.6)', () => {
     expect((result.structuredContent.error as { code: string }).code).toBe('NO_PROVIDER');
 
     const unsupported = await transformTool.execute(
-      { op: 'lipsync', source: 'x' },
+      { op: 'dubbing', source: 'x' },
       { db: state, scope: 'full' },
     );
     const err = unsupported.structuredContent.error as { code: string; message: string };
     expect(err.code).toBe('NO_PROVIDER');
-    expect(err.message).toContain('upscale_image');
+    expect(err.message).toContain('Dubbing');
+
+    // lipsync IS routable now, but without an engine it still returns NO_PROVIDER.
+    const lipsync = await transformTool.execute({ op: 'lipsync', source: 'x' }, { db: state, scope: 'full' });
+    expect((lipsync.structuredContent.error as { code: string }).code).toBe('NO_PROVIDER');
+    expect((lipsync.structuredContent.error as { message: string }).message).toContain('engine');
   });
 
   it('lists jobs with structured content on a fresh install', async () => {

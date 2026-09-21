@@ -196,18 +196,22 @@ export const transformTool: KilnryTool = {
     const source = typeof input.source === 'string' ? input.source : '';
     if (!source) return toolError('INVALID_INPUT', 'A source is required.');
 
-    // Only the operations backed by a routable capability run in M4; the rest
-    // are named as not available.
+    // The operations backed by a routable, seeded capability run now; dubbing and
+    // voice-change have no capability in the registry yet and stay unavailable.
     const CAPABILITY_FOR: Record<string, Capability> = {
       upscale_image: 'upscale_image',
+      upscale_video: 'upscale_video',
       bg_remove: 'bg_remove',
       reframe: 'reframe_image',
+      outpaint: 'outpaint',
+      lipsync: 'lipsync',
+      transcribe: 'stt',
     };
     const capability = CAPABILITY_FOR[op];
     if (!capability) {
       return toolError(
         'NO_PROVIDER',
-        `The ${op || 'requested'} operation is not available yet. Supported now: upscale_image, bg_remove, reframe. The rest arrive in a later milestone.`,
+        `The ${op || 'requested'} operation is not available yet. Dubbing and voice change arrive in a later milestone.`,
       );
     }
     if (!services.engine) {
@@ -230,8 +234,15 @@ export const transformTool: KilnryTool = {
 
     const params = (input.params as Record<string, unknown> | undefined) ?? {};
     const confirm = typeof input.confirm_cost_usd === 'number' ? input.confirm_cost_usd : undefined;
+    // The output kind follows the operation: video for lip-sync and video
+    // upscale, text for transcription, image otherwise.
+    const KIND_FOR: Record<string, string> = {
+      upscale_video: 'video',
+      lipsync: 'video',
+      transcribe: 'audio',
+    };
     const request = {
-      kind: 'image',
+      kind: KIND_FOR[op] ?? 'image',
       capability,
       prompt: op,
       params,
