@@ -5036,3 +5036,177 @@ html[data-motion='reduced'] *::after {
   background: var(--background);
   text-decoration: none;
 }
+
+/* Presets catalogue (F-PRE-01). Accent stays off the Use button: only the cost
+   figure carries it, so the eye goes to what a run would charge. */
+.preset-screen {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px 24px 0;
+  min-height: 100%;
+}
+
+.preset-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.preset-tabs {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.preset-tab {
+  border: 1px solid transparent;
+  background: none;
+  color: var(--text-muted);
+  padding: 6px 12px;
+  border-radius: var(--radius-pill);
+  font: inherit;
+  cursor: pointer;
+}
+
+.preset-tab:hover {
+  color: var(--text);
+  background: var(--surface-2);
+}
+
+.preset-tab[aria-selected='true'] {
+  background: var(--surface-2);
+  border-color: var(--border);
+  color: var(--text);
+}
+
+.preset-search {
+  margin-left: auto;
+  min-width: 220px;
+  padding: 7px 12px;
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+}
+
+.preset-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+.preset-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+
+.preset-card.is-invalid {
+  border-color: var(--danger);
+}
+
+.preset-invalid-text {
+  margin: 0;
+  color: var(--danger);
+  font-size: 13px;
+  word-break: break-word;
+}
+
+.preset-preview {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 4 / 3;
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  overflow: hidden;
+}
+
+.preset-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.preset-preview-empty {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.preset-name {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.preset-meta {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.preset-cost {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 13px;
+  color: var(--accent-subtle-text);
+}
+
+.preset-stale-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--warning);
+}
+
+.preset-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.preset-needs-badge {
+  font-size: 12px;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  padding: 2px 8px;
+}
+
+.preset-use-button {
+  border: 1px solid var(--border-control);
+  background: var(--surface-2);
+  color: var(--text);
+  padding: 5px 14px;
+  border-radius: var(--radius-md);
+  font: inherit;
+  cursor: pointer;
+}
+
+.preset-use-button:hover {
+  background: var(--surface);
+}
+
+.preset-empty {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+.preset-footer {
+  margin-top: auto;
+  padding: 12px 0 20px;
+  border-top: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 13px;
+}

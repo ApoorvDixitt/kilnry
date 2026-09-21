@@ -302,6 +302,9 @@ importers:
       '@kilnry/media':
         specifier: workspace:*
         version: link:../../packages/media
+      '@kilnry/presets':
+        specifier: workspace:*
+        version: link:../../packages/presets
       '@kilnry/providers':
         specifier: workspace:*
         version: link:../../packages/providers

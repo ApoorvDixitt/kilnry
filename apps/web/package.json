@@ -22,6 +22,7 @@
     "@kilnry/db": "workspace:*",
     "@kilnry/mcp": "workspace:*",
     "@kilnry/media": "workspace:*",
+    "@kilnry/presets": "workspace:*",
     "@kilnry/providers": "workspace:*",
     "@kilnry/skills": "workspace:*",
     "@kilnry/ui": "workspace:*",

@@ -713,6 +713,23 @@
       "cost": "Cost"
     }
   },
+  "presets": {
+    "title": "Presets",
+    "tabsLabel": "Preset categories",
+    "tabAll": "presets",
+    "searchLabel": "Search presets",
+    "searchPlaceholder": "Search presets",
+    "use": "Use",
+    "needsKey": "Needs {provider} key",
+    "costTooltip": "Indicative at defaults. Exact price shown before you run.",
+    "costUnknown": "Price not set",
+    "unitImage": "1 image",
+    "unitClip": "per clip 5 s",
+    "previewEmpty": "No preview yet",
+    "emptyTab": "No {category} yet. Add one below.",
+    "addHint": "Add a preset: drop a .json here, paste a URL, or open the presets folder.",
+    "invalidUnknown": "this file did not pass the preset checks"
+  },
   "characters": {
     "title": "Characters",
     "tabCharacters": "Characters",
