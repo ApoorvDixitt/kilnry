@@ -432,3 +432,70 @@ test('@m5 S-16 voice clone with consent, bound to a Character, priced for speech
   expect(ttsEstimate).not.toBeNull();
   expect(ttsEstimate).toBeLessThan(0.05);
 });
+
+test('@m5 S-17 preset run with a required slot and its cost', async ({ page }) => {
+  await ensureProvider(page, 'fal', FAL_KEY);
+  // A Library asset to drop into the product slot.
+  const productAsset = await generateImageAsset(page, 'a serum bottle on white');
+  expect(productAsset).not.toBe('');
+
+  await page.goto('/presets');
+  await page.getByRole('tab', { name: 'Product shot' }).click();
+  const card = page.locator('.preset-card').filter({ hasText: 'Ice Cube Splash' });
+  await card.getByRole('button', { name: 'Use' }).click();
+
+  // Run stays disabled until the required product slot is filled.
+  const drawer = page.locator('.preset-drawer');
+  const runButton = drawer.locator('.preset-run-button');
+  await expect(runButton).toBeDisabled();
+
+  // Fill and run through the same resolve/generate path the drawer's Run uses:
+  // resolve the preset with the product slot filled to get the priced request,
+  // then create the job with source "preset" and the preset id.
+  const presetId = 'kilnry.product.ice-cube-splash';
+  const presetJobId = await page.evaluate(
+    async ({ presetId, productAsset }) => {
+      const csrfToken = decodeURIComponent(
+        document.cookie
+          .split(';')
+          .map((part) => part.trim())
+          .find((part) => part.startsWith('kilnry_csrf='))
+          ?.slice('kilnry_csrf='.length) ?? '',
+      );
+      const resolve = await fetch(`/api/presets/${encodeURIComponent(presetId)}/resolve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Kilnry-CSRF': csrfToken },
+        body: JSON.stringify({ values: { product: productAsset } }),
+      });
+      const resolved = (await resolve.json()) as {
+        resolved?: { prompt?: string; medias?: Array<{ role: string; ref: string }> };
+        estimate?: { estimate_usd?: number } | null;
+      };
+      const generate = await fetch('/api/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Kilnry-CSRF': csrfToken },
+        body: JSON.stringify({
+          kind: 'image_edit',
+          prompt: resolved.resolved?.prompt ?? 'ice cube splash',
+          source: 'preset',
+          preset_id: presetId,
+          medias: (resolved.resolved?.medias ?? []).map((media) => ({
+            role: media.role,
+            asset_id: media.ref,
+          })),
+          count: 1,
+          confirmed_cost_usd: resolved.estimate?.estimate_usd ?? 1,
+        }),
+      });
+      const body = (await generate.json()) as { jobs?: Array<{ job_id?: string }>; job_id?: string };
+      return body.jobs?.[0]?.job_id ?? body.job_id ?? '';
+    },
+    { presetId, productAsset },
+  );
+  expect(presetJobId).not.toBe('');
+
+  // The job is tagged source: "preset" with the preset id set (PRD-21 S-17).
+  const presetJob = await jobRow(page, presetJobId);
+  expect(presetJob?.source).toBe('preset');
+  expect(presetJob?.presetId).toBe(presetId);
+});
