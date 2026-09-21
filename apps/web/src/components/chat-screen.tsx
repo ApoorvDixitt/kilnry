@@ -15,9 +15,141 @@
 // and points at the two ways to fix it, because nothing else here can work.
 
 import { useChat } from '@ai-sdk/react';
-import { DefaultChatTransport } from 'ai';
+import { DefaultChatTransport, lastAssistantMessageIsCompleteWithApprovalResponses } from 'ai';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { message } from '../lib/messages';
+import {
+  ApprovalCard,
+  groupToolCalls,
+  ToolCallCard,
+  type PlannedCall,
+  type ToolCallState,
+} from './message-parts';
+
+/** The streamed parts this screen knows how to draw (TRD-11 §11). */
+export type MessagePart =
+  | { type: 'text'; text: string }
+  | { type: 'reasoning'; text: string }
+  | { type: 'step-start' }
+  | { type: 'file'; url: string; mediaType: string }
+  | {
+      type: string;
+      state?: ToolCallState;
+      input?: unknown;
+      output?: unknown;
+      errorText?: string;
+      toolName?: string;
+      approval?: { id: string; reason?: string };
+    };
+
+interface PartHandlers {
+  autoApproveUsd?: number | undefined;
+  onApprove: (approvalId: string, options: { autoApproveBelowUsd?: number }) => void;
+  onDeny: (approvalId: string) => void;
+}
+
+// The planned calls an approval part carries, when the runtime priced them.
+function plannedCalls(part: MessagePart): PlannedCall[] {
+  const approval = (part as { approval?: { calls?: unknown } }).approval;
+  const calls =
+    approval && typeof approval === 'object' ? (approval as { calls?: unknown }).calls : undefined;
+  return Array.isArray(calls) ? (calls as PlannedCall[]) : [];
+}
+
+function plannedTotal(calls: PlannedCall[], part: MessagePart): number {
+  if (calls.length > 0) return calls.reduce((sum, call) => sum + call.estimate_usd, 0);
+  const approval = (part as { approval?: { estimate_usd?: unknown } }).approval;
+  const usd =
+    approval && typeof approval === 'object' ? (approval as { estimate_usd?: unknown }).estimate_usd : 0;
+  return typeof usd === 'number' ? usd : 0;
+}
+
+/** Draw one message's parts: text, tool cards, and approval cards. */
+export function renderParts(parts: MessagePart[], handlers: PartHandlers): React.ReactNode[] {
+  const nodes: React.ReactNode[] = [];
+  const toolParts = parts.filter(
+    (part) => part.type.startsWith('tool-') || part.type === 'dynamic-tool',
+  ) as Array<MessagePart & { state?: ToolCallState }>;
+  const groups = groupToolCalls(
+    toolParts.map((part) => ({
+      toolName:
+        part.type === 'dynamic-tool' ? ((part as { toolName?: string }).toolName ?? '') : part.type.slice(5),
+      state: part.state ?? 'input-available',
+      part,
+    })),
+  );
+
+  let groupIndex = 0;
+  for (const [index, part] of parts.entries()) {
+    if (part.type === 'text') {
+      nodes.push(<p key={`t-${index}`}>{(part as { text: string }).text}</p>);
+      continue;
+    }
+    if (part.type === 'step-start') {
+      nodes.push(<hr key={`s-${index}`} className="chat-step-divider" />);
+      continue;
+    }
+    if (part.type === 'file') {
+      const file = part as { url: string; mediaType: string };
+      nodes.push(
+        <a key={`f-${index}`} className="chat-attachment-chip" href={file.url}>
+          {file.mediaType}
+        </a>,
+      );
+      continue;
+    }
+    if (!part.type.startsWith('tool-') && part.type !== 'dynamic-tool') continue;
+
+    const group = groups[groupIndex];
+    // Only the first part of each group draws a card; the rest are counted in it.
+    if (!group || group.head.part !== part) continue;
+    groupIndex += 1;
+
+    const toolName = group.head.toolName;
+    const state = group.head.state;
+    if (state === 'approval-requested') {
+      const approvalId = (part as { approval?: { id?: string } }).approval?.id ?? '';
+      const calls = plannedCalls(part);
+      nodes.push(
+        <ApprovalCard
+          key={`a-${index}`}
+          toolName={toolName}
+          calls={calls}
+          totalUsd={plannedTotal(calls, part)}
+          {...(typeof handlers.autoApproveUsd === 'number'
+            ? { autoApproveUsd: handlers.autoApproveUsd }
+            : {})}
+          onApprove={(options) => handlers.onApprove(approvalId, options)}
+          onDeny={() => handlers.onDeny(approvalId)}
+        />,
+      );
+      continue;
+    }
+
+    const withOutput = part as { input?: unknown; output?: unknown; errorText?: string };
+    nodes.push(
+      <ToolCallCard
+        key={`c-${index}`}
+        toolName={toolName}
+        state={state}
+        count={group.count}
+        input={withOutput.input}
+        {...(withOutput.output === undefined ? {} : { output: withOutput.output })}
+        {...(withOutput.errorText === undefined ? {} : { errorText: withOutput.errorText })}
+      />,
+    );
+  }
+  return nodes;
+}
+
+// Remember the session threshold the approval card's checkbox sets.
+async function saveSessionThreshold(sessionId: string, usd: number): Promise<void> {
+  await fetch('/api/chat/session', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ session_id: sessionId, auto_approve_below_usd: usd }),
+  }).catch(() => undefined);
+}
 
 const RATIO_KEY = 'kilnry.chat.ratio';
 const MIN_RATIO = 0.25;
@@ -35,6 +167,8 @@ export interface ChatScreenProps {
   models: ChatModelOption[];
   defaultModel?: { provider: string; model: string };
   sessionBudgetUsd?: number;
+  /** The threshold the approval card's auto-approve checkbox would set. */
+  autoApproveUsd?: number;
   ollamaDetected?: boolean;
 }
 
@@ -45,6 +179,7 @@ export function ChatScreen({
   models,
   defaultModel,
   sessionBudgetUsd,
+  autoApproveUsd,
   ollamaDetected = false,
 }: ChatScreenProps): React.ReactNode {
   const [ratio, setRatio] = useState(DEFAULT_RATIO);
@@ -64,7 +199,11 @@ export function ChatScreen({
     () => new DefaultChatTransport({ api: '/api/chat', body: { session_id: sessionId } }),
     [sessionId],
   );
-  const { messages, sendMessage, status, error } = useChat({ id: sessionId, transport });
+  const { messages, sendMessage, status, error, addToolApprovalResponse } = useChat({
+    id: sessionId,
+    transport,
+    sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
+  });
 
   // Remember where the user put the divider.
   useEffect(() => {
@@ -166,9 +305,16 @@ export function ChatScreen({
               messages.map((entry) => (
                 <article key={entry.id} className={`chat-message is-${entry.role}`}>
                   <h3>{message(entry.role === 'user' ? 'chat.you' : 'chat.agent')}</h3>
-                  {entry.parts.map((part, index) =>
-                    part.type === 'text' ? <p key={index}>{part.text}</p> : null,
-                  )}
+                  {renderParts(entry.parts as MessagePart[], {
+                    autoApproveUsd,
+                    onApprove: (approvalId, options) => {
+                      if (typeof options.autoApproveBelowUsd === 'number') {
+                        void saveSessionThreshold(sessionId, options.autoApproveBelowUsd);
+                      }
+                      addToolApprovalResponse({ id: approvalId, approved: true });
+                    },
+                    onDeny: (approvalId) => addToolApprovalResponse({ id: approvalId, approved: false }),
+                  })}
                 </article>
               ))
             )}

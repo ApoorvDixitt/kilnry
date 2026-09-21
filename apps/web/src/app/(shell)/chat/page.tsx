@@ -8,7 +8,12 @@
 // the split-pane screen. A fresh session id per visit keeps one thread per tab
 // until session history arrives with its own feature.
 
-import { listChatModels, type LlmProvider, type LlmRegistryRow } from '@kilnry/agent';
+import {
+  AUTO_APPROVE_BELOW_USD_DEFAULT,
+  listChatModels,
+  type LlmProvider,
+  type LlmRegistryRow,
+} from '@kilnry/agent';
 import { loadRegistry } from '@kilnry/core';
 import { settings } from '@kilnry/db';
 import { detectOllama } from '@kilnry/providers';
@@ -58,6 +63,7 @@ export default async function ChatPage(): Promise<React.ReactNode> {
       sessionId={`session-${Date.now().toString(36)}`}
       models={models}
       ollamaDetected={ollama.detected}
+      autoApproveUsd={AUTO_APPROVE_BELOW_USD_DEFAULT}
       {...(isRef(defaultLlm) ? { defaultModel: defaultLlm } : {})}
       {...(typeof budget === 'number' ? { sessionBudgetUsd: budget } : {})}
     />

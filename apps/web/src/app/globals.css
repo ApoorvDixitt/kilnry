@@ -4750,3 +4750,184 @@ html[data-motion='reduced'] *::after {
     border-right: 0;
   }
 }
+
+/* Tool calls and approvals in the thread (F-CHT-03, wireframes §11). */
+.chat-tool-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.chat-tool-head {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: var(--text);
+  cursor: pointer;
+  display: flex;
+  font-size: 13px;
+  gap: 8px;
+  padding: 9px 12px;
+  text-align: left;
+  width: 100%;
+}
+
+.chat-tool-kind {
+  color: var(--text-muted);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.chat-tool-name {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.chat-tool-count {
+  background: var(--surface-2);
+  border-radius: var(--radius-pill);
+  color: var(--text-muted);
+  font-size: 11px;
+  padding: 2px 7px;
+}
+
+.chat-tool-summary {
+  color: var(--text-muted);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-tool-state {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.chat-tool-card.is-output-error .chat-tool-state,
+.chat-tool-error {
+  color: var(--danger);
+}
+
+.chat-tool-card.is-output-available .chat-tool-state {
+  color: var(--success);
+}
+
+.chat-tool-body {
+  border-top: 1px solid var(--border);
+  padding: 10px 12px;
+}
+
+.chat-tool-body h4 {
+  color: var(--text-muted);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  margin: 0 0 5px;
+  text-transform: uppercase;
+}
+
+.chat-tool-body pre {
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  margin: 0 0 10px;
+  overflow-x: auto;
+  padding: 9px 10px;
+}
+
+/* A distinct surface with an accent left border, never a floating bar. */
+.chat-approval-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+}
+
+.chat-approval-card h3 {
+  font-size: 14px;
+  margin: 0 0 10px;
+}
+
+.chat-approval-table {
+  border-collapse: collapse;
+  font-size: 13px;
+  margin-bottom: 10px;
+  width: 100%;
+}
+
+.chat-approval-table th,
+.chat-approval-table td {
+  border-bottom: 1px solid var(--border);
+  padding: 6px 8px 6px 0;
+  text-align: left;
+}
+
+.chat-approval-table th {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.chat-approval-total {
+  display: flex;
+  font-size: 14px;
+  gap: 10px;
+  justify-content: space-between;
+  margin: 0 0 14px;
+}
+
+.chat-approval-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.chat-secondary-button {
+  background: transparent;
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-md);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 9px 14px;
+}
+
+.chat-approval-actions kbd {
+  background: rgb(0 0 0 / 12%);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  margin-left: 5px;
+  padding: 1px 5px;
+}
+
+.chat-approval-auto {
+  align-items: center;
+  color: var(--text-muted);
+  display: flex;
+  font-size: 13px;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.chat-step-divider {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 6px 0;
+}
+
+.chat-attachment-chip {
+  background: var(--surface-2);
+  border-radius: var(--radius-pill);
+  color: var(--text-muted);
+  display: inline-block;
+  font-size: 12px;
+  padding: 3px 10px;
+  text-decoration: none;
+}

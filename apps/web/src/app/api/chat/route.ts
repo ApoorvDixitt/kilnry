@@ -15,6 +15,7 @@ import { randomUUID } from 'node:crypto';
 import {
   approvalPolicy,
   cachedPreEstimate,
+  enginePreEstimate,
   meterStep,
   registerChatTools,
   resolveModel,
@@ -104,9 +105,15 @@ export async function POST(request: Request): Promise<Response> {
       chatSessionId: session.id,
     });
 
-    // The approval policy prices a pending call with the same estimator the tool
-    // will use; the cache keeps one call from being priced twice.
-    const preEstimate = cachedPreEstimate(async () => ({ estimate_usd: 0 }));
+    // The approval policy prices a pending call with the same engine estimate the
+    // tool will use, so the number on the card is the number that gets confirmed.
+    const preEstimate = cachedPreEstimate(
+      engine
+        ? enginePreEstimate((canonical, constraints) =>
+            engine.estimate(canonical as never, constraints as never),
+          )
+        : async () => ({ estimate_usd: 0 }),
+    );
     const toolApproval = approvalPolicy({
       session: {
         autonomy: session.autonomy,

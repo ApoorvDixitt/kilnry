@@ -85,3 +85,12 @@ export {
   type LedgerWriter,
   type SpendRecorder,
 } from './metering.js';
+
+export {
+  enginePreEstimate,
+  pendingRequests,
+  type EngineEstimate,
+  type EngineEstimator,
+  type PlannedCall,
+  type ChatPreEstimate,
+} from './pre-estimate.js';
