@@ -22,3 +22,39 @@ export {
   type SkillIndexEntry,
   type LoadedSkill,
 } from './instructions.js';
+
+export {
+  resolveModel,
+  llmPrice,
+  llmCaps,
+  formatLlmPrice,
+  defaultLlmRef,
+  listChatModels,
+  tokensToUsd,
+  ModelResolutionError,
+  DEFAULT_LLM,
+  OLLAMA_TOOL_MODELS,
+  type LlmProvider,
+  type LlmRef,
+  type LlmPrice,
+  type LlmCaps,
+  type ResolvedLlm,
+  type LlmRegistryRow,
+} from './model.js';
+
+export {
+  registerChatTools,
+  chatToolNames,
+  compactForModel,
+  MODEL_OUTPUT_BUDGET,
+  type ChatToolContext,
+} from './tools.js';
+
+export {
+  streamChatTurn,
+  turnInstructions,
+  MAX_STEPS,
+  MAX_STEPS_SMALL_CONTEXT,
+  type ChatSessionState,
+  type ChatTurnInput,
+} from './chat.js';

@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@better-auth/drizzle-adapter": "1.7.5",
+    "@kilnry/agent": "workspace:*",
     "@kilnry/core": "workspace:*",
     "@kilnry/db": "workspace:*",
     "@kilnry/mcp": "workspace:*",

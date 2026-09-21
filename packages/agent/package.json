@@ -11,6 +11,16 @@
   "files": [
     "dist"
   ],
+  "dependencies": {
+    "@ai-sdk/anthropic": "4.0.57",
+    "@ai-sdk/google": "4.0.75",
+    "@ai-sdk/openai": "4.0.70",
+    "@kilnry/core": "workspace:*",
+    "@openrouter/ai-sdk-provider": "3.0.0",
+    "ai": "7.0.106",
+    "ai-sdk-ollama": "4.3.0",
+    "zod": "4.6.5"
+  },
   "scripts": {
     "build": "tsc -b",
     "typecheck": "tsc -b --pretty false",

@@ -6,6 +6,7 @@
 import { loadConfig } from '@kilnry/core';
 import { AppearanceSettings } from '../../../../components/appearance-settings';
 import { BudgetSettings } from '../../../../components/budget-settings';
+import { ChatSettings } from '../../../../components/chat-settings';
 import { McpSettings } from '../../../../components/mcp-settings';
 import { ProviderSettings } from '../../../../components/provider-settings';
 import { SecuritySettings } from '../../../../components/security-settings';
@@ -18,7 +19,9 @@ export default async function SettingsPage({
   params: Promise<{ section?: string[] }>;
 }): Promise<React.ReactNode> {
   const requested = (await params).section?.[0] ?? 'providers';
-  const section = ['providers', 'workspace', 'budget', 'security', 'mcp', 'appearance'].includes(requested)
+  const section = ['providers', 'workspace', 'budget', 'chat', 'security', 'mcp', 'appearance'].includes(
+    requested,
+  )
     ? requested
     : 'providers';
   const config = loadConfig();
@@ -33,6 +36,8 @@ export default async function SettingsPage({
       />
     ) : section === 'budget' ? (
       <BudgetSettings />
+    ) : section === 'chat' ? (
+      <ChatSettings />
     ) : section === 'security' ? (
       <SecuritySettings />
     ) : section === 'mcp' ? (

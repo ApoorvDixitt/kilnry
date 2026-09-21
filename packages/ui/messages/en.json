@@ -273,6 +273,7 @@
       "security": "Security",
       "appearance": "Appearance",
       "budget": "Budget",
+      "chat": "Chat",
       "mcp": "MCP"
     },
     "mcp": {
@@ -481,6 +482,35 @@
       "spent": "{spent} of {cap} used",
       "staleTitle": "Stale price guard",
       "staleBody": "Kilnry refuses to price a job with data older than 30 days. Refresh a provider's prices in Settings › Providers, or acknowledge the estimate to override once; every override is recorded in the security audit log."
+    },
+    "chat": {
+      "eyebrow": "Chat and the agent",
+      "title": "Chat",
+      "subtitle": "Choose the language model that runs Chat, how much freedom it has, and what it may spend in one session.",
+      "defaultModel": "Default model",
+      "defaultModelHelp": "Chat tokens are billed by the model's provider like any other spend and appear in the ledger.",
+      "noModels": "No language model is connected. Add an OpenRouter, Anthropic, OpenAI, or Google key in Settings › Providers, or start Ollama to chat for free.",
+      "autonomy": "Autonomy",
+      "autonomyAskFirst": "Ask me first",
+      "autonomyAskFirstHelp": "Every spending step shows an approval card.",
+      "autonomyAutomatic": "Run automatically",
+      "autonomyAutomaticHelp": "Runs without asking under the session budget; you can still cancel.",
+      "autonomyConfirm": "Run automatically lets the agent spend up to the session budget without asking. Continue?",
+      "sessionBudget": "Session budget",
+      "sessionBudgetHelp": "The most one chat session may spend before it stops and asks. Daily and monthly caps still apply.",
+      "sessionBudgetPlaceholder": "Use the Budget default",
+      "ollamaUrl": "Ollama URL",
+      "ollamaTest": "Test",
+      "ollamaReachable": "Ollama reachable · {count} models",
+      "ollamaMissing": "Not reachable. Start Ollama, or install it from ollama.com.",
+      "free": "free",
+      "visionLabel": "sees images",
+      "save": "Save chat settings",
+      "saved": "Chat settings saved.",
+      "saveFailed": "Kilnry could not save the chat settings.",
+      "laterTitle": "Arrives later",
+      "laterReasoning": "Choosing how much of the model's thinking is shown arrives with visible thinking in a later milestone.",
+      "laterMemory": "Reading project notes from the current folder arrives with project memory in a later milestone."
     }
   },
   "placeholder": {
