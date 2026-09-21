@@ -374,6 +374,94 @@ export async function freezeVersion(
     .where(and(eq(characterVersions.characterId, characterId), eq(characterVersions.version, version)));
 }
 
+// Edit a version's appearance descriptor, anchors and negatives. When the current
+// version is frozen (a job has used it) the edit forks a new unfrozen version and
+// writes to that, so no running or finished job's look can change (PRD-07 §11
+// rule 3, TRD-14 §13). Returns the version the edit landed on.
+export async function setAppearance(
+  state: DatabaseState,
+  characterId: string,
+  appearance: Partial<Appearance>,
+): Promise<number> {
+  const version = await ensureUnfrozenVersion(state, characterId);
+  const current = await state.db
+    .select({ appearance: characterVersions.appearance })
+    .from(characterVersions)
+    .where(and(eq(characterVersions.characterId, characterId), eq(characterVersions.version, version)))
+    .limit(1);
+  const prior = (current[0]?.appearance ?? {}) as Partial<Appearance>;
+  const merged: Partial<Appearance> = {
+    ...prior,
+    ...(appearance.descriptor !== undefined ? { descriptor: appearance.descriptor } : {}),
+    ...(appearance.anchors !== undefined ? { anchors: appearance.anchors } : {}),
+    ...(appearance.negative_traits !== undefined ? { negative_traits: appearance.negative_traits } : {}),
+    ...(appearance.palette_hex !== undefined ? { palette_hex: appearance.palette_hex } : {}),
+    ...(appearance.gendered_noun !== undefined ? { gendered_noun: appearance.gendered_noun } : {}),
+  };
+  await state.db
+    .update(characterVersions)
+    .set({ appearance: merged as unknown as Record<string, unknown> })
+    .where(and(eq(characterVersions.characterId, characterId), eq(characterVersions.version, version)));
+  await touchCharacter(state, characterId);
+  return version;
+}
+
+// Point current_version at any existing version (the switcher's "Set as current",
+// PRD-07 §11). Later versions are left in place and stay resolvable by pin.
+export async function setCurrentVersion(
+  state: DatabaseState,
+  characterId: string,
+  version: number,
+): Promise<void> {
+  const exists = await state.db
+    .select({ version: characterVersions.version })
+    .from(characterVersions)
+    .where(and(eq(characterVersions.characterId, characterId), eq(characterVersions.version, version)))
+    .limit(1);
+  if (!exists[0]) throw new KilnryError('NOT_FOUND', `Version ${version} does not exist.`);
+  await state.db
+    .update(characters)
+    .set({ currentVersion: version, updatedAt: new Date() })
+    .where(eq(characters.id, characterId));
+}
+
+// One row per version for the header switcher and kilnry_characters.get.versions:
+// the version number, whether it is frozen, whether it is current, and how many
+// jobs have referenced it (PRD-07 §11 acceptance 3).
+export interface VersionRow {
+  version: number;
+  frozen: boolean;
+  current: boolean;
+  jobs: number;
+}
+
+export async function listVersions(state: DatabaseState, characterId: string): Promise<VersionRow[]> {
+  const head = await state.db
+    .select({ currentVersion: characters.currentVersion })
+    .from(characters)
+    .where(eq(characters.id, characterId))
+    .limit(1);
+  if (!head[0]) throw new KilnryError('NOT_FOUND', 'Character not found.');
+  const rows = await state.db
+    .select({ version: characterVersions.version, frozen: characterVersions.frozen })
+    .from(characterVersions)
+    .where(eq(characterVersions.characterId, characterId))
+    .orderBy(desc(characterVersions.version));
+  const counts = await state.db
+    .select({ version: assetCharacters.version, count: sql<number>`count(*)::int` })
+    .from(assetCharacters)
+    .where(eq(assetCharacters.characterId, characterId))
+    .groupBy(assetCharacters.version);
+  const jobsByVersion = new Map<number, number>();
+  for (const row of counts) jobsByVersion.set(row.version, Number(row.count));
+  return rows.map((row) => ({
+    version: row.version,
+    frozen: row.frozen,
+    current: row.version === head[0]!.currentVersion,
+    jobs: jobsByVersion.get(row.version) ?? 0,
+  }));
+}
+
 // Record the lineage of a finished asset: one asset_characters row per injected
 // character, the usage counter bumped, and the used version frozen (TRD-14 §6).
 export async function recordAssetCharacters(

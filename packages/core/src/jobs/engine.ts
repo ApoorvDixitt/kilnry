@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { and, desc, eq, gte, inArray, sql } from 'drizzle-orm';
 import { PgBoss, fromPglite, type Job } from 'pg-boss';
 import type { DatabaseState } from '@kilnry/db';
-import { jobs, providers, spendLedger } from '@kilnry/db';
+import { jobs, providers, spendLedger, characters, characterVersions } from '@kilnry/db';
 import { assertCostConfirmation, reserveBudget } from '../budget/enforcer.js';
 import { KilnryError } from '../errors.js';
 import { eventHub, type EventHub } from '../events/hub.js';
@@ -472,6 +472,31 @@ export class JobEngine {
         now: this.#options.now(),
       });
       await transaction.insert(jobs).values(row);
+      // Freeze every character version this job references the moment it is
+      // accepted, so no edit can change the look a queued or running job depends
+      // on (PRD-07 §11 rule 2, TRD-04 invariant 4). Handles resolve to ids here
+      // because the canonical request carries only the handle and version.
+      const handles = [...new Set(prepared.request.injections.map((i) => i.handle.toLowerCase()))];
+      if (handles.length > 0) {
+        const heads = await transaction
+          .select({ id: characters.id, handle: characters.handle })
+          .from(characters)
+          .where(inArray(characters.handle, handles));
+        const idByHandle = new Map(heads.map((head) => [head.handle, head.id]));
+        for (const injection of prepared.request.injections) {
+          const characterId = idByHandle.get(injection.handle.toLowerCase());
+          if (characterId === undefined) continue;
+          await transaction
+            .update(characterVersions)
+            .set({ frozen: true })
+            .where(
+              and(
+                eq(characterVersions.characterId, characterId),
+                eq(characterVersions.version, injection.version),
+              ),
+            );
+        }
+      }
       return undefined;
     });
     if (replay) {

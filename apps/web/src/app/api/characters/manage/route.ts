@@ -13,6 +13,8 @@ import {
   lookupHandle,
   removeReference,
   setConsent,
+  setAppearance,
+  setCurrentVersion,
   linkStateVariant,
   approvalIndex,
   startSheetRun,
@@ -40,6 +42,8 @@ const Body = z.object({
     'add_references',
     'remove_reference',
     'set_consent',
+    'set_appearance',
+    'set_current',
     'add_state_variant',
     'build_sheet',
     'approve_sheet',
@@ -52,6 +56,14 @@ const Body = z.object({
   description: z.string().max(2000).optional(),
   tags: z.array(z.string()).max(20).optional(),
   is_real_person: z.boolean().optional(),
+  version: z.number().int().positive().optional(),
+  appearance: z
+    .object({
+      descriptor: z.string().max(2000).optional(),
+      anchors: z.array(z.string()).max(20).optional(),
+      negative_traits: z.array(z.string()).max(20).optional(),
+    })
+    .optional(),
   state_label: z.string().min(1).max(40).optional(),
   variant_handle: z.string().optional(),
   sheet: z
@@ -154,6 +166,21 @@ export async function POST(request: Request): Promise<Response> {
     } else if (body.action === 'remove_reference') {
       if (!body.reference_id) throw new KilnryError('INVALID_INPUT', 'A reference id is required.');
       await removeReference(db, head.id, body.reference_id);
+    } else if (body.action === 'set_appearance') {
+      // Editing the descriptor, anchors or negatives of a frozen version forks a
+      // new one so old jobs keep their look (F-CHR-10, PRD-07 §11 rule 3).
+      if (!body.appearance) throw new KilnryError('INVALID_INPUT', 'Appearance details are required.');
+      await setAppearance(db, head.id, {
+        ...(body.appearance.descriptor !== undefined ? { descriptor: body.appearance.descriptor } : {}),
+        ...(body.appearance.anchors !== undefined ? { anchors: body.appearance.anchors } : {}),
+        ...(body.appearance.negative_traits !== undefined
+          ? { negative_traits: body.appearance.negative_traits }
+          : {}),
+      });
+    } else if (body.action === 'set_current') {
+      // Point the switcher at any existing version (F-CHR-10, PRD-07 §11).
+      if (body.version === undefined) throw new KilnryError('INVALID_INPUT', 'A version is required.');
+      await setCurrentVersion(db, head.id, body.version);
     } else if (body.action === 'set_consent') {
       if (!body.consent) throw new KilnryError('INVALID_INPUT', 'Consent details are required.');
       await setConsent(db, head.id, body.consent);

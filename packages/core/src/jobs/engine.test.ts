@@ -12,6 +12,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   assets,
   budgets,
+  characterVersions,
   closeDatabaseState,
   createDatabase,
   jobs,
@@ -20,6 +21,7 @@ import {
 } from '@kilnry/db';
 import { readEmbeddedMetadata } from '@kilnry/media';
 import { KilnryError } from '../errors.js';
+import { addReferences, createCharacter } from '../characters/store.js';
 import { ProviderKeyStore } from '../security/key-store.js';
 import { CanonicalRequestSchema, type CanonicalRequest } from '../types.js';
 import type { PollStatus, ProviderAdapter, ProviderResult, SubmitHandle } from '../providers/adapter.js';
@@ -209,6 +211,46 @@ async function createConfirmed(engine: JobEngine, clientRequestId?: string) {
 }
 
 describe('pg-boss job engine', () => {
+  it('freezes a referenced character version the moment a job is accepted (F-CHR-10)', async () => {
+    const fake = fakeAdapter();
+    const { engine, state } = await harness(fake.adapter);
+    const head = await createCharacter(state, {
+      handle: 'maya',
+      kind: 'character',
+      display_name: 'Maya',
+    });
+    await addReferences(state, head.id, [{ asset_id: 'anchor-asset', role: 'anchor', view: 'front' }]);
+    const before = await state.db
+      .select({ frozen: characterVersions.frozen })
+      .from(characterVersions)
+      .where(eq(characterVersions.characterId, head.id));
+    expect(before[0]?.frozen).toBe(false);
+
+    const request = CanonicalRequestSchema.parse({
+      kind: 'image',
+      capability: 'text2image',
+      prompt: 'a portrait of @maya on warm paper',
+      params: { width: 1000, height: 1000, quality: 'draft' },
+      medias: [],
+      injections: [{ handle: 'maya', version: 1, strategy: 'text', inputs: [] }],
+      count: 1,
+      target_folder: 'inbox',
+      source: 'ui',
+    });
+    const priced = await engine.estimate(request);
+    await engine.createJob({
+      request,
+      confirmed_cost_usd: priced.estimate.estimate_usd,
+      confirmed_by: 'user',
+    });
+
+    const after = await state.db
+      .select({ frozen: characterVersions.frozen })
+      .from(characterVersions)
+      .where(eq(characterVersions.characterId, head.id));
+    expect(after[0]?.frozen).toBe(true);
+  });
+
   it('runs estimate → confirm → reserve → submit → finalize → reconcile → ledger on shared PGlite', async () => {
     const fake = fakeAdapter();
     const { engine, state, stages, library } = await harness(fake.adapter);

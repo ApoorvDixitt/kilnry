@@ -19,11 +19,14 @@ import {
   forkVersion,
   freezeVersion,
   isValidHandle,
+  listVersions,
   loadVersion,
   lookupHandle,
   normaliseHandle,
   recordAssetCharacters,
   removeReference,
+  setAppearance,
+  setCurrentVersion,
 } from './store.js';
 
 const disposers: Array<() => Promise<void>> = [];
@@ -148,6 +151,52 @@ describe('references and versioning', () => {
     await freezeVersion(state, head.id, 1);
     expect(await ensureUnfrozenVersion(state, head.id)).toBe(2);
     expect(await forkVersion(state, head.id)).toBe(3);
+  });
+
+  it('edits a descriptor in place while the version is unfrozen', async () => {
+    const state = await db();
+    const head = await createCharacter(state, { handle: 'maya', kind: 'character', display_name: 'Maya' });
+    const version = await setAppearance(state, head.id, { descriptor: 'A woman with a bob.' });
+    expect(version).toBe(1);
+    const loaded = await loadVersion(state, head.id);
+    expect(loaded.appearance.descriptor).toBe('A woman with a bob.');
+  });
+
+  it('forks a new version when the descriptor of a frozen version is edited', async () => {
+    const state = await db();
+    const head = await createCharacter(state, { handle: 'maya', kind: 'character', display_name: 'Maya' });
+    await setAppearance(state, head.id, { descriptor: 'Original.' });
+    await freezeVersion(state, head.id, 1);
+    const version = await setAppearance(state, head.id, { descriptor: 'Changed.' });
+    expect(version).toBe(2);
+    expect((await loadVersion(state, head.id)).appearance.descriptor).toBe('Changed.');
+    // The frozen version keeps its original look.
+    expect((await loadVersion(state, head.id, 1)).appearance.descriptor).toBe('Original.');
+  });
+
+  it('points current_version at any existing version and leaves later ones', async () => {
+    const state = await db();
+    const head = await createCharacter(state, { handle: 'maya', kind: 'character', display_name: 'Maya' });
+    await freezeVersion(state, head.id, 1);
+    await forkVersion(state, head.id);
+    await setCurrentVersion(state, head.id, 1);
+    const current = await loadVersion(state, head.id);
+    expect(current.version).toBe(1);
+    // v2 still exists and is resolvable by pin.
+    expect((await loadVersion(state, head.id, 2)).version).toBe(2);
+  });
+
+  it('lists versions with their frozen flag, current marker and job count', async () => {
+    const state = await db();
+    const head = await createCharacter(state, { handle: 'maya', kind: 'character', display_name: 'Maya' });
+    await freezeVersion(state, head.id, 1);
+    await recordAssetCharacters(state, ulid(), [{ character_id: head.id, version: 1, strategy: 'text' }]);
+    await forkVersion(state, head.id);
+    const rows = await listVersions(state, head.id);
+    expect(rows).toEqual([
+      { version: 2, frozen: false, current: true, jobs: 0 },
+      { version: 1, frozen: true, current: false, jobs: 1 },
+    ]);
   });
 });
 

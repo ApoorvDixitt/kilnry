@@ -106,7 +106,15 @@ export const charactersTool: KilnryTool = {
       if (!handle) return toolError('INVALID_INPUT', 'Getting a character needs a handle.');
       try {
         const item = await loadFullCharacter(services.db, handle);
-        return { text: `@${item.handle} (${item.kind}).`, structuredContent: { item } };
+        // The switcher and this tool must agree on the versions and their job
+        // counts (F-CHR-10 acceptance 3), so return the detailed rows too.
+        const { lookupHandle, listVersions } = await import('../characters/store.js');
+        const head = await lookupHandle(services.db, handle);
+        const versions = head ? await listVersions(services.db, head.id) : [];
+        return {
+          text: `@${item.handle} (${item.kind}).`,
+          structuredContent: { item: { ...item, versions } },
+        };
       } catch (error) {
         return toolError('NOT_FOUND', error instanceof Error ? error.message : 'Character not found.');
       }
