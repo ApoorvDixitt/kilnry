@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "id": "kilnry.ads.square-headline-space",
+  "name": "Square Ad · Headline Space",
+  "version": "1.0.0",
+  "description": "A paid-social square with the product low in frame and clean empty space above, so a headline drops straight in.",
+  "category": "ads",
+  "kind": "image",
+  "capability": "text2image",
+  "model": {
+    "id": "google/gemini-3.1-flash-image",
+    "locked": false,
+    "alternates": ["fal-ai/nano-banana-2"]
+  },
+  "prompt": "{{product}} on the lower third of a {{bg}} background with clean empty space above for a headline, brand accent {{accent}} as a soft light, paid-social still, 1:1, no text",
+  "negative_prompt": "text, watermark, busy background, duplicated product",
+  "params": {
+    "aspect_ratio": "1:1",
+    "resolution": "1K"
+  },
+  "slots": [
+    {
+      "name": "product",
+      "type": "character",
+      "label": "Product",
+      "required": true,
+      "kinds": ["prop"],
+      "help": "A product Element; it is injected as its @handle."
+    },
+    {
+      "name": "bg",
+      "type": "enum",
+      "label": "Background",
+      "options": ["soft studio grey", "warm cream", "deep navy", "clean white"],
+      "default": "soft studio grey"
+    },
+    {
+      "name": "accent",
+      "type": "color",
+      "label": "Brand accent",
+      "default": "#00A3FF"
+    }
+  ],
+  "medias": [],
+  "count": 1,
+  "indicative_cost_usd": 0.07,
+  "needs": ["fal", "openrouter"],
+  "tags": ["paid-social", "square", "headline-space"],
+  "license": "CC0-1.0",
+  "author": "kilnry"
+}

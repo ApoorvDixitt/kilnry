@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "id": "kilnry.ads.carousel-slide",
+  "name": "Carousel Slide",
+  "version": "1.0.0",
+  "description": "One slide of a carousel, told to keep the same background and light as the others so the set hangs together. Run it once per slide.",
+  "category": "ads",
+  "kind": "image",
+  "capability": "text2image",
+  "model": {
+    "id": "google/gemini-3.1-flash-image",
+    "locked": false,
+    "alternates": ["fal-ai/nano-banana-2"]
+  },
+  "prompt": "Slide {{n}} of a product carousel: {{product}} shown {{angle}}, consistent {{bg}} background and light with the other slides, small empty band at the bottom for a caption, 4:5, no text",
+  "negative_prompt": "text, watermark, changed background, duplicated product",
+  "params": {
+    "aspect_ratio": "4:5",
+    "resolution": "1K"
+  },
+  "slots": [
+    {
+      "name": "product",
+      "type": "character",
+      "label": "Product",
+      "required": true,
+      "kinds": ["prop"],
+      "help": "A product Element; it is injected as its @handle."
+    },
+    {
+      "name": "n",
+      "type": "number",
+      "label": "Slide number",
+      "default": 1,
+      "min": 1,
+      "max": 10
+    },
+    {
+      "name": "angle",
+      "type": "enum",
+      "label": "Angle",
+      "options": ["straight on", "three-quarter", "from above", "lying flat", "in use"],
+      "default": "three-quarter"
+    },
+    {
+      "name": "bg",
+      "type": "color",
+      "label": "Background colour",
+      "default": "#F2EFEA"
+    }
+  ],
+  "medias": [],
+  "count": 1,
+  "indicative_cost_usd": 0.07,
+  "needs": ["fal", "openrouter"],
+  "tags": ["carousel", "paid-social", "series"],
+  "license": "CC0-1.0",
+  "author": "kilnry"
+}

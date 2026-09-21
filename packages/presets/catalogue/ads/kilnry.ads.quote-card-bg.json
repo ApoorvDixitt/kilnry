@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "id": "kilnry.ads.quote-card-bg",
+  "name": "Quote Card Background",
+  "version": "1.0.0",
+  "description": "A calm abstract background with one out-of-focus product silhouette, built to carry a pull quote set over it.",
+  "category": "ads",
+  "kind": "image",
+  "capability": "text2image",
+  "model": {
+    "id": "fal-ai/flux-2-pro",
+    "locked": false,
+    "alternates": ["black-forest-labs/flux.2-pro"]
+  },
+  "prompt": "Soft abstract background in {{colors}} with gentle grain and one out-of-focus {{product}} silhouette bottom-right, large calm negative space, 4:5, no text",
+  "negative_prompt": "text, watermark, sharp product, busy pattern",
+  "params": {
+    "aspect_ratio": "4:5",
+    "resolution": "2K"
+  },
+  "slots": [
+    {
+      "name": "colors",
+      "type": "text",
+      "label": "Colours",
+      "default": "muted sage and bone",
+      "max": 120
+    },
+    {
+      "name": "product",
+      "type": "character",
+      "label": "Product",
+      "kinds": ["prop"],
+      "help": "A product Element; it is injected as its @handle."
+    }
+  ],
+  "medias": [],
+  "count": 1,
+  "indicative_cost_usd": 0.03,
+  "needs": ["fal", "openrouter"],
+  "tags": ["quote", "background", "negative-space"],
+  "license": "CC0-1.0",
+  "author": "kilnry"
+}

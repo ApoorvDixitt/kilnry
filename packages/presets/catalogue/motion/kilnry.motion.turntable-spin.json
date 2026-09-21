@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "id": "kilnry.motion.turntable-spin",
+  "name": "Turntable Spin",
+  "version": "1.0.0",
+  "description": "One slow full rotation on a matte turntable with a fixed camera, so the clip can loop. Starts from a packshot you already have.",
+  "category": "motion",
+  "kind": "video",
+  "capability": "image2video",
+  "model": {
+    "id": "fal-ai/kling-video/v3/standard/image-to-video",
+    "locked": false,
+    "alternates": ["kwaivgi/kling-v3.0-std"],
+    "constraints": { "needs_audio": false, "duration_s": 5 }
+  },
+  "prompt": "{{product}} on a matte turntable rotates one full slow turn, fixed camera, studio softbox light, subtle reflections, seamless loop feel, no text",
+  "negative_prompt": "camera movement, cuts, text, warped label, flicker",
+  "params": {
+    "duration_s": 5,
+    "audio": false,
+    "resolution": "720p",
+    "aspect_ratio": "1:1"
+  },
+  "slots": [
+    {
+      "name": "product",
+      "type": "media",
+      "label": "Product still",
+      "required": true,
+      "roles": ["start_frame"],
+      "accept": ["image"],
+      "help": "An Element image or a packshot; it becomes the first frame."
+    }
+  ],
+  "medias": [{ "role": "start_frame", "from_slot": "product" }],
+  "count": 1,
+  "indicative_cost_usd": 0.42,
+  "needs": ["fal", "openrouter"],
+  "tags": ["turntable", "loop", "i2v"],
+  "license": "CC0-1.0",
+  "author": "kilnry"
+}

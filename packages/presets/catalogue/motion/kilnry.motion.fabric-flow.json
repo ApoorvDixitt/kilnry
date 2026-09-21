@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "id": "kilnry.motion.fabric-flow",
+  "name": "Fabric Flow",
+  "version": "1.0.0",
+  "description": "Fabric billowing in slow motion against a coloured backdrop, studio light catching the weave. No people in frame.",
+  "category": "motion",
+  "kind": "video",
+  "capability": "text2video",
+  "model": {
+    "id": "alibaba/wan-3.0",
+    "locked": false,
+    "alternates": ["fal-ai/kling-video/v3/standard/text-to-video", "kwaivgi/kling-v3.0-std"],
+    "constraints": { "needs_audio": false, "duration_s": 5 }
+  },
+  "prompt": "{{fabric}} fabric billows and folds in slow motion against a {{bg}} backdrop, studio light catching the weave, elegant, no people",
+  "negative_prompt": "people, hands, text, watermark, cuts",
+  "params": {
+    "duration_s": 5,
+    "audio": false,
+    "resolution": "720p",
+    "aspect_ratio": "16:9"
+  },
+  "slots": [
+    {
+      "name": "fabric",
+      "type": "text",
+      "label": "Fabric",
+      "required": true,
+      "max": 120,
+      "help": "e.g. 'heavy raw silk in deep green'"
+    },
+    {
+      "name": "bg",
+      "type": "color",
+      "label": "Backdrop colour",
+      "default": "#111318"
+    }
+  ],
+  "medias": [],
+  "count": 1,
+  "indicative_cost_usd": 0.5,
+  "needs": ["fal", "openrouter"],
+  "tags": ["fabric", "slow-motion", "texture"],
+  "license": "CC0-1.0",
+  "author": "kilnry"
+}

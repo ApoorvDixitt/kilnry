@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "id": "kilnry.motion.logo-reveal",
+  "name": "Logo Reveal",
+  "version": "1.0.0",
+  "description": "Particles converge into your flat logo and hold for two seconds. Give it the logo as a reference image, not as a start frame.",
+  "category": "motion",
+  "kind": "video",
+  "capability": "reference2video",
+  "model": {
+    "id": "bytedance/seedance-2.5",
+    "locked": false,
+    "alternates": ["bytedance/seedance-2.0/reference-to-video", "minimax/hailuo-3"],
+    "constraints": { "needs_audio": true, "refs_count": 1, "duration_s": 5 }
+  },
+  "prompt": "Abstract particles in {{colors}} converge and settle into the flat logo from image 1, then hold still for two seconds on a {{bg}} background, clean motion design, subtle whoosh",
+  "negative_prompt": "distorted logo, extra letters, text, flicker",
+  "params": {
+    "duration_s": 5,
+    "audio": true,
+    "resolution": "1080p",
+    "aspect_ratio": "16:9"
+  },
+  "slots": [
+    {
+      "name": "logo",
+      "type": "media",
+      "label": "Logo",
+      "required": true,
+      "roles": ["reference"],
+      "accept": ["image"],
+      "help": "A flat logo on a plain or transparent background."
+    },
+    {
+      "name": "colors",
+      "type": "text",
+      "label": "Particle colours",
+      "default": "warm white and pale gold",
+      "max": 120
+    },
+    {
+      "name": "bg",
+      "type": "color",
+      "label": "Background colour",
+      "default": "#0A0A0C"
+    }
+  ],
+  "medias": [{ "role": "reference", "from_slot": "logo" }],
+  "count": 1,
+  "indicative_cost_usd": 0.51,
+  "needs": ["fal", "openrouter"],
+  "tags": ["logo", "motion-design", "reveal"],
+  "license": "CC0-1.0",
+  "author": "kilnry"
+}

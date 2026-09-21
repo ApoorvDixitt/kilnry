@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "id": "kilnry.motion.steam-rise",
+  "name": "Steam Rise",
+  "version": "1.0.0",
+  "description": "A slow push-in on something warm, with steam curling through a side light and dust in the beam. The cheapest of the motion seeds.",
+  "category": "motion",
+  "kind": "video",
+  "capability": "image2video",
+  "model": {
+    "id": "minimax/hailuo-3",
+    "locked": false,
+    "alternates": ["fal-ai/wan/v2.7/image-to-video", "kwaivgi/kling-v3.0-std"],
+    "constraints": { "needs_audio": false, "duration_s": 5 }
+  },
+  "prompt": "Gentle steam rises from {{product}}, soft morning side light, slow push-in, dust motes in the beam, cosy ambience",
+  "negative_prompt": "smoke plume, fog machine, text, cuts, flicker",
+  "params": {
+    "duration_s": 5,
+    "audio": false,
+    "resolution": "768P",
+    "aspect_ratio": "16:9"
+  },
+  "slots": [
+    {
+      "name": "product",
+      "type": "media",
+      "label": "Starting still",
+      "required": true,
+      "roles": ["start_frame"],
+      "accept": ["image"],
+      "help": "A still of the warm subject; it becomes the first frame."
+    }
+  ],
+  "medias": [{ "role": "start_frame", "from_slot": "product" }],
+  "count": 1,
+  "indicative_cost_usd": 0.3,
+  "needs": ["fal", "openrouter"],
+  "tags": ["steam", "push-in", "cosy"],
+  "license": "CC0-1.0",
+  "author": "kilnry"
+}

@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "id": "kilnry.ads.story-9x16",
+  "name": "Story Ad 9:16",
+  "version": "1.0.0",
+  "description": "A vertical story frame with the product large and low, and the top and bottom left clear for platform buttons.",
+  "category": "ads",
+  "kind": "image",
+  "capability": "text2image",
+  "model": {
+    "id": "fal-ai/bytedance/seedream/v4.5/text-to-image",
+    "locked": false,
+    "alternates": ["bytedance-seed/seedream-4.5"]
+  },
+  "prompt": "Vertical story ad: {{product}} large in the centre-lower frame, {{scene}}, safe empty zones at the top and bottom for UI, bold but clean, no text",
+  "negative_prompt": "text, watermark, clutter at the edges, duplicated product",
+  "params": {
+    "aspect_ratio": "9:16",
+    "resolution": "2K"
+  },
+  "slots": [
+    {
+      "name": "product",
+      "type": "character",
+      "label": "Product",
+      "required": true,
+      "kinds": ["prop"],
+      "help": "A product Element; it is injected as its @handle."
+    },
+    {
+      "name": "scene",
+      "type": "text",
+      "label": "Scene",
+      "default": "on a sunlit windowsill",
+      "max": 200
+    }
+  ],
+  "medias": [],
+  "count": 1,
+  "indicative_cost_usd": 0.04,
+  "needs": ["fal", "openrouter"],
+  "tags": ["story", "vertical", "paid-social"],
+  "license": "CC0-1.0",
+  "author": "kilnry"
+}

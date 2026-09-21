@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "id": "kilnry.motion.liquid-pour",
+  "name": "Liquid Pour",
+  "version": "1.0.0",
+  "description": "Backlit slow-motion pour with a splash crown that forms and settles, shot macro on a dark background. Seedance 2.5 runs through OpenRouter.",
+  "category": "motion",
+  "kind": "video",
+  "capability": "text2video",
+  "model": {
+    "id": "bytedance/seedance-2.5",
+    "locked": false,
+    "alternates": ["fal-ai/kling-video/v3/standard/text-to-video", "kwaivgi/kling-v3.0-std"],
+    "constraints": { "needs_audio": true, "duration_s": 5 }
+  },
+  "prompt": "{{liquid}} pours in slow motion into {{vessel}}, splash crown forms and settles, backlit, dark background, macro, natural liquid sound",
+  "negative_prompt": "hands, text, watermark, cuts, frozen frame",
+  "params": {
+    "duration_s": 5,
+    "audio": true,
+    "resolution": "720p",
+    "aspect_ratio": "9:16"
+  },
+  "slots": [
+    {
+      "name": "liquid",
+      "type": "text",
+      "label": "Liquid",
+      "required": true,
+      "max": 120,
+      "help": "e.g. 'cold-pressed orange juice'"
+    },
+    {
+      "name": "vessel",
+      "type": "text",
+      "label": "Vessel",
+      "default": "a tall clear glass",
+      "max": 120,
+      "help": "A description, or the @handle of a product Element."
+    }
+  ],
+  "medias": [],
+  "count": 1,
+  "indicative_cost_usd": 0.51,
+  "needs": ["fal", "openrouter"],
+  "tags": ["liquid", "macro", "slow-motion"],
+  "license": "CC0-1.0",
+  "author": "kilnry"
+}
