@@ -4205,6 +4205,47 @@ html[data-motion='reduced'] *::after {
   font-size: 13px;
   color: var(--text);
 }
+.character-trained-badge {
+  display: inline-block;
+  align-self: flex-start;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--accent-subtle-bg);
+  color: var(--accent-subtle-text);
+  font-size: 12px;
+}
+.character-train-dialog {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 50;
+}
+.character-train-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.character-train-estimate {
+  margin: 0;
+  font-size: 14px;
+  color: var(--accent-subtle-text);
+}
+.character-train-terms {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.character-train-actions {
+  display: flex;
+  gap: 8px;
+}
 .character-version-switcher {
   display: flex;
   flex-direction: column;

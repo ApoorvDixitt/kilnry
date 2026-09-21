@@ -38,6 +38,10 @@ export function CharacterDetail({ handle }: { handle: string }): React.ReactNode
   const [building, setBuilding] = useState(false);
   const [training, setTraining] = useState<string | null>(null);
   const [trainError, setTrainError] = useState<string>();
+  const [trainDialog, setTrainDialog] = useState<{
+    trainer: 'fal' | 'replicate' | 'higgsfield';
+    cost: number;
+  } | null>(null);
   const [cloneOpen, setCloneOpen] = useState(false);
 
   // Reload the character after a change (a clone, a bind, a set-current).
@@ -326,6 +330,9 @@ export function CharacterDetail({ handle }: { handle: string }): React.ReactNode
       {tab === 'identities' ? (
         <section className="character-detail-body">
           <div className="character-identities">
+            {item.trained_identities.some((t) => t.status === 'ready') ? (
+              <span className="character-trained-badge">{message('characters.detail.trainedBadge')}</span>
+            ) : null}
             {item.trained_identities.length === 0 ? (
               <p className="muted">—</p>
             ) : (
@@ -368,10 +375,10 @@ export function CharacterDetail({ handle }: { handle: string }): React.ReactNode
                       disabled={training !== null || consentBlocks}
                       title={
                         consentBlocks
-                          ? message('characters.detail.trainNeedsConsent')
+                          ? message('characters.detail.trainConsentTooltip')
                           : format(message('characters.detail.trainWithPrice'), { price: card.price })
                       }
-                      onClick={() => train(card.trainer, card.cost)}
+                      onClick={() => setTrainDialog({ trainer: card.trainer, cost: card.cost })}
                     >
                       {training === card.trainer
                         ? message('characters.detail.training')
@@ -385,6 +392,55 @@ export function CharacterDetail({ handle }: { handle: string }): React.ReactNode
               <p className="characters-error" role="alert">
                 {trainError}
               </p>
+            ) : null}
+            {trainDialog ? (
+              <div
+                className="character-train-dialog"
+                role="dialog"
+                aria-label={message('characters.detail.trainDialogTitle')}
+              >
+                <div className="character-train-card">
+                  <h4>{message('characters.detail.trainDialogTitle')}</h4>
+                  <p className="character-train-estimate">
+                    {message(
+                      trainDialog.trainer === 'fal'
+                        ? 'characters.detail.trainEstimateFal'
+                        : trainDialog.trainer === 'replicate'
+                          ? 'characters.detail.trainEstimateReplicate'
+                          : 'characters.detail.trainEstimateHiggsfield',
+                    )}
+                  </p>
+                  {trainDialog.trainer === 'higgsfield' ? (
+                    <p className="character-train-terms" role="note">
+                      {message('characters.detail.trainRealPersonConfirm')}
+                    </p>
+                  ) : (
+                    <p className="character-train-terms">
+                      {message(
+                        trainDialog.trainer === 'fal'
+                          ? 'characters.detail.trainTermsFal'
+                          : 'characters.detail.trainTermsReplicate',
+                      )}
+                    </p>
+                  )}
+                  <div className="character-train-actions">
+                    <button
+                      className="btn primary"
+                      type="button"
+                      onClick={() => {
+                        const { trainer, cost } = trainDialog;
+                        setTrainDialog(null);
+                        train(trainer, cost);
+                      }}
+                    >
+                      {message('characters.detail.trainConfirm')}
+                    </button>
+                    <button className="btn btn-ghost" type="button" onClick={() => setTrainDialog(null)}>
+                      {message('characters.detail.trainCancel')}
+                    </button>
+                  </div>
+                </div>
+              </div>
             ) : null}
           </div>
         </section>
