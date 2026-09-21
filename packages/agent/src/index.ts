@@ -4,3 +4,21 @@
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
 export {};
+
+export {
+  assembleInstructions,
+  buildSkillsIndex,
+  renderPrompt,
+  skillSystemMessage,
+  applyLoadedSkill,
+  touchLoadedSkill,
+  promptsRootFrom,
+  BLOCK_BUDGETS,
+  MAX_LOADED_SKILLS,
+  type Autonomy,
+  type PromptVars,
+  type AssembleInput,
+  type AssembledInstructions,
+  type SkillIndexEntry,
+  type LoadedSkill,
+} from './instructions.js';
