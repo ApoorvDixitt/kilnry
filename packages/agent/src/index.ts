@@ -106,3 +106,17 @@ export {
   type ToFilePartsInput,
   type ToFilePartsResult,
 } from './attachments.js';
+
+export {
+  llmErrorPart,
+  retryingStatusText,
+  stepCapReachedText,
+  toolErrorResult,
+  invalidInputResult,
+  approvalExpired,
+  MAX_RETRY_AFTER_S,
+  APPROVAL_EXPIRY_HOURS,
+  type ChatErrorCode,
+  type ChatErrorPart,
+  type LlmFailure,
+} from './errors.js';

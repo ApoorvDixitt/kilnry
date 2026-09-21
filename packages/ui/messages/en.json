@@ -578,7 +578,10 @@
     "attachRemove": "Remove {name}",
     "attachCharacter": "character",
     "attachAsset": "asset",
-    "attachNote": "The agent sees a character by reference and looks it up; it never receives a likeness directly."
+    "attachNote": "The agent sees a character by reference and looks it up; it never receives a likeness directly.",
+    "errorRegenerate": "Regenerate",
+    "errorProviders": "Open Providers",
+    "retrying": "Provider busy, retrying…"
   },
   "onboarding": {
     "checklistTitle": "Get started",

@@ -33,6 +33,7 @@ export type MessagePart =
   | { type: 'reasoning'; text: string }
   | { type: 'step-start' }
   | { type: 'file'; url: string; mediaType: string }
+  | { type: 'data-error'; code: string; message: string; retryable?: boolean; provider?: string }
   | {
       type: string;
       state?: ToolCallState;
@@ -47,6 +48,8 @@ interface PartHandlers {
   autoApproveUsd?: number | undefined;
   onApprove: (approvalId: string, options: { autoApproveBelowUsd?: number }) => void;
   onDeny: (approvalId: string) => void;
+  /** Runs the turn again after a failure that can be retried. */
+  onRegenerate?: (() => void) | undefined;
 }
 
 // The planned calls an approval part carries, when the runtime priced them.
@@ -96,6 +99,31 @@ export function renderParts(parts: MessagePart[], handlers: PartHandlers): React
         <a key={`f-${index}`} className="chat-attachment-chip" href={file.url}>
           {file.mediaType}
         </a>,
+      );
+      continue;
+    }
+    if (part.type === 'data-error') {
+      // One agreed outcome per failure (TRD-11 §14): the sentence says what to
+      // do, and only a retryable failure offers to run the turn again.
+      const failure = part as unknown as {
+        code: string;
+        message: string;
+        retryable?: boolean;
+      };
+      nodes.push(
+        <aside key={`e-${index}`} className="chat-error-banner" role="alert">
+          <p>{failure.message}</p>
+          {failure.code === 'INSUFFICIENT_FUNDS' ? (
+            <a className="chat-secondary-button" href="/settings/providers">
+              {message('chat.errorProviders')}
+            </a>
+          ) : null}
+          {failure.retryable === true && handlers.onRegenerate ? (
+            <button type="button" className="chat-secondary-button" onClick={handlers.onRegenerate}>
+              {message('chat.errorRegenerate')}
+            </button>
+          ) : null}
+        </aside>,
       );
       continue;
     }
@@ -201,7 +229,7 @@ export function ChatScreen({
     () => new DefaultChatTransport({ api: '/api/chat', body: { session_id: sessionId } }),
     [sessionId],
   );
-  const { messages, sendMessage, status, error, addToolApprovalResponse } = useChat({
+  const { messages, sendMessage, status, error, addToolApprovalResponse, regenerate } = useChat({
     id: sessionId,
     transport,
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
@@ -323,6 +351,7 @@ export function ChatScreen({
                       addToolApprovalResponse({ id: approvalId, approved: true });
                     },
                     onDeny: (approvalId) => addToolApprovalResponse({ id: approvalId, approved: false }),
+                    onRegenerate: () => void regenerate(),
                   })}
                 </article>
               ))
