@@ -575,3 +575,53 @@ test('@m5 S-18 export a bundle with sidecars and provenance labels', async ({ pa
     expect(id).not.toBe('');
   }
 });
+
+test('@m5 S-23 Higgsfield opt-in notice gates the key and prices authoritatively', async ({ page }) => {
+  await ensureSignedIn(page, '/settings/providers');
+
+  // Picking Higgsfield shows the terms notice with the verbatim training clause
+  // and a full-terms link; the save button stays disabled until it is accepted.
+  await page.getByLabel('Add or replace a provider key').fill(HIGGSFIELD_KEY);
+  await page.getByLabel('Provider', { exact: true }).selectOption('higgsfield');
+  const notice = page.locator('.provider-notice');
+  await expect(notice).toContainText(
+    'may be used by Company to train, develop, enhance, evolve, and improve its AI models',
+  );
+  await expect(notice.locator('a')).toHaveAttribute('href', /higgsfield\.ai\/terms/);
+  const save = page.getByRole('button', { name: 'Test and save' });
+  await expect(save).toBeDisabled();
+
+  // Accepting the notice enables the save; Higgsfield then connects.
+  await notice.locator('input[type="checkbox"]').check();
+  await expect(save).toBeEnabled();
+  await save.click();
+  await expect.poll(() => providerConnected(page, 'higgsfield'), { timeout: 15_000 }).toBe(true);
+
+  // A Higgsfield generation is priced from the provider's own estimate endpoint,
+  // so the cost strip shows an authoritative figure ($0.094) rather than a guess.
+  const authoritative = await page.evaluate(async () => {
+    const csrfToken = decodeURIComponent(
+      document.cookie
+        .split(';')
+        .map((part) => part.trim())
+        .find((part) => part.startsWith('kilnry_csrf='))
+        ?.slice('kilnry_csrf='.length) ?? '',
+    );
+    const response = await fetch('/api/estimate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Kilnry-CSRF': csrfToken },
+      body: JSON.stringify({
+        kind: 'video',
+        prompt: 'a rooftop cafe at golden hour',
+        model: 'kling-video/v3.0/std/image-to-video',
+        medias: [],
+        count: 1,
+        params: { duration_s: 5, resolution: '720p' },
+      }),
+    });
+    if (!response.ok) return null;
+    const body = (await response.json()) as { authoritative_usd?: number | null };
+    return body.authoritative_usd ?? null;
+  });
+  expect(authoritative).toBe(0.094);
+});
