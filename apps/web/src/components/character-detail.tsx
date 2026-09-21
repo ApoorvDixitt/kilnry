@@ -20,6 +20,7 @@ import {
   type SheetState,
   type UsageAsset,
 } from './character-detail-logic';
+import { VersionSwitcher } from './version-switcher';
 
 type DetailTab = 'sheet' | 'identities' | 'voice' | 'usage' | 'settings';
 
@@ -36,6 +37,27 @@ export function CharacterDetail({ handle }: { handle: string }): React.ReactNode
   const [building, setBuilding] = useState(false);
   const [training, setTraining] = useState<string | null>(null);
   const [trainError, setTrainError] = useState<string>();
+
+  // Switch which version is current (F-CHR-10, PRD-07 §11). Selecting a version
+  // calls set_current and reloads the character so the header, references and
+  // descriptor all show the chosen version.
+  const setCurrent = useCallback(
+    (version: number) => {
+      void apiFetch('/api/characters/manage', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'set_current', handle, version }),
+      })
+        .then((response) => (response.ok ? response.json() : null))
+        .then(() => fetch(`/api/characters/${encodeURIComponent(handle)}`))
+        .then((response) => response.json() as Promise<{ item?: FullCharacterView }>)
+        .then((body) => {
+          if (body.item) setItem(body.item);
+        })
+        .catch(() => undefined);
+    },
+    [handle],
+  );
 
   // Train a hosted identity on the chosen provider (F-CHR-07). The button is only
   // enabled once consent is recorded, so this call is never made blind; the cost
@@ -148,6 +170,7 @@ export function CharacterDetail({ handle }: { handle: string }): React.ReactNode
             {item.display_name} <span className="character-handle">@{item.handle}</span>{' '}
             <span className="muted">v{item.version}</span>
           </h1>
+          <VersionSwitcher versions={item.versions} current={item.version} onSelect={setCurrent} />
           {item.description ? <p className="muted">{item.description}</p> : null}
           <div className="character-tags">
             <span className="character-tag muted">character</span>
@@ -383,7 +406,7 @@ export function CharacterDetail({ handle }: { handle: string }): React.ReactNode
       {tab === 'settings' ? (
         <section className="character-detail-body">
           <p className="muted">
-            @{item.handle} · versions {item.versions.join(', ')}
+            @{item.handle} · versions {item.versions.map((row) => `v${row.version}`).join(', ')}
           </p>
         </section>
       ) : null}

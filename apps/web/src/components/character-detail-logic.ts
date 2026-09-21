@@ -51,11 +51,18 @@ export interface Reference {
   label?: string;
 }
 
+export interface VersionRowView {
+  version: number;
+  frozen: boolean;
+  current: boolean;
+  jobs: number;
+}
+
 export interface FullCharacterView {
   handle: string;
   display_name: string;
   version: number;
-  versions: number[];
+  versions: VersionRowView[];
   description?: string;
   tags: string[];
   is_real_person: boolean;
@@ -95,4 +102,14 @@ export function wordCount(text: string): number {
 export function consentSatisfiedView(view: Pick<FullCharacterView, 'is_real_person' | 'consent'>): boolean {
   if (!view.is_real_person) return true;
   return view.consent.status === 'self' || view.consent.status === 'written';
+}
+
+// The switcher label for one version, e.g. "v2 · current · 4 jobs" or
+// "v1 · frozen · 31 jobs" (PRD-07 §11). "job"/"jobs" is pluralised.
+export function versionLabel(row: VersionRowView): string {
+  const parts = [`v${row.version}`];
+  if (row.current) parts.push('current');
+  if (row.frozen) parts.push('frozen');
+  parts.push(row.jobs === 1 ? '1 job' : `${row.jobs} jobs`);
+  return parts.join(' · ');
 }

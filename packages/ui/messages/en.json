@@ -875,6 +875,8 @@
       "consentNone": "Consent not set. Training and cloning are disabled.",
       "notReal": "Fictional character. No consent needed.",
       "trainedIdentities": "Trained identities",
+      "versionLabel": "Version",
+      "versionFrozen": "This version is frozen because a job has used it. Editing its references or descriptor creates a new version.",
       "train": "Train",
       "trainDisabled": "Training a face arrives in a later release.",
       "trainerFal": "fal · FLUX LoRA",

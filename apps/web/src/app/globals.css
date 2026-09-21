@@ -4171,6 +4171,27 @@ html[data-motion='reduced'] *::after {
   font-size: 13px;
   color: var(--text);
 }
+.character-version-switcher {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 4px 0 8px;
+}
+.character-version-select {
+  align-self: flex-start;
+  padding: 4px 10px;
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+}
+.character-version-note {
+  margin: 0;
+  font-size: 12px;
+  max-width: 42ch;
+}
 .character-usage-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
