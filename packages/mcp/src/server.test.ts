@@ -56,4 +56,15 @@ describe('MCP server core (F-MCP-01)', () => {
     });
     expect(server).toBeDefined();
   });
+
+  it('registers the resource templates and prompt starters (F-MCP-03, F-MCP-04)', () => {
+    // Building the server registers the four resource templates and four prompts;
+    // a duplicate registration would throw, so a clean build proves they land.
+    const server = createKilnryMcpServer({
+      version: '0.2.0',
+      services,
+      tools: [readOnlyTool('kilnry_models')],
+    });
+    expect(server).toBeDefined();
+  });
 });

@@ -10,7 +10,12 @@
 // tool) so Chat and MCP share exactly one implementation (TRD-10 §2.9); this
 // package only wires them onto the protocol.
 
-import { McpServer, WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
+import {
+  McpServer,
+  ResourceTemplate,
+  WebStandardStreamableHTTPServerTransport,
+} from '@modelcontextprotocol/server';
+import * as z from 'zod';
 import { toolAllowedForScope, type KilnryTool, type ToolServices } from '@kilnry/core';
 
 export const MCP_SERVER_NAME = 'kilnry';
@@ -80,6 +85,146 @@ export function createKilnryMcpServer(options: {
       },
     );
   }
+
+  // F-MCP-03: resource templates — tools return concrete URIs; list returns templates only.
+  server.registerResource(
+    'kilnry-asset',
+    new ResourceTemplate('kilnry://asset/{asset_id}', { list: undefined }),
+    { description: 'A Library asset (image, video, audio, 3D).' },
+    (_uri, variables) => {
+      const id = String(variables.asset_id ?? '');
+      return {
+        contents: [
+          {
+            uri: `kilnry://asset/${id}`,
+            mimeType: 'application/json',
+            text: JSON.stringify({ asset_id: id, preview_url: `/api/media/${id}` }),
+          },
+        ],
+      };
+    },
+  );
+  server.registerResource(
+    'kilnry-character',
+    new ResourceTemplate('kilnry://character/{handle}', { list: undefined }),
+    { description: 'A Character or Element with its references and appearance.' },
+    (_uri, variables) => {
+      const handle = String(variables.handle ?? '');
+      return {
+        contents: [
+          {
+            uri: `kilnry://character/${handle}`,
+            mimeType: 'application/json',
+            text: JSON.stringify({ handle }),
+          },
+        ],
+      };
+    },
+  );
+  server.registerResource(
+    'kilnry-skill',
+    new ResourceTemplate('kilnry://skill/{name}', { list: undefined }),
+    { description: 'A SKILL.md agent skill.' },
+    (_uri, variables) => {
+      const name = String(variables.name ?? '');
+      return {
+        contents: [
+          {
+            uri: `kilnry://skill/${name}`,
+            mimeType: 'text/markdown',
+            text: `# ${name}\n\nLoad this skill with kilnry_skills load.`,
+          },
+        ],
+      };
+    },
+  );
+  server.registerResource(
+    'kilnry-run',
+    new ResourceTemplate('kilnry://run/{run_id}', { list: undefined }),
+    { description: 'A reference-sheet or workflow run manifest.' },
+    (_uri, variables) => {
+      const id = String(variables.run_id ?? '');
+      return {
+        contents: [
+          { uri: `kilnry://run/${id}`, mimeType: 'application/json', text: JSON.stringify({ run_id: id }) },
+        ],
+      };
+    },
+  );
+
+  // F-MCP-04: prompts — quick starters.
+  server.registerPrompt(
+    'kilnry.brief',
+    {
+      description: 'Turn a one-line ask into a structured creative brief and a proposed workflow with cost.',
+      argsSchema: { goal: z.string(), format: z.string().optional() },
+    },
+    ({ goal, format }) => ({
+      messages: [
+        {
+          role: 'user',
+          content: {
+            type: 'text',
+            text: `Write a structured creative brief for: ${goal}. Format: ${format ?? 'video'}. Then propose the steps and estimate the cost using the kilnry_estimate and kilnry_skills tools.`,
+          },
+        },
+      ],
+    }),
+  );
+  server.registerPrompt(
+    'kilnry.ugc_ad',
+    {
+      description: 'Start the UGC Ad workflow conversation (brief, steps, cost; the run arrives in M6).',
+      argsSchema: { product: z.string(), duration_s: z.string(), style: z.string().optional() },
+    },
+    ({ product, duration_s, style }) => ({
+      messages: [
+        {
+          role: 'user',
+          content: {
+            type: 'text',
+            text: `Plan a UGC-style ad for ${product}, ${duration_s} seconds, style ${style ?? 'testimonial'}. Show the brief, the steps and the estimated cost. Running the workflow arrives in M6.`,
+          },
+        },
+      ],
+    }),
+  );
+  server.registerPrompt(
+    'kilnry.character_sheet',
+    {
+      description: 'Run the reference-sheet pipeline with approvals.',
+      argsSchema: { handle: z.string() },
+    },
+    ({ handle }) => ({
+      messages: [
+        {
+          role: 'user',
+          content: {
+            type: 'text',
+            text: `Build a reference sheet for @${handle} using kilnry_characters_manage build_sheet. Approve the turnaround when it arrives.`,
+          },
+        },
+      ],
+    }),
+  );
+  server.registerPrompt(
+    'kilnry.review',
+    {
+      description: 'Critique an output against its prompt and character.',
+      argsSchema: { asset_id: z.string() },
+    },
+    ({ asset_id }) => ({
+      messages: [
+        {
+          role: 'user',
+          content: {
+            type: 'text',
+            text: `Review asset ${asset_id}. Read its sidecar with kilnry_library get, compare the output to the prompt, and note any consistency or quality issues.`,
+          },
+        },
+      ],
+    }),
+  );
 
   return server;
 }
