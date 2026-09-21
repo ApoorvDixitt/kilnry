@@ -12,7 +12,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CostStrip, type BudgetLine, type CostEstimate } from './cost-strip';
+import { AttachmentTray } from './attachment-tray';
+import { assetIdFromDrag } from './chat-attachment-tray';
+import { PresetSlotPicker } from './preset-slot-picker';
 import { message } from '../lib/messages';
+import type { Attachment } from '../lib/attachments';
 import {
   canChangeModel,
   canRun,
@@ -22,6 +26,7 @@ import {
   openInCreateQuery,
   paramsSummary,
   runPayload,
+  slotRole,
   type DrawerPreset,
   type DrawerSlot,
   type SlotValues,
@@ -54,7 +59,6 @@ const copy = {
   openInCreate: message('presets.openInCreate'),
   missingField: message('presets.missingField'),
   running: message('presets.running'),
-  pickMedia: message('presets.pickMedia'),
   pickCharacter: message('presets.pickCharacter'),
 };
 
@@ -75,10 +79,94 @@ export function SlotField({
   onChange: (next: string) => void;
 }): React.ReactNode {
   const id = fieldId(slot);
+  const describedBy = invalid ? `${id}-error` : undefined;
+  const label = (
+    <label className="preset-field-label" htmlFor={id}>
+      {slot.label}
+      {slot.required ? <span className="preset-field-required"> {copy.required}</span> : null}
+    </label>
+  );
+  const help = slot.help === undefined ? null : <p className="preset-field-help">{slot.help}</p>;
+  const error = invalid ? (
+    <p className="preset-field-error" id={`${id}-error`} role="alert">
+      {copy.missingField}
+    </p>
+  ) : null;
+
+  // A media slot is filled through the attachment tray (PRD-09 §2: "attachment
+  // tray with role"). An asset is dragged in from the Library or a public URL is
+  // pasted; the tray holds at most one item for the slot's role and the slot's
+  // stored value is that attachment's asset id, which is what the resolve and run
+  // payloads expect. Adding a new attachment replaces the previous one.
+  if (slot.type === 'media') {
+    const role = slotRole(slot);
+    const current = value === undefined ? '' : String(value);
+    const attachments: Attachment[] =
+      current === ''
+        ? []
+        : [
+            {
+              id: current,
+              name: current,
+              role,
+              kind: 'image',
+              pinned: false,
+              assetId: current,
+            },
+          ];
+    return (
+      <div className={`preset-field${invalid ? ' is-invalid' : ''}`}>
+        {label}
+        <div
+          className="preset-media-drop"
+          onDragOver={(event) => event.preventDefault()}
+          onDrop={(event) => {
+            event.preventDefault();
+            const dropped = assetIdFromDrag(event.dataTransfer);
+            if (dropped !== undefined) onChange(dropped);
+          }}
+        >
+          <AttachmentTray
+            attachments={attachments}
+            limits={[{ role, max: 1 }]}
+            onChange={(next) => {
+              const last = next[next.length - 1];
+              onChange(last?.assetId ?? last?.id ?? '');
+            }}
+            onImportUrl={(url) => onChange(url)}
+          />
+        </div>
+        {help}
+        {error}
+      </div>
+    );
+  }
+
+  // A character or element slot is filled through the @ picker, restricted to the
+  // kinds the slot declares (PRD-09 §2: "@ picker restricted to kind").
+  if (slot.type === 'character') {
+    return (
+      <div className={`preset-field${invalid ? ' is-invalid' : ''}`}>
+        {label}
+        <PresetSlotPicker
+          id={id}
+          value={value === undefined ? '' : String(value)}
+          {...(slot.kinds === undefined ? {} : { kinds: slot.kinds })}
+          placeholder={copy.pickCharacter}
+          invalid={invalid}
+          {...(describedBy === undefined ? {} : { describedBy })}
+          onChange={onChange}
+        />
+        {help}
+        {error}
+      </div>
+    );
+  }
+
   const shared = {
     id,
     'aria-invalid': invalid,
-    'aria-describedby': invalid ? `${id}-error` : undefined,
+    'aria-describedby': describedBy,
     className: 'preset-field-control',
     value: value === undefined ? '' : String(value),
     onChange: (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
@@ -86,10 +174,7 @@ export function SlotField({
   };
   return (
     <div className={`preset-field${invalid ? ' is-invalid' : ''}`}>
-      <label className="preset-field-label" htmlFor={id}>
-        {slot.label}
-        {slot.required ? <span className="preset-field-required"> {copy.required}</span> : null}
-      </label>
+      {label}
       {slot.type === 'enum' ? (
         <select {...shared}>
           {(slot.options ?? []).map((option) => (
@@ -107,10 +192,6 @@ export function SlotField({
         />
       ) : slot.type === 'color' ? (
         <input {...shared} type="color" />
-      ) : slot.type === 'media' ? (
-        <input {...shared} type="text" placeholder={copy.pickMedia} />
-      ) : slot.type === 'character' ? (
-        <input {...shared} type="text" placeholder={copy.pickCharacter} />
       ) : (
         <textarea
           id={id}
@@ -121,12 +202,8 @@ export function SlotField({
           onChange={(event) => onChange(event.target.value)}
         />
       )}
-      {slot.help === undefined ? null : <p className="preset-field-help">{slot.help}</p>}
-      {invalid ? (
-        <p className="preset-field-error" id={`${id}-error`} role="alert">
-          {copy.missingField}
-        </p>
-      ) : null}
+      {help}
+      {error}
     </div>
   );
 }

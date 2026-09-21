@@ -102,6 +102,33 @@ export function canChangeModel(preset: DrawerPreset): boolean {
   return !preset.model.locked;
 }
 
+// The roles the attachment tray understands, mirroring the composer's set.
+const TRAY_ROLES = [
+  'start_frame',
+  'end_frame',
+  'reference',
+  'style',
+  'product',
+  'audio',
+  'video',
+  'mask',
+  'source',
+] as const;
+
+/**
+ * The attachment-tray role a media slot maps to. A slot names its roles; the
+ * first one the tray understands wins, and a slot that names none falls back to
+ * a plain reference so the tray always has a valid role to offer.
+ */
+export function slotRole(slot: DrawerSlot): (typeof TRAY_ROLES)[number] {
+  for (const role of slot.roles ?? []) {
+    if ((TRAY_ROLES as readonly string[]).includes(role)) {
+      return role as (typeof TRAY_ROLES)[number];
+    }
+  }
+  return 'reference';
+}
+
 /** The read-only parameter line: aspect, resolution, duration and count. */
 export function paramsSummary(params: Record<string, unknown>, count: number): string {
   const parts: string[] = [];

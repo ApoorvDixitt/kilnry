@@ -110,6 +110,8 @@ describe('the preset use drawer (F-PRE-02)', () => {
     expect(fields.length).toBe(3);
     expect(fields[0]?.querySelector('label')?.textContent).toContain('Product');
     expect(fields[0]?.querySelector('label')?.textContent).toContain('(required)');
+    // The media slot uses the attachment tray, not a free-text field (F-PRE-02).
+    expect(fields[0]?.querySelector('.preset-media-drop .attachment-tray')).not.toBeNull();
     expect(fields[1]?.querySelector('select')).not.toBeNull();
     expect(fields[2]?.querySelector('textarea')).not.toBeNull();
   });
@@ -126,13 +128,72 @@ describe('the preset use drawer (F-PRE-02)', () => {
     expect(run.disabled).toBe(true);
   });
 
+  it('fills a media slot by dropping a Library asset and shows the price', async () => {
+    const host = await render(<PresetDrawer preset={preset()} onClose={() => undefined} />);
+    const drop = host.querySelector('.preset-media-drop') as HTMLElement;
+    await act(async () => {
+      const transfer = { getData: (type: string) => (type === 'text/plain' ? 'asset-1' : '') };
+      const dropEvent = new Event('drop', { bubbles: true });
+      Object.defineProperty(dropEvent, 'dataTransfer', { value: transfer });
+      drop.dispatchEvent(dropEvent);
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    });
+    const run = host.querySelector('.preset-run-button') as HTMLButtonElement;
+    expect(run.textContent).toBe('Run · $0.04');
+    expect(run.disabled).toBe(false);
+    // The chosen asset now sits in the tray as an attachment for the slot's role.
+    expect(host.querySelector('.preset-media-drop .attachment-item')).not.toBeNull();
+  });
+
+  it('fills a character slot from the @ picker restricted to its kind', async () => {
+    body = {
+      resolved,
+      estimate,
+      model: { model: 'fal-ai/bytedance/seedream/v4.5/edit', reason: 'primary' },
+    };
+    const characterPreset = preset({
+      slots: [{ name: 'hero', type: 'character', label: 'Hero', required: true, kinds: ['character'] }],
+    });
+    // The picker asks the mention endpoint for suggestions of the slot's kind.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes('/api/characters/mentions')) {
+          expect(url).toContain('kinds=character');
+          return new Response(
+            JSON.stringify({
+              items: [{ handle: 'maya', display_name: 'Maya', kind: 'character', version: 1 }],
+            }),
+            { status: 200 },
+          );
+        }
+        return new Response(JSON.stringify(body), { status: 200 });
+      }),
+    );
+    const host = await render(<PresetDrawer preset={characterPreset} onClose={() => undefined} />);
+    const input = host.querySelector('.preset-slot-picker input') as HTMLInputElement;
+    expect(input.getAttribute('role')).toBe('combobox');
+    await act(async () => input.focus());
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    const suggestion = host.querySelector('.preset-slot-suggestion') as HTMLButtonElement;
+    expect(suggestion.textContent).toContain('@maya');
+    await act(async () => suggestion.click());
+    expect(host.querySelector('.preset-slot-chip-handle')?.textContent).toBe('@maya');
+  });
+
   it('shows the price on the Run button once a required slot is filled', async () => {
     const host = await render(<PresetDrawer preset={preset()} onClose={() => undefined} />);
-    const field = host.querySelector('#preset-slot-product') as HTMLInputElement;
+    const drop = host.querySelector('.preset-media-drop') as HTMLElement;
     await act(async () => {
-      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
-      setter?.call(field, 'asset-1');
-      field.dispatchEvent(new Event('input', { bubbles: true }));
+      const transfer = { getData: (type: string) => (type === 'text/plain' ? 'asset-1' : '') };
+      const dropEvent = new Event('drop', { bubbles: true });
+      Object.defineProperty(dropEvent, 'dataTransfer', { value: transfer });
+      drop.dispatchEvent(dropEvent);
     });
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 200));
