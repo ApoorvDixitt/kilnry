@@ -58,3 +58,30 @@ export {
   type ChatSessionState,
   type ChatTurnInput,
 } from './chat.js';
+
+export {
+  approvalPolicy,
+  alwaysAsk,
+  isSpendingAction,
+  cachedPreEstimate,
+  withConfirmedCost,
+  deniedResult,
+  AUTO_APPROVE_BELOW_USD_DEFAULT,
+  SPEND_TOOLS,
+  type ApprovalSession,
+  type ApprovalPolicyInput,
+  type ApprovalVerdict,
+  type PreEstimate,
+} from './approval.js';
+
+export {
+  meterStep,
+  wouldExceedSessionBudget,
+  sessionBudgetReachedText,
+  headerMeter,
+  type StepUsage,
+  type MeterInput,
+  type MeteredStep,
+  type LedgerWriter,
+  type SpendRecorder,
+} from './metering.js';

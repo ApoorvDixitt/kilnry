@@ -124,16 +124,34 @@ function priceLabel(price: LlmPrice): string {
 export async function streamChatTurn(input: ChatTurnInput): Promise<Response> {
   const steps = input.llm.caps.context < 16_384 ? MAX_STEPS_SMALL_CONTEXT : MAX_STEPS;
   const { tokensToUsd } = await import('./model.js');
+  const { wouldExceedSessionBudget } = await import('./metering.js');
+
+  // The session's spend grows as the turn runs; the loop stops when the next
+  // step would take it past the cap (TRD-11 §9).
+  let spentUsd = input.session.spent_usd;
+  let lastStepUsd = 0;
 
   const result = streamText({
     model: input.llm.model,
     instructions: turnInstructions(input),
     messages: await convertToModelMessages(input.messages),
     tools: input.tools,
-    stopWhen: isStepCount(steps),
+    stopWhen: [
+      isStepCount(steps),
+      () =>
+        wouldExceedSessionBudget(
+          {
+            spent_usd: spentUsd,
+            ...(typeof input.session.budget_usd === 'number' ? { budget_usd: input.session.budget_usd } : {}),
+          },
+          lastStepUsd,
+        ),
+    ],
     ...(input.toolApproval ? { toolApproval: input.toolApproval as never } : {}),
     onStepEnd: async ({ usage }) => {
-      await input.onStepEnd?.({ usage, cost_usd: tokensToUsd(usage ?? {}, input.llm.price) });
+      lastStepUsd = tokensToUsd(usage ?? {}, input.llm.price);
+      spentUsd += lastStepUsd;
+      await input.onStepEnd?.({ usage, cost_usd: lastStepUsd });
     },
     onEnd: async ({ usage }) => {
       await input.onTurnEnd?.({ usage, cost_usd: tokensToUsd(usage ?? {}, input.llm.price) });

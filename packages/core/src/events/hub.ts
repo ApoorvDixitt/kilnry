@@ -42,7 +42,14 @@ export type KilnryEvent =
       until?: string;
       ts: string;
     }
-  | { type: 'runtime.online'; online: boolean; ts: string };
+  | { type: 'runtime.online'; online: boolean; ts: string }
+  | {
+      type: 'chat.usage';
+      session_id: string;
+      step_cost_usd: number;
+      session_spent_usd: number;
+      ts: string;
+    };
 
 export interface SequencedEvent {
   id: number;
