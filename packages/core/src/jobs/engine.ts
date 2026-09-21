@@ -634,7 +634,9 @@ export class JobEngine {
       CHECK_POLL_DEADLINE_MS,
     );
     this.#controllers.set(jobId, controller);
-    const tempDir = join(this.#options.dataDir, 'tmp', jobId);
+    // A distinct temp dir so a concurrent unwind of the original run's staging
+    // directory cannot race this check's directory.
+    const tempDir = join(this.#options.dataDir, 'tmp', `${jobId}-check`);
     await mkdir(tempDir, { recursive: true, mode: 0o700 });
     const context = this.#adapterContext(adapter, key, controller.signal, tempDir);
     try {
