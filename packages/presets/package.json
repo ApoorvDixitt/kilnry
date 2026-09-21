@@ -11,6 +11,10 @@
   "files": [
     "dist"
   ],
+  "dependencies": {
+    "@kilnry/core": "workspace:*",
+    "zod": "4.6.5"
+  },
   "scripts": {
     "build": "tsc -b",
     "typecheck": "tsc -b --pretty false",
