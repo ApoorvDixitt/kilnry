@@ -28,6 +28,16 @@ export {
 } from './validate.js';
 
 export {
+  loadPresets,
+  listPresets,
+  getPreset,
+  seedCatalogueRoot,
+  type LoadedPreset,
+  type PresetRoots,
+  type PresetSource,
+} from './loader.js';
+
+export {
   renderPreset,
   renderPrompt,
   renderParams,

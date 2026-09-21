@@ -10,15 +10,15 @@
 // catalogue is useful on the first key a user connects.
 
 import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { CanonicalRequestSchema, registrySeed, route, seedSnapshotMap } from '@kilnry/core';
 import { describe, expect, it } from 'vitest';
+import { getPreset, listPresets, loadPresets, seedCatalogueRoot } from './loader.js';
 import { PresetCategorySchema } from './schema.js';
 import { validatePresetFile } from './validate.js';
 
-// The canonical catalogue: packages/skills/presets/<category>/<id>.json (TRD-03 §10).
-const catalogue = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'skills', 'presets');
+// The shipped catalogue lives beside its loader: packages/presets/catalogue.
+const catalogue = seedCatalogueRoot();
 
 interface Shipped {
   category: string;
@@ -87,6 +87,33 @@ describe('the shipped preset catalogue (F-PRE-05)', () => {
   it('gives every preset a unique identifier across the catalogue', () => {
     const ids = presets.map((preset) => preset.fileName);
     expect(new Set(ids).size).toBe(ids.length);
+  });
+});
+
+describe('the preset loader (TRD-03 §4a)', () => {
+  it('reads the seed catalogue that ships beside it', () => {
+    const loaded = listPresets();
+    expect(loaded.length).toBe(presets.length);
+    expect(loaded.every((entry) => entry.source === 'seed')).toBe(true);
+    expect(loaded.every((entry) => entry.enabled)).toBe(true);
+  });
+
+  it('files each seed under the category the file declares', () => {
+    for (const entry of listPresets()) {
+      expect(entry.path).toContain(join('catalogue', entry.category));
+    }
+  });
+
+  it('finds one preset by its identifier', () => {
+    expect(getPreset('ice-cube-product-shot')?.category).toBe('product_shot');
+    expect(getPreset('not-a-preset')).toBeUndefined();
+  });
+
+  it('lets a later source shadow a seed of the same identifier', () => {
+    // The user folder is read after the seed, so an edited copy wins.
+    const byId = loadPresets({ user: join(seedCatalogueRoot(), 'ugc') });
+    expect(byId.get('ugc-hook-talking-head')?.source).toBe('user');
+    expect(byId.get('ice-cube-product-shot')?.source).toBe('seed');
   });
 });
 
