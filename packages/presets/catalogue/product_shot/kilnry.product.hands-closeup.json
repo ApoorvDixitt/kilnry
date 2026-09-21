@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "id": "kilnry.product.hands-closeup",
+  "name": "In Hand Close-up",
+  "version": "1.0.0",
+  "description": "Close-up of hands holding the product against a blurred neutral background, label fully legible, no face in frame.",
+  "category": "product_shot",
+  "kind": "image",
+  "capability": "text2image",
+  "model": {
+    "id": "google/gemini-3-pro-image",
+    "locked": false,
+    "alternates": ["fal-ai/nano-banana-pro"]
+  },
+  "prompt": "Close-up of {{hands}} hands holding {{product}}, fingertips natural, soft daylight, blurred neutral background, product label fully legible, no face",
+  "negative_prompt": "face, extra fingers, morphing hands, text, watermark",
+  "params": {
+    "aspect_ratio": "1:1",
+    "resolution": "1K"
+  },
+  "slots": [
+    {
+      "name": "product",
+      "type": "character",
+      "label": "Product",
+      "required": true,
+      "kinds": ["prop"],
+      "help": "A product Element; it is injected as its @handle."
+    },
+    {
+      "name": "hands",
+      "type": "enum",
+      "label": "Hands",
+      "options": [
+        "adult, medium skin tone",
+        "adult, light skin tone",
+        "adult, deep skin tone",
+        "older adult"
+      ],
+      "default": "adult, medium skin tone"
+    }
+  ],
+  "medias": [],
+  "count": 1,
+  "indicative_cost_usd": 0.13,
+  "needs": ["fal", "openrouter"],
+  "tags": ["in-hand", "close-up", "scale"],
+  "license": "CC0-1.0",
+  "author": "kilnry",
+  "target_folder_hint": "Product_Shots"
+}

@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "id": "kilnry.product.marble-lifestyle",
+  "name": "Marble Lifestyle",
+  "version": "1.0.0",
+  "description": "Editorial bathroom-counter still with morning window light and shallow depth of field. Reads as a magazine page, not a packshot.",
+  "category": "product_shot",
+  "kind": "image",
+  "capability": "text2image",
+  "model": {
+    "id": "fal-ai/bytedance/seedream/v4.5/text-to-image",
+    "locked": false,
+    "alternates": ["bytedance-seed/seedream-4.5"]
+  },
+  "prompt": "{{product}} on a white marble bathroom counter beside a folded linen towel and eucalyptus sprig, morning window light, shallow depth of field, editorial lifestyle, no text",
+  "negative_prompt": "harsh flash, text, watermark, clutter, duplicated product",
+  "params": {
+    "aspect_ratio": "4:5",
+    "resolution": "2K"
+  },
+  "slots": [
+    {
+      "name": "product",
+      "type": "character",
+      "label": "Product",
+      "required": true,
+      "kinds": ["prop"],
+      "help": "A product Element; it is injected as its @handle."
+    },
+    {
+      "name": "props",
+      "type": "text",
+      "label": "Extra props",
+      "default": "",
+      "max": 200,
+      "help": "e.g. 'a small ceramic dish and a folded flannel'"
+    }
+  ],
+  "medias": [],
+  "count": 1,
+  "indicative_cost_usd": 0.04,
+  "needs": ["fal", "openrouter"],
+  "tags": ["lifestyle", "marble", "editorial"],
+  "license": "CC0-1.0",
+  "author": "kilnry",
+  "target_folder_hint": "Product_Shots"
+}

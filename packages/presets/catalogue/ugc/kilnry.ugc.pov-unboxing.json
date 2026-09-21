@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "id": "kilnry.ugc.pov-unboxing",
+  "name": "POV Unboxing Clip",
+  "version": "1.0.0",
+  "description": "First-person hands opening a plain kraft box and lifting the product into daylight, no speech. Seedance 2.5 runs through OpenRouter.",
+  "category": "ugc",
+  "kind": "video",
+  "capability": "reference2video",
+  "model": {
+    "id": "bytedance/seedance-2.5",
+    "locked": false,
+    "alternates": ["minimax/hailuo-3", "bytedance/seedance-2.0/reference-to-video"],
+    "constraints": { "needs_audio": true, "duration_s": 5 }
+  },
+  "prompt": "First-person view, hands open a plain kraft box on a wooden desk, tissue paper lifts, {{product}} is revealed and raised into soft daylight, natural room sound, no speech",
+  "negative_prompt": "speech, captions, text, extra hands, warped label",
+  "params": {
+    "duration_s": 5,
+    "resolution": "480p",
+    "audio": true,
+    "aspect_ratio": "9:16"
+  },
+  "slots": [
+    {
+      "name": "product",
+      "type": "character",
+      "label": "Product",
+      "required": true,
+      "kinds": ["prop"],
+      "help": "A product Element; it is injected as its @handle."
+    },
+    {
+      "name": "desk",
+      "type": "enum",
+      "label": "Desk",
+      "options": ["wooden desk", "white desk", "kitchen table", "studio table"],
+      "default": "wooden desk"
+    }
+  ],
+  "medias": [],
+  "count": 1,
+  "indicative_cost_usd": 0.51,
+  "needs": ["fal", "openrouter"],
+  "tags": ["ugc", "unboxing", "pov"],
+  "license": "CC0-1.0",
+  "author": "kilnry"
+}

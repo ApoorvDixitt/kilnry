@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "id": "kilnry.ugc.hand-demo-clip",
+  "name": "Hand Demo Clip",
+  "version": "1.0.0",
+  "description": "A five second handheld clip of one hand picking the product up and turning it to camera. Starts from a still you already have.",
+  "category": "ugc",
+  "kind": "video",
+  "capability": "image2video",
+  "model": {
+    "id": "fal-ai/kling-video/v3/standard/image-to-video",
+    "locked": false,
+    "alternates": ["kwaivgi/kling-v3.0-std"],
+    "constraints": { "needs_audio": false, "duration_s": 5 }
+  },
+  "prompt": "Handheld phone video: a hand picks up {{product}} from {{surface}}, turns it toward the camera, thumb taps the cap, soft daylight, slight camera shake, real kitchen ambience",
+  "negative_prompt": "extra hands, morphing fingers, warped label, text, captions",
+  "params": {
+    "duration_s": 5,
+    "audio": false,
+    "resolution": "720p",
+    "aspect_ratio": "9:16"
+  },
+  "slots": [
+    {
+      "name": "product",
+      "type": "media",
+      "label": "Product image",
+      "required": true,
+      "roles": ["start_frame"],
+      "accept": ["image"],
+      "help": "An Element image or any still of the product; it becomes the first frame."
+    },
+    {
+      "name": "surface",
+      "type": "enum",
+      "label": "Surface",
+      "options": ["kitchen counter", "wooden desk", "bathroom shelf", "marble slab"],
+      "default": "kitchen counter"
+    }
+  ],
+  "medias": [{ "role": "start_frame", "from_slot": "product" }],
+  "count": 1,
+  "indicative_cost_usd": 0.42,
+  "needs": ["fal", "openrouter"],
+  "tags": ["ugc", "demo", "i2v"],
+  "license": "CC0-1.0",
+  "author": "kilnry"
+}

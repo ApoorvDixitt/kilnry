@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "id": "kilnry.ugc.on-my-desk",
+  "name": "On My Desk Still",
+  "version": "1.0.0",
+  "description": "A top-down phone photo of the product on a lived-in creator desk, warm lamp light. Reads as a real desk, not a set.",
+  "category": "ugc",
+  "kind": "image",
+  "capability": "text2image",
+  "model": {
+    "id": "google/gemini-3.1-flash-image",
+    "locked": false,
+    "alternates": ["fal-ai/nano-banana-2"]
+  },
+  "prompt": "{{product}} on a cluttered creator desk beside a laptop, coffee mug and notebook, top-down phone photo, warm lamp light, {{extra}}, no text",
+  "negative_prompt": "studio backdrop, text, watermark, duplicated product",
+  "params": {
+    "aspect_ratio": "4:5",
+    "resolution": "1K"
+  },
+  "slots": [
+    {
+      "name": "product",
+      "type": "character",
+      "label": "Product",
+      "required": true,
+      "kinds": ["prop"],
+      "help": "A product Element; it is injected as its @handle."
+    },
+    {
+      "name": "extra",
+      "type": "text",
+      "label": "Anything else",
+      "default": "",
+      "max": 200,
+      "help": "e.g. 'a pair of headphones just out of frame'"
+    }
+  ],
+  "medias": [],
+  "count": 1,
+  "indicative_cost_usd": 0.07,
+  "needs": ["fal", "openrouter"],
+  "tags": ["ugc", "desk", "flat-lay"],
+  "license": "CC0-1.0",
+  "author": "kilnry"
+}

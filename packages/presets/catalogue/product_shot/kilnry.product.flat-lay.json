@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "id": "kilnry.product.flat-lay",
+  "name": "Flat Lay Set",
+  "version": "1.0.0",
+  "description": "Top-down arrangement with balanced negative space at the top, so a headline can sit over it later.",
+  "category": "product_shot",
+  "kind": "image",
+  "capability": "text2image",
+  "model": {
+    "id": "fal-ai/bytedance/seedream/v4.5/text-to-image",
+    "locked": false,
+    "alternates": ["bytedance-seed/seedream-4.5"]
+  },
+  "prompt": "Top-down flat lay of {{product}} with {{items}} arranged on a {{surface}}, even soft light, balanced negative space for a headline at top, no text",
+  "negative_prompt": "text, watermark, tilted camera, harsh shadows",
+  "params": {
+    "aspect_ratio": "4:5",
+    "resolution": "2K"
+  },
+  "slots": [
+    {
+      "name": "product",
+      "type": "character",
+      "label": "Product",
+      "required": true,
+      "kinds": ["prop"],
+      "help": "A product Element; it is injected as its @handle."
+    },
+    {
+      "name": "items",
+      "type": "text",
+      "label": "Arranged with",
+      "default": "",
+      "max": 200,
+      "help": "e.g. 'a linen swatch, dried flowers and a glass jar'"
+    },
+    {
+      "name": "surface",
+      "type": "enum",
+      "label": "Surface",
+      "options": ["oak table", "white plaster", "grey linen", "terracotta tile"],
+      "default": "oak table"
+    }
+  ],
+  "medias": [],
+  "count": 1,
+  "indicative_cost_usd": 0.04,
+  "needs": ["fal", "openrouter"],
+  "tags": ["flat-lay", "top-down", "headline-space"],
+  "license": "CC0-1.0",
+  "author": "kilnry",
+  "target_folder_hint": "Product_Shots"
+}

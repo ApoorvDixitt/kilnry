@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "id": "kilnry.ugc.talking-head-9x16",
+  "name": "Talking Head 9:16",
+  "version": "1.0.0",
+  "description": "A creator speaks one line straight to camera in a bright apartment, with native audio. The cost doubles when the Character reaches the model as Elements.",
+  "category": "ugc",
+  "kind": "video",
+  "capability": "reference2video",
+  "model": {
+    "id": "fal-ai/kling-video/v3/pro/image-to-video",
+    "locked": false,
+    "alternates": ["bytedance/seedance-2.5"],
+    "constraints": { "needs_audio": true, "refs_count": 1, "min_resolution": "1080p" }
+  },
+  "prompt": "{{creator}} speaks directly to camera in a bright apartment, medium close-up, natural gestures, says: '{{line}}'. American English, casual tone, phone video look",
+  "negative_prompt": "captions, on-screen text, music, extra people",
+  "params": {
+    "aspect_ratio": "9:16",
+    "duration_s": 5,
+    "audio": true,
+    "resolution": "1080p"
+  },
+  "slots": [
+    {
+      "name": "creator",
+      "type": "character",
+      "label": "Creator",
+      "required": true,
+      "kinds": ["character"]
+    },
+    {
+      "name": "line",
+      "type": "text",
+      "label": "Line",
+      "required": true,
+      "max": 160,
+      "help": "What the creator says, at most 160 characters."
+    }
+  ],
+  "medias": [],
+  "count": 1,
+  "indicative_cost_usd": 0.84,
+  "needs": ["fal", "openrouter"],
+  "tags": ["ugc", "talking-head", "audio"],
+  "license": "CC0-1.0",
+  "author": "kilnry"
+}

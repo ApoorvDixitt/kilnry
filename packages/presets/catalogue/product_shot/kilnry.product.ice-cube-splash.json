@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "id": "kilnry.product.ice-cube-splash",
+  "name": "Ice Cube Splash",
+  "version": "1.0.0",
+  "description": "Hero product frozen mid-splash with ice and water, hard rim light, dark backdrop. Good for beverages, skincare, glassware.",
+  "category": "product_shot",
+  "kind": "image_edit",
+  "capability": "image_edit",
+  "model": {
+    "id": "fal-ai/bytedance/seedream/v4.5/edit",
+    "locked": false,
+    "alternates": ["bytedance-seed/seedream-4.5", "google/gemini-3.1-flash-image", "fal-ai/flux-2-pro/edit"],
+    "constraints": { "refs_count": 1 }
+  },
+  "prompt": "{{product}} frozen at the instant of a splash: clear ice cubes and arcing water droplets around it, sitting on {{surface}}, hard rim light with a {{accent}} accent glow from behind, dark seamless backdrop, commercial beverage photography, macro sharpness on the label, natural water refraction, no text, no watermark. {{extra}}",
+  "negative_prompt": "blurry, extra bottles, duplicated product, warped label, text, watermark, hands",
+  "params": {
+    "aspect_ratio": "1:1",
+    "resolution": "2K"
+  },
+  "slots": [
+    {
+      "name": "product",
+      "type": "media",
+      "label": "Product",
+      "required": true,
+      "roles": ["product"],
+      "accept": ["image"],
+      "help": "An Element or an image of the product on a plain background."
+    },
+    {
+      "name": "surface",
+      "type": "enum",
+      "label": "Surface",
+      "options": ["black slate", "wet concrete", "frosted glass", "brushed steel"],
+      "default": "black slate"
+    },
+    {
+      "name": "accent",
+      "type": "color",
+      "label": "Accent light",
+      "default": "#00A3FF"
+    },
+    {
+      "name": "extra",
+      "type": "text",
+      "label": "Anything else",
+      "default": "",
+      "max": 200
+    }
+  ],
+  "medias": [{ "role": "product", "from_slot": "product" }],
+  "count": 1,
+  "indicative_cost_usd": 0.04,
+  "needs": ["fal", "openrouter"],
+  "tags": ["beverage", "skincare", "splash", "dark"],
+  "license": "CC0-1.0",
+  "author": "kilnry",
+  "target_folder_hint": "Product_Shots"
+}

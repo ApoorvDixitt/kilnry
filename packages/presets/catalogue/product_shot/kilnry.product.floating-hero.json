@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "id": "kilnry.product.floating-hero",
+  "name": "Floating Hero",
+  "version": "1.0.0",
+  "description": "Campaign still: the product hangs in mid-air at a slight tilt with its ingredients suspended around it on a colour gradient.",
+  "category": "product_shot",
+  "kind": "image",
+  "capability": "text2image",
+  "model": {
+    "id": "google/gemini-3.1-flash-image",
+    "locked": false,
+    "alternates": ["fal-ai/nano-banana-2"]
+  },
+  "prompt": "{{product}} floating in mid-air at a slight tilt, {{ingredients}} suspended around it, {{bg}} gradient backdrop, studio rim light, high-end campaign still, no text",
+  "negative_prompt": "table, stand, text, watermark, warped label",
+  "params": {
+    "aspect_ratio": "4:5",
+    "resolution": "2K"
+  },
+  "slots": [
+    {
+      "name": "product",
+      "type": "character",
+      "label": "Product",
+      "required": true,
+      "kinds": ["prop"],
+      "help": "A product Element; it is injected as its @handle."
+    },
+    {
+      "name": "ingredients",
+      "type": "text",
+      "label": "Suspended around it",
+      "default": "",
+      "max": 200,
+      "help": "e.g. 'orange slices and mint leaves'"
+    },
+    {
+      "name": "bg",
+      "type": "color",
+      "label": "Gradient colour",
+      "default": "#0B1F2A"
+    }
+  ],
+  "medias": [],
+  "count": 1,
+  "indicative_cost_usd": 0.1,
+  "needs": ["fal", "openrouter"],
+  "tags": ["hero", "campaign", "gradient"],
+  "license": "CC0-1.0",
+  "author": "kilnry",
+  "target_folder_hint": "Product_Shots"
+}

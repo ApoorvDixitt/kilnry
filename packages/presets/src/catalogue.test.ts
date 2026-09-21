@@ -48,6 +48,62 @@ function shippedPresets(): Shipped[] {
 
 const presets = shippedPresets();
 
+// The seed catalogue PRD-09 §5 specifies, in its order: 5.1 UGC, 5.2 product
+// shot, 5.3 motion, 5.4 ads, 5.5 posters, 5.6 camera, 5.7 styles, 5.8
+// thumbnails. The identifier carries the category as the section names it, so
+// `kilnry.product.*` files sit in the `product_shot` folder.
+const SPECIFIED: ReadonlyArray<readonly [id: string, category: string]> = [
+  ['kilnry.ugc.creator-selfie', 'ugc'],
+  ['kilnry.ugc.hand-demo-clip', 'ugc'],
+  ['kilnry.ugc.pov-unboxing', 'ugc'],
+  ['kilnry.ugc.talking-head-9x16', 'ugc'],
+  ['kilnry.ugc.on-my-desk', 'ugc'],
+  ['kilnry.product.clean-packshot', 'product_shot'],
+  ['kilnry.product.ice-cube-splash', 'product_shot'],
+  ['kilnry.product.floating-hero', 'product_shot'],
+  ['kilnry.product.marble-lifestyle', 'product_shot'],
+  ['kilnry.product.hands-closeup', 'product_shot'],
+  ['kilnry.product.flat-lay', 'product_shot'],
+  ['kilnry.product.ghost-mannequin', 'product_shot'],
+  ['kilnry.motion.turntable-spin', 'motion'],
+  ['kilnry.motion.liquid-pour', 'motion'],
+  ['kilnry.motion.steam-rise', 'motion'],
+  ['kilnry.motion.fabric-flow', 'motion'],
+  ['kilnry.motion.logo-reveal', 'motion'],
+  ['kilnry.ads.square-headline-space', 'ads'],
+  ['kilnry.ads.side-by-side', 'ads'],
+  ['kilnry.ads.quote-card-bg', 'ads'],
+  ['kilnry.ads.carousel-slide', 'ads'],
+  ['kilnry.ads.story-9x16', 'ads'],
+  ['kilnry.poster.event-typographic', 'posters'],
+  ['kilnry.poster.minimal-object', 'posters'],
+  ['kilnry.poster.retro-travel', 'posters'],
+  ['kilnry.poster.cinematic-one-sheet', 'posters'],
+  ['kilnry.camera.dolly-in', 'camera'],
+  ['kilnry.camera.dolly-out', 'camera'],
+  ['kilnry.camera.orbit-360', 'camera'],
+  ['kilnry.camera.crash-zoom', 'camera'],
+  ['kilnry.camera.handheld-walk', 'camera'],
+  ['kilnry.camera.fpv-drone', 'camera'],
+  ['kilnry.camera.whip-pan', 'camera'],
+  ['kilnry.camera.top-down-crane', 'camera'],
+  ['kilnry.style.paper-cutout', 'styles'],
+  ['kilnry.style.claymation', 'styles'],
+  ['kilnry.style.editorial-collage', 'styles'],
+  ['kilnry.thumb.reaction-object', 'thumbnails'],
+  ['kilnry.thumb.before-after', 'thumbnails'],
+  ['kilnry.thumb.big-number', 'thumbnails'],
+];
+
+/** Which providers serve a model reference, by the registry the app ships. */
+function providersFor(ref: string): string[] {
+  const found = new Set<string>();
+  for (const model of registrySeed) {
+    if (model.model_id === ref || `${model.provider}/${model.model_id}` === ref) found.add(model.provider);
+  }
+  return [...found];
+}
+
 describe('the shipped preset catalogue (F-PRE-05)', () => {
   it('ships at least one preset', () => {
     expect(presets.length).toBeGreaterThan(0);
@@ -73,20 +129,46 @@ describe('the shipped preset catalogue (F-PRE-05)', () => {
   );
 
   it.each(presets.map((preset) => [`${preset.category}/${preset.fileName}`, preset] as const))(
-    'lets %s run with only a fal key and with only an OpenRouter key',
+    'names a route on both starter providers for %s',
     (_label, preset) => {
       const { preset: parsed } = validatePresetFile(preset.text, preset.fileName);
       expect(parsed?.needs).toContain('fal');
       expect(parsed?.needs).toContain('openrouter');
-      // A route can only be found if the model is chosen for the connected key.
-      expect(parsed?.model.id).toBe('auto');
-      expect((parsed?.model.alternates ?? []).length).toBeGreaterThan(0);
+      // The primary and its alternates must between them name a real model on
+      // fal and on OpenRouter, so neither starter key leaves the card unusable.
+      const refs = [parsed!.model.id, ...parsed!.model.alternates];
+      const providers = new Set(refs.flatMap((ref) => providersFor(ref)));
+      expect([...providers].sort(), `unknown or single-provider models: ${refs.join(', ')}`).toEqual(
+        expect.arrayContaining(['fal', 'openrouter']),
+      );
     },
   );
 
   it('gives every preset a unique identifier across the catalogue', () => {
     const ids = presets.map((preset) => preset.fileName);
     expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  // PRD-09 §5 names all forty seeds. Nothing else may ship, every file must sit
+  // in the folder the section puts it in, and once the count reaches forty the
+  // catalogue has to be the specified set exactly.
+  it('ships only presets PRD-09 §5 specifies, in the category it gives them', () => {
+    const expected = new Map(SPECIFIED);
+    for (const preset of presets) {
+      expect(expected.has(preset.fileName), `${preset.fileName} is not in PRD-09 §5`).toBe(true);
+      expect(expected.get(preset.fileName)).toBe(preset.category);
+    }
+  });
+
+  it('is the complete set of forty once every batch has landed', () => {
+    if (presets.length < SPECIFIED.length) {
+      // Batches land one commit at a time; report what is still missing.
+      const shipped = new Set(presets.map((preset) => preset.fileName));
+      const missing = SPECIFIED.filter(([id]) => !shipped.has(id)).map(([id]) => id);
+      expect(missing.length).toBe(SPECIFIED.length - presets.length);
+      return;
+    }
+    expect(presets.map((preset) => preset.fileName).sort()).toEqual(SPECIFIED.map(([id]) => id).sort());
   });
 });
 
@@ -105,15 +187,15 @@ describe('the preset loader (TRD-03 §4a)', () => {
   });
 
   it('finds one preset by its identifier', () => {
-    expect(getPreset('ice-cube-product-shot')?.category).toBe('product_shot');
+    expect(getPreset('kilnry.product.ice-cube-splash')?.category).toBe('product_shot');
     expect(getPreset('not-a-preset')).toBeUndefined();
   });
 
   it('lets a later source shadow a seed of the same identifier', () => {
     // The user folder is read after the seed, so an edited copy wins.
     const byId = loadPresets({ user: join(seedCatalogueRoot(), 'ugc') });
-    expect(byId.get('ugc-hook-talking-head')?.source).toBe('user');
-    expect(byId.get('ice-cube-product-shot')?.source).toBe('seed');
+    expect(byId.get('kilnry.ugc.creator-selfie')?.source).toBe('user');
+    expect(byId.get('kilnry.product.ice-cube-splash')?.source).toBe('seed');
   });
 });
 

@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "id": "kilnry.product.ghost-mannequin",
+  "name": "Ghost Mannequin",
+  "version": "1.0.0",
+  "description": "Apparel edit: the mannequin and any body are removed and the garment keeps the shape it had when worn, on pure white.",
+  "category": "product_shot",
+  "kind": "image_edit",
+  "capability": "image_edit",
+  "model": {
+    "id": "fal-ai/qwen-image-edit-2511",
+    "locked": false,
+    "alternates": ["fal-ai/bytedance/seedream/v4.5/edit", "qwen/qwen-image-3"],
+    "constraints": { "refs_count": 1 }
+  },
+  "prompt": "Edit image 1: remove the mannequin and any body, keep the garment's exact shape, fabric and print as if worn by an invisible form, pure white background, e-commerce apparel photo",
+  "negative_prompt": "mannequin, hands, face, wrinkled collapse, text, watermark",
+  "params": {
+    "aspect_ratio": "4:5",
+    "resolution": "2K"
+  },
+  "slots": [
+    {
+      "name": "garment",
+      "type": "media",
+      "label": "Garment photo",
+      "required": true,
+      "roles": ["reference"],
+      "accept": ["image"],
+      "help": "A photo of the garment on a mannequin or a model."
+    }
+  ],
+  "medias": [{ "role": "reference", "from_slot": "garment" }],
+  "count": 1,
+  "indicative_cost_usd": 0.03,
+  "needs": ["fal", "openrouter"],
+  "tags": ["apparel", "ghost-mannequin", "e-commerce"],
+  "license": "CC0-1.0",
+  "author": "kilnry",
+  "target_folder_hint": "Product_Shots"
+}

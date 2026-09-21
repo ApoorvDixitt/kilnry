@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "id": "kilnry.ugc.creator-selfie",
+  "name": "Creator Selfie Still",
+  "version": "1.0.0",
+  "description": "A creator holds the product at arm's length in phone-selfie framing, lit by a window. Good for the first frame of a hook or a plain endorsement still.",
+  "category": "ugc",
+  "kind": "image_edit",
+  "capability": "image_edit",
+  "model": {
+    "id": "fal-ai/bytedance/seedream/v4.5/edit",
+    "locked": false,
+    "alternates": ["bytedance-seed/seedream-4.5"]
+  },
+  "prompt": "{{creator}} holding {{product}} at arm's length, phone-selfie framing, natural window light, slightly imperfect skin texture, casual room behind, {{mood}} expression, 9:16, no text",
+  "negative_prompt": "studio lighting, retouched skin, text, watermark, extra hands",
+  "params": {
+    "aspect_ratio": "9:16",
+    "resolution": "1K"
+  },
+  "slots": [
+    {
+      "name": "creator",
+      "type": "character",
+      "label": "Creator",
+      "required": true,
+      "kinds": ["character"],
+      "help": "The Character whose likeness the resolver sends to the model."
+    },
+    {
+      "name": "product",
+      "type": "character",
+      "label": "Product",
+      "kinds": ["prop"],
+      "help": "A product Element; it is injected as its @handle."
+    },
+    {
+      "name": "mood",
+      "type": "enum",
+      "label": "Expression",
+      "options": ["relaxed smile", "excited", "mid-sentence", "neutral"],
+      "default": "relaxed smile"
+    }
+  ],
+  "medias": [],
+  "count": 1,
+  "indicative_cost_usd": 0.04,
+  "needs": ["fal", "openrouter"],
+  "tags": ["ugc", "selfie", "creator"],
+  "license": "CC0-1.0",
+  "author": "kilnry"
+}

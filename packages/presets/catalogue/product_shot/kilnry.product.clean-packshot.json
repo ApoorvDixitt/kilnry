@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "id": "kilnry.product.clean-packshot",
+  "name": "Clean Packshot",
+  "version": "1.0.0",
+  "description": "The plain catalogue shot: product centred on a seamless background with one soft box and a gentle contact shadow. No props, true colours.",
+  "category": "product_shot",
+  "kind": "image",
+  "capability": "text2image",
+  "model": {
+    "id": "fal-ai/bytedance/seedream/v4.5/text-to-image",
+    "locked": false,
+    "alternates": ["bytedance-seed/seedream-4.5"]
+  },
+  "prompt": "{{product}} centred on a seamless {{bg}} background, soft box lighting from top-left, gentle contact shadow, catalogue packshot, true colours, label sharp, no props, no text",
+  "negative_prompt": "props, text, watermark, harsh shadows, duplicated product",
+  "params": {
+    "aspect_ratio": "1:1",
+    "resolution": "2K"
+  },
+  "slots": [
+    {
+      "name": "product",
+      "type": "character",
+      "label": "Product",
+      "required": true,
+      "kinds": ["prop"],
+      "help": "A product Element; it is injected as its @handle."
+    },
+    {
+      "name": "bg",
+      "type": "enum",
+      "label": "Background",
+      "options": ["pure white", "light grey", "warm beige", "soft gradient"],
+      "default": "pure white"
+    }
+  ],
+  "medias": [],
+  "count": 1,
+  "indicative_cost_usd": 0.04,
+  "needs": ["fal", "openrouter"],
+  "tags": ["packshot", "catalogue", "clean"],
+  "license": "CC0-1.0",
+  "author": "kilnry",
+  "target_folder_hint": "Product_Shots"
+}
