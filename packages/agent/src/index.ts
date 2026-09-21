@@ -94,3 +94,15 @@ export {
   type PlannedCall,
   type ChatPreEstimate,
 } from './pre-estimate.js';
+
+export {
+  toFileParts,
+  downscaleToLongEdge,
+  MAX_IMAGE_EDGE_PX,
+  type Attachment,
+  type AttachmentCaps,
+  type AttachmentPart,
+  type AttachedAsset,
+  type ToFilePartsInput,
+  type ToFilePartsResult,
+} from './attachments.js';

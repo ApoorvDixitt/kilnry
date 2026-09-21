@@ -22,6 +22,7 @@ import {
   type ToolSet,
   type UIMessage,
 } from 'ai';
+import type { AttachmentPart } from './attachments.js';
 import {
   assembleInstructions,
   type Autonomy,
@@ -64,6 +65,8 @@ export interface ChatTurnInput {
   memoryBody?: string;
   /** Extra prompt variables the caller knows (characters, providers, today). */
   vars?: PromptVars;
+  /** Attachment parts to add to the newest user message (TRD-11 §8). */
+  attachmentParts?: AttachmentPart[];
   /** Which tools need the user's approval before they run (TRD-11 §5). */
   toolApproval?: Record<string, unknown>;
   /** Called at the end of each step with the step's token usage and cost. */
@@ -117,6 +120,25 @@ function priceLabel(price: LlmPrice): string {
 }
 
 /**
+ * Add the attachment parts to the newest user message, so the files the user
+ * attached arrive with the message they belong to (TRD-11 §8).
+ */
+export function withAttachments<T>(messages: T[], parts?: AttachmentPart[]): T[] {
+  if (!parts || parts.length === 0) return messages;
+  const out = [...messages];
+  for (let i = out.length - 1; i >= 0; i--) {
+    const entry = out[i] as { role?: string; content?: unknown } | undefined;
+    if (!entry || entry.role !== 'user') continue;
+    const content = Array.isArray(entry.content)
+      ? [...(entry.content as unknown[]), ...parts]
+      : [{ type: 'text', text: String(entry.content ?? '') }, ...parts];
+    out[i] = { ...entry, content } as T;
+    return out;
+  }
+  return out;
+}
+
+/**
  * Run one chat turn and return the streamed response (TRD-11 §1 steps 2 to 8).
  * Token cost is metered per step so the header and the Cost tab can follow the
  * spend as it happens.
@@ -134,7 +156,7 @@ export async function streamChatTurn(input: ChatTurnInput): Promise<Response> {
   const result = streamText({
     model: input.llm.model,
     instructions: turnInstructions(input),
-    messages: await convertToModelMessages(input.messages),
+    messages: withAttachments(await convertToModelMessages(input.messages), input.attachmentParts),
     tools: input.tools,
     stopWhen: [
       isStepCount(steps),

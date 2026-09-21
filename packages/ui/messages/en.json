@@ -571,7 +571,14 @@
     "approvalDenyHint": "Esc",
     "approvalAutoApprove": "Auto-approve under ${amount} for this session",
     "approvalDenied": "Denied. Ask for a different plan and the agent will suggest one.",
-    "approvalUnpriced": "not priced"
+    "approvalUnpriced": "not priced",
+    "attachLabel": "Attachments",
+    "attachHint": "Drag an asset from the Library, or paste an asset id.",
+    "attachDrop": "Drop to attach",
+    "attachRemove": "Remove {name}",
+    "attachCharacter": "character",
+    "attachAsset": "asset",
+    "attachNote": "The agent sees a character by reference and looks it up; it never receives a likeness directly."
   },
   "onboarding": {
     "checklistTitle": "Get started",

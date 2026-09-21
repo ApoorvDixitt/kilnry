@@ -92,6 +92,16 @@ function AssetTile({
         className={`asset-tile${item.sidecar_ok ? '' : ' is-orphan'}`}
         data-kind={item.kind}
         aria-label={item.path.split('/').at(-1) ?? item.id}
+        draggable
+        onDragStart={(event) => {
+          // Chat's attachment tray reads either payload (F-CHT-05).
+          event.dataTransfer.setData(
+            'application/x-kilnry-asset',
+            JSON.stringify({ asset_id: item.id, path: item.path, kind: item.kind }),
+          );
+          event.dataTransfer.setData('text/plain', item.id);
+          event.dataTransfer.effectAllowed = 'copy';
+        }}
         onMouseEnter={enter}
         onMouseLeave={leave}
         onClick={() => onOpen(item.id)}

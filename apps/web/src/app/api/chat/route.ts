@@ -20,12 +20,13 @@ import {
   registerChatTools,
   resolveModel,
   streamChatTurn,
+  toFileParts,
   type LlmProvider,
   type LlmRef,
   type LlmRegistryRow,
 } from '@kilnry/agent';
 import { loadConfig, loadRegistry } from '@kilnry/core';
-import { chatSessions, settings, spendLedger } from '@kilnry/db';
+import { assets as assetsTable, chatSessions, settings, spendLedger } from '@kilnry/db';
 import { adapters, detectOllama } from '@kilnry/providers';
 import { bundledSkillsRoot, promptLibraryRoot } from '@kilnry/skills';
 import { eq, sql } from 'drizzle-orm';
@@ -40,6 +41,9 @@ const Input = z.object({
   session_id: z.string().min(1),
   messages: z.array(z.unknown()),
   trigger: z.string().optional(),
+  attachments: z
+    .array(z.union([z.object({ asset_id: z.string() }), z.object({ handle: z.string() })]))
+    .optional(),
 });
 
 export async function POST(request: Request): Promise<Response> {
@@ -126,6 +130,29 @@ export async function POST(request: Request): Promise<Response> {
       preEstimate,
     });
 
+    // Attachments arrive as ids; the agent reads them through the Library and,
+    // when the model cannot see a file, analyses it first (TRD-11 §8).
+    const attached = await toFileParts({
+      attachments: input.attachments ?? [],
+      caps: { vision: llm.caps.vision, local: llm.local },
+      getAsset: async (assetId) => {
+        const rows = await services.database.db
+          .select()
+          .from(assetsTable)
+          .where(eq(assetsTable.id, assetId))
+          .limit(1);
+        const row = rows[0];
+        if (!row) return undefined;
+        return {
+          id: row.id,
+          path: row.path,
+          kind: (row.kind ?? 'other') as 'image' | 'video' | 'audio' | 'other',
+          mime: row.mime ?? 'application/octet-stream',
+        };
+      },
+      assetUrl: (assetId) => `http://127.0.0.1:${config.port}/api/media/${assetId}`,
+    });
+
     return streamChatTurn({
       session,
       messages: input.messages as never,
@@ -133,6 +160,7 @@ export async function POST(request: Request): Promise<Response> {
       promptsRoot: promptLibraryRoot(),
       tools,
       toolApproval,
+      ...(attached.parts.length > 0 ? { attachmentParts: attached.parts } : {}),
       generateMessageId: () => randomUUID(),
       onStepEnd: async ({ usage }) => {
         await meterStep(

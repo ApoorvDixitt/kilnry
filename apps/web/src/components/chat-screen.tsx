@@ -18,6 +18,7 @@ import { useChat } from '@ai-sdk/react';
 import { DefaultChatTransport, lastAssistantMessageIsCompleteWithApprovalResponses } from 'ai';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { message } from '../lib/messages';
+import { attachmentKey, ChatAttachmentTray, type ChatAttachment } from './chat-attachment-tray';
 import {
   ApprovalCard,
   groupToolCalls,
@@ -193,6 +194,7 @@ export function ChatScreen({
         : '',
   );
   const [draft, setDraft] = useState('');
+  const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const dragging = useRef(false);
 
   const transport = useMemo(
@@ -256,7 +258,14 @@ export function ChatScreen({
     const text = draft.trim();
     if (text === '') return;
     setDraft('');
-    void sendMessage({ text });
+    // Attachments travel as ids: the agent resolves them through the Library.
+    const body = {
+      attachments: attachments.map((attachment) =>
+        attachment.kind === 'asset' ? { asset_id: attachment.asset_id } : { handle: attachment.handle },
+      ),
+    };
+    setAttachments([]);
+    void sendMessage({ text }, { body });
   }
 
   const busy = status === 'submitted' || status === 'streaming';
@@ -325,24 +334,39 @@ export function ChatScreen({
             ) : null}
           </div>
           <form className="chat-composer" onSubmit={submit}>
-            <label className="chat-composer-field">
-              <span className="chat-visually-hidden">{message('chat.composerPlaceholder')}</span>
-              <textarea
-                rows={2}
-                value={draft}
-                placeholder={message('chat.composerPlaceholder')}
-                onChange={(event) => setDraft(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' && !event.shiftKey) {
-                    event.preventDefault();
-                    event.currentTarget.form?.requestSubmit();
-                  }
-                }}
-              />
-            </label>
-            <button type="submit" disabled={busy || draft.trim() === ''}>
-              {message('chat.send')}
-            </button>
+            <ChatAttachmentTray
+              attachments={attachments}
+              onAdd={(attachment) =>
+                setAttachments((current) =>
+                  current.some((entry) => attachmentKey(entry) === attachmentKey(attachment))
+                    ? current
+                    : [...current, attachment],
+                )
+              }
+              onRemove={(key) =>
+                setAttachments((current) => current.filter((entry) => attachmentKey(entry) !== key))
+              }
+            />
+            <div className="chat-composer-row">
+              <label className="chat-composer-field">
+                <span className="chat-visually-hidden">{message('chat.composerPlaceholder')}</span>
+                <textarea
+                  rows={2}
+                  value={draft}
+                  placeholder={message('chat.composerPlaceholder')}
+                  onChange={(event) => setDraft(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' && !event.shiftKey) {
+                      event.preventDefault();
+                      event.currentTarget.form?.requestSubmit();
+                    }
+                  }}
+                />
+              </label>
+              <button type="submit" disabled={busy || draft.trim() === ''}>
+                {message('chat.send')}
+              </button>
+            </div>
           </form>
         </section>
 
