@@ -123,6 +123,25 @@ function falPayload(request: CanonicalRequest): Record<string, unknown> {
   return { ...extra, ...payload };
 }
 
+// A training submit uses a different shape from generation: the zipped images,
+// the trigger word and the step count (F-CHR-07, TRD-14 §10.1). The orchestrator
+// uploads the zip and passes its URL plus the training options in params.extra.
+function falTrainingPayload(request: CanonicalRequest): Record<string, unknown> {
+  const extra = { ...(request.params.extra ?? {}) };
+  delete extra.model;
+  delete extra.route_why;
+  return extra;
+}
+
+// The LoRA file a completed fal training returns.
+function falTrainingOutput(body: Record<string, unknown>): ProviderOutput[] {
+  const file = body.diffusers_lora_file;
+  if (typeof file === 'object' && file !== null && 'url' in file && typeof file.url === 'string') {
+    return [{ kind: 'json', url: file.url, mime: 'application/octet-stream' }];
+  }
+  return [];
+}
+
 function outputs(body: Record<string, unknown>): ProviderOutput[] {
   const result: ProviderOutput[] = [];
   if (Array.isArray(body.images)) {
@@ -218,7 +237,8 @@ export const falAdapter: ProviderAdapter = {
     const model = request.params.extra?.model;
     if (typeof model !== 'string' || !model)
       throw new KilnryError('INVALID_INPUT', 'A fal model id is required.');
-    const payload = falPayload(request);
+    const training = request.capability === 'train_lora' || request.capability === 'train_identity';
+    const payload = training ? falTrainingPayload(request) : falPayload(request);
     const response = await requestJson<FalSubmit>({
       provider: 'fal',
       fetch: context.fetch,
@@ -296,11 +316,17 @@ export const falAdapter: ProviderAdapter = {
       init: { headers: headers(context.key) },
     });
     const parsed = outputs(body);
-    if (parsed.length === 0)
+    if (parsed.length === 0) {
+      // A LoRA training completes with a diffusers file rather than images
+      // (F-CHR-07); surface it as a JSON output the orchestrator downloads.
+      const trained = falTrainingOutput(body);
+      if (trained.length > 0)
+        return { state: 'completed', result: { outputs: trained, raw_redacted: redact(body) } };
       throw new KilnryError('PROVIDER_ERROR', 'fal completed without a downloadable output.', {
         provider: 'fal',
         retryable: true,
       });
+    }
     return { state: 'completed', result: { outputs: parsed, raw_redacted: redact(body) } };
   },
   async cancel(handle, context) {

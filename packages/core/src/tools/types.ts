@@ -50,6 +50,31 @@ export interface ToolServices {
   // passes the reader in, which also lets a test hand over a small catalogue.
   // Absent means no presets are installed and listing returns an empty set.
   presets?: PresetCatalogueServices;
+  // Identity training for the kilnry_characters_manage.train action (F-CHR-07).
+  // Supplied by the caller (the web app) because it needs provider keys, the
+  // adapters and the on-disk identities folder; absent means training is not
+  // available on this surface and the action returns not-available.
+  training?: TrainingRunner;
+}
+
+/** What the train action needs: consent-gated identity training. */
+export interface TrainingRunner {
+  start(input: {
+    handle: string;
+    trainer: 'fal' | 'replicate' | 'higgsfield';
+    steps?: number;
+    trigger_word?: string;
+    confirmed_cost_usd: number;
+    cost_usd?: number;
+  }): Promise<{
+    identity_id: string;
+    provider: string;
+    kind: string;
+    status: 'ready' | 'failed';
+    local_path?: string;
+    remote_id?: string;
+    error?: string;
+  }>;
 }
 
 /** What the presets tool needs: the catalogue, and a preset filled in. */

@@ -4151,6 +4151,26 @@ html[data-motion='reduced'] *::after {
   padding: 8px 0;
   border-top: 1px solid var(--border);
 }
+.character-trainer-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+.character-trainer-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+.character-trainer-card h4 {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text);
+}
 .character-usage-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));

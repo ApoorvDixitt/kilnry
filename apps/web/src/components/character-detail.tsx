@@ -34,6 +34,38 @@ export function CharacterDetail({ handle }: { handle: string }): React.ReactNode
   const [error, setError] = useState<string>();
   const [sheet, setSheet] = useState<SheetState>({ steps: [], runId: null, status: null });
   const [building, setBuilding] = useState(false);
+  const [training, setTraining] = useState<string | null>(null);
+  const [trainError, setTrainError] = useState<string>();
+
+  // Train a hosted identity on the chosen provider (F-CHR-07). The button is only
+  // enabled once consent is recorded, so this call is never made blind; the cost
+  // is confirmed here and the server asserts consent again.
+  const train = useCallback(
+    (trainer: 'fal' | 'replicate' | 'higgsfield', costUsd: number) => {
+      setTraining(trainer);
+      setTrainError(undefined);
+      void apiFetch('/api/characters/manage', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'train', handle, trainer, confirm_cost_usd: costUsd }),
+      })
+        .then((response) =>
+          response.ok
+            ? (response.json() as Promise<{ item?: FullCharacterView }>)
+            : response.json().then((body: { error?: { message?: string } }) => {
+                throw new Error(body.error?.message ?? message('characters.detail.trainFailed'));
+              }),
+        )
+        .then((body) => {
+          if (body.item) setItem(body.item);
+        })
+        .catch((cause: unknown) =>
+          setTrainError(cause instanceof Error ? cause.message : message('characters.detail.trainFailed')),
+        )
+        .finally(() => setTraining(null));
+    },
+    [handle],
+  );
 
   const buildSheet = useCallback(() => {
     setBuilding(true);
@@ -257,15 +289,54 @@ export function CharacterDetail({ handle }: { handle: string }): React.ReactNode
                 </div>
               ))
             )}
-            <button
-              className="btn primary"
-              type="button"
-              disabled
-              title={message('characters.detail.trainDisabled')}
-            >
-              {message('characters.detail.train')}
-            </button>
-            <p className="muted">{message('characters.detail.trainDisabled')}</p>
+            <div className="character-trainer-cards">
+              {(
+                [
+                  { trainer: 'fal', label: message('characters.detail.trainerFal'), cost: 2, price: '$2.00' },
+                  {
+                    trainer: 'replicate',
+                    label: message('characters.detail.trainerReplicate'),
+                    cost: 1.46,
+                    price: '$1.46',
+                  },
+                  {
+                    trainer: 'higgsfield',
+                    label: message('characters.detail.trainerHiggsfield'),
+                    cost: 2.5,
+                    price: '$2.50',
+                  },
+                ] as const
+              ).map((card) => {
+                // Training a real person needs consent recorded first (F-CHR-07
+                // acceptance 1); the button explains why it is disabled.
+                const consentBlocks = item.is_real_person && !consentSatisfiedView(item);
+                return (
+                  <div key={card.trainer} className="character-trainer-card">
+                    <h4>{card.label}</h4>
+                    <button
+                      className="btn primary"
+                      type="button"
+                      disabled={training !== null || consentBlocks}
+                      title={
+                        consentBlocks
+                          ? message('characters.detail.trainNeedsConsent')
+                          : format(message('characters.detail.trainWithPrice'), { price: card.price })
+                      }
+                      onClick={() => train(card.trainer, card.cost)}
+                    >
+                      {training === card.trainer
+                        ? message('characters.detail.training')
+                        : format(message('characters.detail.trainWithPrice'), { price: card.price })}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+            {trainError ? (
+              <p className="characters-error" role="alert">
+                {trainError}
+              </p>
+            ) : null}
           </div>
         </section>
       ) : null}

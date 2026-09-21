@@ -29,6 +29,7 @@ import { characters } from '@kilnry/db';
 import { eq } from 'drizzle-orm';
 import { assertMayMutate, errorResponse, requireSessionOrBearer } from '../../../../server/http';
 import { runtimeServices } from '../../../../server/runtime';
+import { trainingRunner } from '../../../../server/training';
 import { sheetEngine, sheetSink } from '../../../../server/sheet-sink';
 
 const Kind = z.enum(['character', 'prop', 'environment', 'style']);
@@ -44,6 +45,7 @@ const Body = z.object({
     'set_consent',
     'set_appearance',
     'set_current',
+    'train',
     'add_state_variant',
     'build_sheet',
     'approve_sheet',
@@ -57,6 +59,10 @@ const Body = z.object({
   tags: z.array(z.string()).max(20).optional(),
   is_real_person: z.boolean().optional(),
   version: z.number().int().positive().optional(),
+  trainer: z.enum(['fal', 'replicate', 'higgsfield']).optional(),
+  steps: z.number().int().min(500).max(2000).optional(),
+  trigger_word: z.string().optional(),
+  confirm_cost_usd: z.number().optional(),
   appearance: z
     .object({
       descriptor: z.string().max(2000).optional(),
@@ -181,6 +187,24 @@ export async function POST(request: Request): Promise<Response> {
       // Point the switcher at any existing version (F-CHR-10, PRD-07 §11).
       if (body.version === undefined) throw new KilnryError('INVALID_INPUT', 'A version is required.');
       await setCurrentVersion(db, head.id, body.version);
+    } else if (body.action === 'train') {
+      // Train a hosted identity behind the consent gate (F-CHR-07). The cost must
+      // be acknowledged; consent is asserted inside the orchestrator so a real
+      // person's likeness never trains without a record.
+      if (body.confirm_cost_usd === undefined) {
+        throw new KilnryError('CONFIRMATION_REQUIRED', 'Confirm the training cost before training.');
+      }
+      const runner = await trainingRunner();
+      const identity = await runner.start({
+        handle: head.handle,
+        trainer: body.trainer ?? 'fal',
+        confirmed_cost_usd: body.confirm_cost_usd,
+        cost_usd: body.confirm_cost_usd,
+        ...(body.steps !== undefined ? { steps: body.steps } : {}),
+        ...(body.trigger_word !== undefined ? { trigger_word: body.trigger_word } : {}),
+      });
+      const item = await loadFullCharacter(db, head.handle);
+      return NextResponse.json({ item, identity });
     } else if (body.action === 'set_consent') {
       if (!body.consent) throw new KilnryError('INVALID_INPUT', 'Consent details are required.');
       await setConsent(db, head.id, body.consent);

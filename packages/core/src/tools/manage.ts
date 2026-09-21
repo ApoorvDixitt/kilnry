@@ -203,6 +203,9 @@ export const charactersManageTool: KilnryTool = {
         evidence_asset_id: z.string().optional(),
       })
       .optional(),
+    trainer: z.enum(['fal', 'replicate', 'higgsfield']).optional(),
+    steps: z.number().int().min(500).max(2000).optional(),
+    trigger_word: z.string().optional(),
     confirm_cost_usd: z.number().optional(),
   },
   outputSchema: {
@@ -263,12 +266,47 @@ export const charactersManageTool: KilnryTool = {
     }
 
     if (action === 'train') {
-      // Training spends and needs consent; it returns confirmation-required
-      // until consent is set and a cost is acknowledged (F-MCP-06 tightens this).
-      return toolError(
-        'CONFIRMATION_REQUIRED',
-        'Training needs consent set and an acknowledged cost; it arrives in a later milestone.',
-      );
+      // Training spends and needs consent (F-CHR-07, §9). The cost must be
+      // acknowledged first, so an unconfirmed call always returns
+      // confirmation-required; consent is asserted inside startTraining so a real
+      // person's likeness never trains blind.
+      const handle = typeof input.handle === 'string' ? input.handle : '';
+      if (!handle) return toolError('INVALID_INPUT', 'Training needs a handle.');
+      const trainer =
+        input.trainer === 'replicate' || input.trainer === 'higgsfield'
+          ? (input.trainer as 'replicate' | 'higgsfield')
+          : 'fal';
+      const confirmed = typeof input.confirm_cost_usd === 'number' ? input.confirm_cost_usd : undefined;
+      if (confirmed === undefined) {
+        return toolError(
+          'CONFIRMATION_REQUIRED',
+          `Confirm the training cost with confirm_cost_usd to train @${handle.replace(/^@/, '')} on ${trainer}.`,
+        );
+      }
+      if (!services.training) {
+        return toolError('NO_PROVIDER', 'Training is not available on this connection.');
+      }
+      try {
+        const result = await services.training.start({
+          handle,
+          trainer,
+          confirmed_cost_usd: confirmed,
+          cost_usd: confirmed,
+          ...(typeof input.steps === 'number' ? { steps: input.steps } : {}),
+          ...(typeof input.trigger_word === 'string' ? { trigger_word: input.trigger_word } : {}),
+        });
+        if (result.status === 'failed') {
+          return toolError('PROVIDER_ERROR', result.error ?? 'The training failed.');
+        }
+        return {
+          text: `Trained @${handle.replace(/^@/, '')} on ${result.provider} (${result.kind}).`,
+          structuredContent: { item: { identity: result } },
+        };
+      } catch (error) {
+        const code =
+          error && typeof error === 'object' && 'code' in error ? String(error.code) : 'PROVIDER_ERROR';
+        return toolError(code, error instanceof Error ? error.message : 'The training could not start.');
+      }
     }
 
     return toolError('NO_PROVIDER', `The ${action} action arrives in a later milestone.`);
