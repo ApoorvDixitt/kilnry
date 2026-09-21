@@ -9,12 +9,12 @@
 // card draws — the model tag, the indicative cost, whether a key is still
 // missing, and whether the price behind that cost has gone stale.
 
-import { join } from 'node:path';
 import { NextResponse } from 'next/server';
-import { listProviders, loadConfig, registrySeed } from '@kilnry/core';
+import { listProviders, registrySeed } from '@kilnry/core';
 import { listPresets } from '@kilnry/presets';
 import { adapters } from '@kilnry/providers';
 import { errorResponse, requireSession } from '../../../server/http';
+import { presetRoots } from '../../../server/presets';
 import { runtimeServices } from '../../../server/runtime';
 
 export interface PresetCardRow {
@@ -64,11 +64,7 @@ export async function GET(): Promise<Response> {
     const summaries = await listProviders(services.database, adapters);
     const connected = new Set(summaries.filter((row) => row.connected).map((row) => row.id));
     const stale = new Set(summaries.filter((row) => row.price_stale).map((row) => row.id));
-    const config = await loadConfig();
-
-    const rows: PresetCardRow[] = listPresets({
-      user: join(config.data_dir, 'presets'),
-    }).map((entry) => {
+    const rows: PresetCardRow[] = listPresets(await presetRoots()).map((entry) => {
       const preset = entry.preset;
       const refs = preset ? [preset.model.id, ...preset.model.alternates] : [];
       const provider = preset ? modelProvider(preset.model.id) : undefined;

@@ -10,13 +10,13 @@
 // price still comes from the one estimator every other spend goes through
 // (D-26). Nothing is charged by this route; it only prices.
 
-import { join } from 'node:path';
 import { NextResponse } from 'next/server';
-import { KilnryError, listProviders, loadConfig, registrySeed } from '@kilnry/core';
+import { KilnryError, listProviders, registrySeed } from '@kilnry/core';
 import { chooseModel, getPreset, renderPreset, usesCharacterAnchor } from '@kilnry/presets';
 import { adapters } from '@kilnry/providers';
 import * as z from 'zod';
 import { errorResponse, requireSession } from '../../../../../server/http';
+import { presetRoots } from '../../../../../server/presets';
 import { canonicalGeneration, GenerationInput } from '../../../../../server/generation-input';
 import { ensureRuntimeEngine, runtimeServices } from '../../../../../server/runtime';
 
@@ -48,8 +48,7 @@ export async function POST(
     await requireSession();
     const { id } = await context.params;
     const input = ResolveInput.parse(await request.json());
-    const config = await loadConfig();
-    const entry = getPreset(id, { user: join(config.data_dir, 'presets') });
+    const entry = getPreset(id, await presetRoots());
     if (!entry || !entry.preset) {
       throw new KilnryError('NOT_FOUND', `No preset called ${id} is installed.`);
     }

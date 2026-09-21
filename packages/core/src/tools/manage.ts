@@ -24,6 +24,7 @@ import { importSources } from '../library/import.js';
 import { indexAsset } from '../library/index.js';
 import { resolveInRoot } from '../library/containment.js';
 import { sidecarPath } from '../library/sidecar.js';
+import { confirmationDecision } from '../budget/confirmation.js';
 import { toolError, type KilnryTool, type ToolResult, type ToolServices } from './types.js';
 
 const MediaRef = z.string();
@@ -278,23 +279,130 @@ export const charactersManageTool: KilnryTool = {
 export const presetsTool: KilnryTool = {
   name: 'kilnry_presets',
   description:
-    'Browse and run presets: list by category or query, get one, or run it with inputs. Running a preset spends and estimates first. Returns the presets with their indicative cost and slots, or the jobs a run started. Presets themselves arrive in a later milestone, so listing returns an empty set for now.',
+    'Browse and run presets: list by category or query, get one, or run it with inputs. Running a preset spends and estimates first. Returns the presets with their indicative cost and slots, or the jobs a run started.',
   inputSchema: {
     action: z.enum(['list', 'get', 'run']).default('list'),
     category: z.string().optional(),
     query: z.string().optional(),
     preset_id: z.string().optional(),
+    inputs: z.record(z.string(), z.union([z.string(), z.number()])).optional(),
+    target_folder: z.string().optional(),
     confirm_cost_usd: z.number().optional(),
   },
   outputSchema: {
     presets: z.array(z.record(z.string(), z.unknown())).optional(),
+    needs_confirmation: z.boolean().optional(),
+    total_estimate_usd: z.number().optional(),
+    jobs: z.array(z.record(z.string(), z.unknown())).optional(),
     error: z.record(z.string(), z.unknown()).optional(),
   },
   annotations: { readOnlyHint: false, openWorldHint: true },
-  async execute(input): Promise<ToolResult> {
+  async execute(input, services): Promise<ToolResult> {
     const action = typeof input.action === 'string' ? input.action : 'list';
-    if (action === 'list') return { text: 'No presets yet.', structuredContent: { presets: [] } };
-    return toolError('NO_PROVIDER', 'Presets arrive in a later milestone.');
+    const catalogue = services.presets;
+    if (!catalogue) {
+      return action === 'list'
+        ? { text: 'No presets are installed.', structuredContent: { presets: [] } }
+        : toolError('NOT_FOUND', 'No preset catalogue is available.');
+    }
+
+    if (action === 'list') {
+      const found = catalogue.list({
+        ...(typeof input.category === 'string' ? { category: input.category } : {}),
+        ...(typeof input.query === 'string' ? { query: input.query } : {}),
+      });
+      return {
+        text:
+          found.length === 0
+            ? 'No presets match that.'
+            : `${found.length} preset(s): ${found
+                .slice(0, 8)
+                .map((preset) => preset.id)
+                .join(', ')}${found.length > 8 ? ', …' : ''}`,
+        structuredContent: { presets: found as unknown as Array<Record<string, unknown>> },
+      };
+    }
+
+    const presetId = typeof input.preset_id === 'string' ? input.preset_id : '';
+    if (presetId === '') return toolError('INVALID_INPUT', 'Name the preset with preset_id.');
+
+    if (action === 'get') {
+      const preset = catalogue.get(presetId);
+      if (!preset) return toolError('NOT_FOUND', `No preset called ${presetId} is installed.`);
+      return {
+        text: `${preset.name} (${preset.category}): ${preset.description}`,
+        structuredContent: { presets: [preset as unknown as Record<string, unknown>] },
+      };
+    }
+
+    // run: fill the preset in, price it through the engine, and only then spend.
+    if (!services.engine) return toolError('NO_PROVIDER', 'The job engine is not running.');
+    const values = (input.inputs ?? {}) as Record<string, string | number>;
+    const resolved = catalogue.resolve(presetId, values);
+    if (!resolved) return toolError('NOT_FOUND', `No preset called ${presetId} is installed.`);
+    if (resolved.missing.length > 0) {
+      return toolError('INVALID_INPUT', `Fill these inputs first: ${resolved.missing.join(', ')}.`);
+    }
+
+    const request = {
+      kind: resolved.kind,
+      prompt: resolved.prompt,
+      ...(resolved.negative_prompt === undefined ? {} : { negative_prompt: resolved.negative_prompt }),
+      ...(resolved.model === 'auto' ? {} : { model: resolved.model }),
+      params: resolved.params,
+      medias: resolved.medias.map((media) => ({ role: media.role, asset_id: media.ref })),
+      count: resolved.count,
+      injections: [],
+      target_folder: input.target_folder ?? resolved.target_folder ?? 'inbox',
+      source: 'preset',
+    };
+
+    let estimateUsd: number;
+    try {
+      const priced = await services.engine.estimate(request as never, {});
+      estimateUsd = priced.estimate.authoritative_usd ?? priced.estimate.estimate_usd;
+    } catch (error) {
+      const code =
+        error && typeof error === 'object' && 'code' in error ? String(error.code) : 'PROVIDER_ERROR';
+      return toolError(code, error instanceof Error ? error.message : 'Could not price that preset.');
+    }
+
+    // The same money round trip every spending tool makes (F-MCP-06).
+    const decision = confirmationDecision({
+      estimateUsd,
+      confirmCostUsd: typeof input.confirm_cost_usd === 'number' ? input.confirm_cost_usd : undefined,
+      autoApproveBelowUsd: services.autoApproveBelowUsd,
+    });
+    if (!decision.proceed) {
+      return {
+        text: `About $${estimateUsd.toFixed(2)} to run ${presetId}. Confirm to run.`,
+        structuredContent: {
+          needs_confirmation: true,
+          total_estimate_usd: Number(estimateUsd.toFixed(4)),
+          jobs: [{ preset_id: presetId, estimate_usd: estimateUsd, status: 'estimated' }],
+        },
+      };
+    }
+
+    try {
+      const job = await services.engine.createJob({
+        request: request as never,
+        confirmed_cost_usd: estimateUsd,
+        confirmed_by: 'mcp',
+        preset_id: presetId,
+      });
+      return {
+        text: `Running ${presetId} for about $${estimateUsd.toFixed(2)}.`,
+        structuredContent: {
+          total_estimate_usd: Number(estimateUsd.toFixed(4)),
+          jobs: [{ preset_id: presetId, job_id: job.job_id, estimate_usd: job.estimate.estimate_usd }],
+        },
+      };
+    } catch (error) {
+      const code =
+        error && typeof error === 'object' && 'code' in error ? String(error.code) : 'PROVIDER_ERROR';
+      return toolError(code, error instanceof Error ? error.message : 'Could not start that preset.');
+    }
   },
 };
 

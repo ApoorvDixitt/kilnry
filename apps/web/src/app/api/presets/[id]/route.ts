@@ -7,11 +7,11 @@
 // slots in order, the model chip and its alternates, the parameters — which the
 // catalogue list deliberately does not carry.
 
-import { join } from 'node:path';
 import { NextResponse } from 'next/server';
-import { KilnryError, loadConfig } from '@kilnry/core';
+import { KilnryError } from '@kilnry/core';
 import { getPreset } from '@kilnry/presets';
 import { errorResponse, requireSession } from '../../../../server/http';
+import { presetRoots } from '../../../../server/presets';
 
 export async function GET(
   _request: Request,
@@ -20,8 +20,7 @@ export async function GET(
   try {
     await requireSession();
     const { id } = await context.params;
-    const config = await loadConfig();
-    const entry = getPreset(id, { user: join(config.data_dir, 'presets') });
+    const entry = getPreset(id, await presetRoots());
     if (!entry || !entry.preset) {
       throw new KilnryError('NOT_FOUND', `No preset called ${id} is installed.`);
     }

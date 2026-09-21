@@ -6,6 +6,7 @@
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { SaveAsPreset, type ComposerSnapshot } from './save-as-preset';
 import { AnimatePresence, motion } from 'motion/react';
 import { apiFetch } from '../lib/api-client';
 import { message } from '../lib/messages';
@@ -78,6 +79,8 @@ export function CreateComposer({ editAssetId = null }: { editAssetId?: string | 
   const [budgets, setBudgets] = useState<BudgetLine[]>([]);
   const [seed, setSeed] = useState<{ token: number; prompt: string }>();
   const [edit, setEdit] = useState<EditSource | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [snapshot, setSnapshot] = useState<ComposerSnapshot | null>(null);
   const editRef = useRef<EditSource | null>(null);
   const lastState = useRef<ReturnType<typeof toEstimatePayload> | null>(null);
   const lastPrompt = useRef('');
@@ -135,6 +138,16 @@ export function CreateComposer({ editAssetId = null }: { editAssetId?: string | 
       .catch(() => setBudgets([]));
   }, []);
 
+  // A preset handed over from its drawer arrives as query parameters, so the
+  // composer opens already filled in (PRD-09 §2 acceptance 3).
+  useEffect(() => {
+    const query = new URLSearchParams(window.location.search);
+    const prompt = query.get('prompt');
+    if (prompt === null || prompt === '') return;
+    setSeed({ token: Date.now(), prompt });
+    window.history.replaceState(null, '', '/create');
+  }, []);
+
   // Re-price on every composer change, debounced, using the engine's estimate
   // route. The interface never computes a price itself.
   const onStateChange = useCallback(
@@ -153,6 +166,15 @@ export function CreateComposer({ editAssetId = null }: { editAssetId?: string | 
       const payload = toEstimatePayload(state, editRef.current);
       lastState.current = payload;
       lastPrompt.current = state.prompt;
+      // What "Save as preset" would turn into a file (F-CRE-12).
+      setSnapshot({
+        prompt: state.prompt,
+        model: state.model,
+        kind: (payload.kind as string) ?? 'image',
+        params: (payload.params as Record<string, unknown>) ?? {},
+        count: state.params.count,
+        medias: (payload.medias as Array<{ role: string; asset_id?: string }>) ?? [],
+      });
       if (debounce.current) clearTimeout(debounce.current);
       debounce.current = setTimeout(() => {
         void apiFetch('/api/estimate', {
@@ -370,6 +392,20 @@ export function CreateComposer({ editAssetId = null }: { editAssetId?: string | 
         )}
         {loadError ? <p className="form-error">{loadError}</p> : null}
       </div>
+      {snapshot === null || snapshot.prompt.trim() === '' ? null : (
+        <button type="button" className="create-save-preset" onClick={() => setSaving(true)}>
+          {message('presets.saveTitle')}
+        </button>
+      )}
+      {saving && snapshot !== null ? (
+        <SaveAsPreset
+          snapshot={{
+            ...snapshot,
+            ...(tiles[0]?.assetId === undefined ? {} : { exampleAssetId: tiles[0].assetId }),
+          }}
+          onClose={() => setSaving(false)}
+        />
+      ) : null}
       <Composer
         models={models}
         estimate={estimate}

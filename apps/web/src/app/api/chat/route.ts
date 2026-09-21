@@ -33,6 +33,7 @@ import { eq, sql } from 'drizzle-orm';
 import { NextResponse } from 'next/server';
 import * as z from 'zod';
 import { errorResponse, requireSession } from '../../../server/http';
+import { presetServices } from '../../../server/presets';
 import { ensureRuntimeEngine, runtimeServices } from '../../../server/runtime';
 
 export const maxDuration = 300;
@@ -105,6 +106,7 @@ export async function POST(request: Request): Promise<Response> {
         ...(config.library_root ? { libraryRoot: config.library_root } : {}),
         ...(openrouterKey ? { openrouterKey } : {}),
         skillsRoots: { bundled: bundledSkillsRoot() },
+        presets: await presetServices(),
       },
       chatSessionId: session.id,
     });

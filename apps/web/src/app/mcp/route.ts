@@ -16,6 +16,7 @@ import { join } from 'node:path';
 import { KILNRY_TOOLS, libraryMarker, loadConfig } from '@kilnry/core';
 import { adapters } from '@kilnry/providers';
 import { authenticateMcp, isAllowedMcpHost } from '../../server/mcp';
+import { presetServices } from '../../server/presets';
 import { ensureRuntimeEngine, runtimeServices } from '../../server/runtime';
 
 // Next must run this on the Node.js runtime (the transport and token store use
@@ -61,6 +62,7 @@ async function handle(request: Request): Promise<Response> {
       ...(marker ? { libraryId: marker.library_id } : {}),
       ...(openrouterKey ? { openrouterKey } : {}),
       skillsRoots: { bundled: join(config.data_dir, 'skills') },
+      presets: await presetServices(),
     },
   });
 }

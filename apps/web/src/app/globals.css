@@ -5442,3 +5442,163 @@ html[data-motion='reduced'] *::after {
     max-height: none;
   }
 }
+
+/* Adding a preset (F-PRE-04). */
+.preset-footer-hint {
+  margin: 0 0 8px;
+}
+
+.preset-import {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.preset-import-drop {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px dashed var(--border-control);
+  border-radius: var(--radius-md);
+}
+
+.preset-import-drop.is-over {
+  border-color: var(--accent);
+  background: var(--accent-subtle-bg);
+}
+
+.preset-import-hint,
+.preset-import-folder,
+.preset-import-meta,
+.preset-import-slots {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.preset-import-url {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.preset-import-url .preset-field-control {
+  max-width: 420px;
+}
+
+.preset-import-preview,
+.preset-import-invalid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.preset-import-invalid {
+  border-color: var(--danger);
+}
+
+.preset-import-name {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.preset-import-prompt {
+  margin: 0;
+  padding: 8px;
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.preset-import-error {
+  margin: 0;
+  font-size: 13px;
+  color: var(--danger);
+}
+
+.preset-import-warning {
+  margin: 0;
+  font-size: 13px;
+  color: var(--warning);
+}
+
+.preset-import-added {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.preset-import-issues {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.preset-import-schema {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.preset-import-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+/* Save the composer as a preset (F-CRE-12). */
+.create-save-preset {
+  align-self: flex-start;
+  border: 1px solid var(--border-control);
+  background: var(--surface-2);
+  color: var(--text);
+  padding: 5px 12px;
+  border-radius: var(--radius-md);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.preset-save {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  max-width: 560px;
+}
+
+.preset-save-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.preset-save-candidate {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.preset-save-slot-name {
+  max-width: 200px;
+}
+
+.preset-save-scaffold {
+  font-size: 13px;
+}

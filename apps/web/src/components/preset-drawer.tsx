@@ -153,6 +153,7 @@ export function PresetDrawer({
   const [running, setRunning] = useState(false);
   const [touched, setTouched] = useState(false);
   const [failure, setFailure] = useState<string>();
+  const [copying, setCopying] = useState(false);
   const debounce = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   const missing = useMemo(() => missingRequired(preset, values), [preset, values]);
@@ -245,6 +246,33 @@ export function PresetDrawer({
       setFailure(message('presets.runFailed'));
     } finally {
       setRunning(false);
+    }
+  }
+
+  // A copy is an ordinary user preset: the same file with a new identifier, so
+  // it can be edited without touching the shipped one (F-CRE-12).
+  async function saveCopy(): Promise<void> {
+    setCopying(true);
+    setFailure(undefined);
+    try {
+      const response = await fetch(`/api/presets/${encodeURIComponent(preset.id)}`);
+      if (!response.ok) throw new Error(message('presets.saveFailed'));
+      const body = (await response.json()) as { preset?: Record<string, unknown> };
+      const source = body.preset;
+      if (source === undefined) throw new Error(message('presets.saveFailed'));
+      const id = `me.${preset.category}.${preset.id.split('.').pop() ?? 'copy'}`;
+      const saved = await fetch('/api/presets/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ preset: { ...source, id, author: 'me' } }),
+      });
+      if (!saved.ok) throw new Error(message('presets.saveFailed'));
+      const result = (await saved.json()) as { saved: boolean };
+      if (!result.saved) setFailure(message('presets.saveFailed'));
+    } catch {
+      setFailure(message('presets.saveFailed'));
+    } finally {
+      setCopying(false);
     }
   }
 
@@ -367,8 +395,9 @@ export function PresetDrawer({
         <button
           type="button"
           className="preset-secondary-button"
-          disabled
-          title={message('presets.saveCopyLater')}
+          disabled={copying}
+          title={message('presets.saveCopy2')}
+          onClick={() => void saveCopy()}
         >
           {copy.saveCopy}
         </button>

@@ -10,9 +10,10 @@
 // before you open it, and when the key it needs is missing it says so and still
 // opens, so the prompt can be read without paying for anything.
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { message } from '../lib/messages';
 import { PresetDrawer } from './preset-drawer';
+import { PresetImport } from './preset-import';
 import type { DrawerPreset } from './preset-drawer-logic';
 
 /** The eight categories, in the order the tabs show them, plus All. */
@@ -153,19 +154,21 @@ export function PresetCatalogue({ initial }: { initial?: PresetCardRow[] }): Rea
   const [chosen, setChosen] = useState<DrawerPreset | null>(null);
   const [opening, setOpening] = useState<string>();
 
+  const reload = useCallback(async (): Promise<void> => {
+    try {
+      const response = await fetch('/api/presets');
+      if (!response.ok) return;
+      const body = (await response.json()) as { presets?: PresetCardRow[] };
+      setRows(body.presets ?? []);
+    } catch {
+      // A failed refresh leaves the list as it was; the cards on screen still work.
+    }
+  }, []);
+
   useEffect(() => {
     if (initial !== undefined) return;
-    let live = true;
-    void fetch('/api/presets')
-      .then((response) => (response.ok ? response.json() : { presets: [] }))
-      .then((body: { presets?: PresetCardRow[] }) => {
-        if (live) setRows(body.presets ?? []);
-      })
-      .catch(() => undefined);
-    return () => {
-      live = false;
-    };
-  }, [initial]);
+    void reload();
+  }, [initial, reload]);
 
   const shown = useMemo(() => visiblePresets(rows, tab, query), [rows, tab, query]);
 
@@ -224,7 +227,10 @@ export function PresetCatalogue({ initial }: { initial?: PresetCardRow[] }): Rea
         </div>
       )}
 
-      <footer className="preset-footer">{copy.addHint}</footer>
+      <footer className="preset-footer">
+        <p className="preset-footer-hint">{copy.addHint}</p>
+        <PresetImport onAdded={() => void reload()} />
+      </footer>
     </section>
   );
 }

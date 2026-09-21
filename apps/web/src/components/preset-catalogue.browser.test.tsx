@@ -145,9 +145,11 @@ describe('the preset catalogue (F-PRE-01)', () => {
 
   it('shows the footer hint about adding a preset', async () => {
     const host = await render(<PresetCatalogue initial={[row()]} />);
-    expect(host.querySelector('.preset-footer')?.textContent).toBe(
+    expect(host.querySelector('.preset-footer-hint')?.textContent).toBe(
       'Add a preset: drop a .json here, paste a URL, or open the presets folder.',
     );
+    // The footer also carries the import panel a file can be dropped onto.
+    expect(host.querySelector('.preset-import-drop')).not.toBeNull();
   });
 
   it('offers a tab for every category and marks the chosen one', async () => {

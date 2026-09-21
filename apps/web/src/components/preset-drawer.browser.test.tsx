@@ -173,13 +173,13 @@ describe('the preset use drawer (F-PRE-02)', () => {
     expect(toggle.getAttribute('aria-expanded')).toBe('true');
   });
 
-  it('offers Open in Create and a Save copy that is not live yet', async () => {
+  it('offers Open in Create and a live Save copy', async () => {
     const host = await render(<PresetDrawer preset={preset()} onClose={() => undefined} />);
     const labels = [...host.querySelectorAll('.preset-secondary-button')].map((node) => node.textContent);
     expect(labels).toEqual(['Open in Create', 'Save copy…']);
     const saveCopy = host.querySelectorAll('.preset-secondary-button')[1] as HTMLButtonElement;
-    expect(saveCopy.disabled).toBe(true);
-    expect(saveCopy.getAttribute('title')).toBe('Saving your own copy arrives with preset import.');
+    expect(saveCopy.disabled).toBe(false);
+    expect(saveCopy.getAttribute('title')).toBe('Save a copy of this preset');
   });
 
   it('closes when Close is pressed', async () => {
