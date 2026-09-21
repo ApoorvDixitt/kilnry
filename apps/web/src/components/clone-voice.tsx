@@ -7,10 +7,11 @@
 
 // The clone-a-voice drawer (F-VOI-02). It takes a sample (a public URL or an
 // uploaded file's URL) and its measured length, lets the user pick a connected
-// provider, shows that provider's consent sentence verbatim plus Kilnry's own
-// line, and only enables Clone once the sample is long enough and consent is
-// ticked. It posts to the voices manage route, which clones behind the consent
-// and cost gate and optionally binds the result to the Character.
+// provider, shows that provider's consent sentence with a "(provider policy,
+// summarised)" label and a link to the provider page (PRD-08 §B2), plus
+// Kilnry's own line, and only enables Clone once the sample is long enough and
+// consent is ticked. It posts to the voices manage route, which clones behind
+// the consent and cost gate and optionally binds the result to the Character.
 
 import { useState } from 'react';
 import { apiFetch } from '../lib/api-client';
@@ -134,7 +135,27 @@ export function CloneVoiceDrawer({
       </fieldset>
 
       <div className="clone-voice-consent">
-        <p className="clone-voice-consent-provider">“{message(option.consentKey)}”</p>
+        <p className="clone-voice-consent-provider">
+          “{message(option.consentKey)}”{' '}
+          {option.summarised ? (
+            <>
+              <span className="clone-voice-consent-summarised">
+                {message('characters.clone.consentSummarised')}
+              </span>{' '}
+              <a
+                className="clone-voice-consent-source"
+                href={message(option.sourceKey)}
+                target="_blank"
+                rel="noreferrer"
+              >
+                {message('characters.clone.consentSourceLink').replace(
+                  '{provider}',
+                  message(option.labelKey),
+                )}
+              </a>
+            </>
+          ) : null}
+        </p>
         <label className="clone-voice-consent-check">
           <input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} />
           {message('characters.clone.consentOwn')}

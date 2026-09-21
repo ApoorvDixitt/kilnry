@@ -4248,6 +4248,15 @@ html[data-motion='reduced'] *::after {
   font-style: italic;
   color: var(--text);
 }
+.clone-voice-consent-summarised {
+  font-style: normal;
+  color: var(--text-muted);
+}
+.clone-voice-consent-source {
+  font-style: normal;
+  color: var(--accent-subtle-text);
+  text-decoration: underline;
+}
 .clone-voice-consent-check {
   display: flex;
   gap: 8px;

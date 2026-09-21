@@ -13,6 +13,11 @@ export interface CloneProviderOption {
   provider: CloneProvider;
   labelKey: string;
   consentKey: string;
+  // Whether the consent sentence is a summary of the provider's policy rather
+  // than a reproducible verbatim line (PRD-08 §B2). When true the drawer labels
+  // it "(provider policy, summarised)" and links to the provider page.
+  summarised: boolean;
+  sourceKey: string;
   costUsd: number;
   priceLabel: string;
   minSeconds: number;
@@ -20,12 +25,16 @@ export interface CloneProviderOption {
 }
 
 // The providers offered, their one-time price and their consent-text key
-// (PRD-08 §B2). The consent sentence is shown verbatim from the catalogue.
+// (PRD-08 §B2). Every offered provider's sentence is a summary of its policy,
+// so each is labelled "(provider policy, summarised)" with a link to its page;
+// only Higgsfield's reference line (no V1 endpoint) is verbatim.
 export const CLONE_PROVIDERS: CloneProviderOption[] = [
   {
     provider: 'minimax',
     labelKey: 'characters.clone.providerMinimax',
     consentKey: 'characters.clone.consentMinimax',
+    summarised: true,
+    sourceKey: 'characters.clone.sourceMinimax',
     costUsd: 1.5,
     priceLabel: '$1.50',
     minSeconds: 10,
@@ -35,6 +44,8 @@ export const CLONE_PROVIDERS: CloneProviderOption[] = [
     provider: 'elevenlabs',
     labelKey: 'characters.clone.providerElevenlabs',
     consentKey: 'characters.clone.consentElevenlabs',
+    summarised: true,
+    sourceKey: 'characters.clone.sourceElevenlabs',
     costUsd: 0,
     priceLabel: '$0.00',
     minSeconds: 10,
@@ -44,6 +55,8 @@ export const CLONE_PROVIDERS: CloneProviderOption[] = [
     provider: 'fal',
     labelKey: 'characters.clone.providerFal',
     consentKey: 'characters.clone.consentFal',
+    summarised: true,
+    sourceKey: 'characters.clone.sourceFal',
     costUsd: 0,
     priceLabel: '—',
     minSeconds: 5,

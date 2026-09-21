@@ -35,11 +35,16 @@ function setValue(el: HTMLInputElement, value: string): void {
 }
 
 describe('the clone-voice drawer (F-VOI-02)', () => {
-  it('shows the provider consent line verbatim and Kilnry’s own line', async () => {
+  it('shows the provider consent line, its summarised label and a policy link, and Kilnry’s own line', async () => {
     const host = await render(<CloneVoiceDrawer handle="maya" onClose={() => undefined} />);
-    expect(host.querySelector('.clone-voice-consent-provider')?.textContent).toContain(
-      'Only clone voices you own or have permission to use.',
+    const provider = host.querySelector('.clone-voice-consent-provider');
+    expect(provider?.textContent).toContain('Only clone voices you own or have permission to use.');
+    expect(host.querySelector('.clone-voice-consent-summarised')?.textContent).toContain(
+      '(provider policy, summarised)',
     );
+    const link = host.querySelector('.clone-voice-consent-source') as HTMLAnchorElement | null;
+    expect(link?.textContent).toContain('Read the MiniMax policy');
+    expect(link?.getAttribute('href')).toContain('minimax.io');
     expect(host.querySelector('.clone-voice-consent-check')?.textContent).toContain(
       "I confirm this is my voice or I have the speaker's explicit permission",
     );
