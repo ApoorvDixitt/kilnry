@@ -15,6 +15,7 @@
     "test:browser": "vitest run --config vitest.browser.config.ts --passWithNoTests"
   },
   "dependencies": {
+    "@ai-sdk/react": "4.0.109",
     "@better-auth/drizzle-adapter": "1.7.5",
     "@kilnry/agent": "workspace:*",
     "@kilnry/core": "workspace:*",
@@ -22,10 +23,12 @@
     "@kilnry/mcp": "workspace:*",
     "@kilnry/media": "workspace:*",
     "@kilnry/providers": "workspace:*",
+    "@kilnry/skills": "workspace:*",
     "@kilnry/ui": "workspace:*",
     "@number-flow/react": "0.6.2",
     "@tailwindcss/postcss": "4.3.3",
     "@tanstack/react-virtual": "3.14.13",
+    "ai": "7.0.106",
     "better-auth": "1.7.5",
     "drizzle-orm": "0.45.2",
     "geist": "1.7.2",
