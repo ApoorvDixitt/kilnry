@@ -16,6 +16,7 @@ import {
 export const GenerationInput = z.object({
   kind: KindSchema.default('image'),
   prompt: z.string().min(1).max(20_000),
+  negative_prompt: z.string().max(10_000).optional(),
   model: z.string().default('auto'),
   params: z.record(z.string(), z.unknown()).default({}),
   medias: z
@@ -34,6 +35,9 @@ export const GenerationInput = z.object({
   client_request_id: z.string().min(1).max(64).optional(),
   override_budget: z.boolean().default(false),
   allow_stale_price: z.boolean().default(false),
+  // A preset run is an ordinary job that remembers where it came from (D-26).
+  source: z.enum(['ui', 'preset']).default('ui'),
+  preset_id: z.string().min(1).max(80).optional(),
 });
 export type GenerationInputValue = z.infer<typeof GenerationInput>;
 
@@ -52,12 +56,13 @@ export function canonicalGeneration(input: GenerationInputValue): {
     kind: input.kind,
     capability: capabilityFor(input.kind, input.medias),
     prompt: input.prompt,
+    ...(input.negative_prompt === undefined ? {} : { negative_prompt: input.negative_prompt }),
     params,
     medias: input.medias,
     injections: [],
     count: input.count,
     target_folder: input.target_folder,
-    source: 'ui',
+    source: input.source,
   });
   return {
     request,

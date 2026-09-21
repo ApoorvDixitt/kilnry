@@ -5210,3 +5210,222 @@ html[data-motion='reduced'] *::after {
   color: var(--text-muted);
   font-size: 13px;
 }
+
+/* Preset use drawer (F-PRE-02). The Run button is the one accent surface here,
+   because it is the control that spends money. */
+.preset-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.preset-body:has(.preset-drawer) {
+  grid-template-columns: minmax(0, 1fr) 480px;
+}
+
+.preset-drawer {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  position: sticky;
+  top: 16px;
+  max-height: calc(100vh - 120px);
+  overflow-y: auto;
+}
+
+.preset-drawer-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.preset-drawer-name {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.preset-drawer-category,
+.preset-drawer-description,
+.preset-drawer-credits,
+.preset-params-summary {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.preset-drawer-credits {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.preset-licence-chip {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  padding: 2px 8px;
+  font-size: 12px;
+}
+
+.preset-drawer-close,
+.preset-advanced-toggle {
+  border: 1px solid var(--border-control);
+  background: var(--surface-2);
+  color: var(--text);
+  padding: 4px 10px;
+  border-radius: var(--radius-md);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.preset-drawer-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.preset-drawer-heading {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.preset-drawer-subheading {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.preset-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.preset-field-label {
+  font-size: 13px;
+  color: var(--text);
+}
+
+.preset-field-required {
+  color: var(--text-muted);
+}
+
+.preset-field-control {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+
+.preset-field.is-invalid .preset-field-control {
+  border-color: var(--danger);
+}
+
+.preset-field-help {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.preset-field-error,
+.preset-drawer-error {
+  margin: 0;
+  font-size: 12px;
+  color: var(--danger);
+}
+
+.preset-model-chip {
+  align-self: flex-start;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  padding: 3px 10px;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.preset-prompt-preview,
+.preset-params-json {
+  margin: 0;
+  padding: 8px;
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.preset-drawer-cost {
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.preset-drawer-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.preset-run-button {
+  background: var(--accent);
+  color: var(--accent-foreground);
+  border: 1px solid var(--accent);
+  padding: 7px 16px;
+  border-radius: var(--radius-md);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.preset-run-button:disabled {
+  background: var(--surface-2);
+  border-color: var(--border);
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
+.preset-secondary-button {
+  border: 1px solid var(--border-control);
+  background: var(--surface-2);
+  color: var(--text);
+  padding: 6px 12px;
+  border-radius: var(--radius-md);
+  font: inherit;
+  cursor: pointer;
+}
+
+.preset-secondary-button:disabled {
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
+@media (max-width: 1100px) {
+  .preset-body:has(.preset-drawer) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .preset-drawer {
+    position: static;
+    max-height: none;
+  }
+}

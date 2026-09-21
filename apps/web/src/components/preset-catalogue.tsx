@@ -12,6 +12,8 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { message } from '../lib/messages';
+import { PresetDrawer } from './preset-drawer';
+import type { DrawerPreset } from './preset-drawer-logic';
 
 /** The eight categories, in the order the tabs show them, plus All. */
 export const PRESET_TABS = [
@@ -98,9 +100,11 @@ export function emptyLabel(tab: string): string {
 export function PresetCard({
   row,
   onUse,
+  busy = false,
 }: {
   row: PresetCardRow;
   onUse: (row: PresetCardRow) => void;
+  busy?: boolean;
 }): React.ReactNode {
   if (!row.enabled) {
     return (
@@ -134,7 +138,7 @@ export function PresetCard({
             {copy.needsKey.replace('{provider}', row.missing_provider)}
           </span>
         )}
-        <button type="button" className="preset-use-button" onClick={() => onUse(row)}>
+        <button type="button" className="preset-use-button" disabled={busy} onClick={() => onUse(row)}>
           {copy.use}
         </button>
       </div>
@@ -146,6 +150,8 @@ export function PresetCatalogue({ initial }: { initial?: PresetCardRow[] }): Rea
   const [rows, setRows] = useState<PresetCardRow[]>(initial ?? []);
   const [tab, setTab] = useState<string>('all');
   const [query, setQuery] = useState('');
+  const [chosen, setChosen] = useState<DrawerPreset | null>(null);
+  const [opening, setOpening] = useState<string>();
 
   useEffect(() => {
     if (initial !== undefined) return;
@@ -170,7 +176,12 @@ export function PresetCatalogue({ initial }: { initial?: PresetCardRow[] }): Rea
       window.location.href = `/settings/providers?provider=${row.missing_provider}`;
       return;
     }
-    window.location.href = `/presets?preset=${encodeURIComponent(row.id)}`;
+    setOpening(row.id);
+    void fetch(`/api/presets/${encodeURIComponent(row.id)}`)
+      .then((response) => (response.ok ? response.json() : null))
+      .then((body: { preset?: DrawerPreset } | null) => setChosen(body?.preset ?? null))
+      .catch(() => setChosen(null))
+      .finally(() => setOpening(undefined));
   }
 
   return (
@@ -203,10 +214,13 @@ export function PresetCatalogue({ initial }: { initial?: PresetCardRow[] }): Rea
       {shown.length === 0 ? (
         <p className="preset-empty">{emptyLabel(tab)}</p>
       ) : (
-        <div className="preset-grid">
-          {shown.map((row) => (
-            <PresetCard key={row.id} row={row} onUse={use} />
-          ))}
+        <div className="preset-body">
+          <div className="preset-grid">
+            {shown.map((row) => (
+              <PresetCard key={row.id} row={row} onUse={use} busy={opening === row.id} />
+            ))}
+          </div>
+          {chosen === null ? null : <PresetDrawer preset={chosen} onClose={() => setChosen(null)} />}
         </div>
       )}
 

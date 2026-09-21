@@ -48,6 +48,7 @@ export async function POST(request: Request): Promise<Response> {
       ...(input.client_request_id === undefined ? {} : { client_request_id: input.client_request_id }),
       ...(input.override_budget ? { override_budget: true } : {}),
       ...(input.allow_stale_price ? { allow_stale_price: true } : {}),
+      ...(input.preset_id === undefined ? {} : { preset_id: input.preset_id }),
     });
     return NextResponse.json({ jobs: [result], total_estimate_usd: result.estimate.estimate_usd });
   } catch (error) {

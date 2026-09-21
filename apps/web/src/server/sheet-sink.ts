@@ -62,6 +62,7 @@ export async function sheetEngine(): Promise<SheetEngine> {
         target_folder: 'inbox',
         override_budget: false,
         allow_stale_price: false,
+        source: 'ui',
       });
       const created = await engine.createJob({
         request: canonical.request,

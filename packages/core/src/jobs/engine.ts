@@ -392,6 +392,8 @@ export class JobEngine {
     client_request_id?: string;
     override_budget?: boolean;
     allow_stale_price?: boolean;
+    /** The preset the run came from, so the job can be traced back to it (F-PRE-02). */
+    preset_id?: string;
   }): Promise<CreateJobResult> {
     if (!this.#started) throw new Error('Job engine must be started before creating jobs.');
     if (input.client_request_id) {
@@ -439,6 +441,7 @@ export class JobEngine {
         : { authoritativeUsd: prepared.estimate.authoritative_usd.toFixed(6) }),
       unitPrice: { ...prepared.estimate.unit_price },
       ...(input.client_request_id === undefined ? {} : { clientRequestId: input.client_request_id }),
+      ...(input.preset_id === undefined ? {} : { presetId: input.preset_id }),
       targetFolder: prepared.request.target_folder,
       confirmedCostUsd: input.confirmed_cost_usd?.toFixed(6) ?? '0.000000',
       confirmedBy: input.confirmed_by,
