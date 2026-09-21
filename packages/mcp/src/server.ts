@@ -10,11 +10,7 @@
 // tool) so Chat and MCP share exactly one implementation (TRD-10 §2.9); this
 // package only wires them onto the protocol.
 
-import {
-  McpServer,
-  ResourceTemplate,
-  WebStandardStreamableHTTPServerTransport,
-} from '@modelcontextprotocol/server';
+import { McpServer, ResourceTemplate, createMcpHandler } from '@modelcontextprotocol/server';
 import * as z from 'zod';
 import { toolAllowedForScope, type KilnryTool, type ToolServices } from '@kilnry/core';
 
@@ -237,8 +233,11 @@ export async function handleMcpRequest(
   request: Request,
   options: { version: string; tools: KilnryTool[]; services: ToolServices },
 ): Promise<Response> {
-  const server = createKilnryMcpServer(options);
-  const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-  await server.connect(transport);
-  return transport.handleRequest(request);
+  // createMcpHandler routes a modern (2026-07-28) client to the streamable HTTP
+  // transport and a legacy (2025-06-18 / 2025-11-25) client — Claude Desktop's
+  // config-file stdio and older Cursor — to the legacy serving on the same
+  // endpoint (F-MCP-08, TRD-10 §1). A fresh server per request keeps it
+  // stateless.
+  const handler = createMcpHandler(() => createKilnryMcpServer(options));
+  return handler.fetch(request);
 }
