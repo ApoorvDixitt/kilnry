@@ -101,8 +101,9 @@ describe('management and template tools (F-MCP-02 §3.3–§3.6)', () => {
       { db: state, scope: 'full', libraryRoot: '/tmp/x', libraryId: 'L' },
     );
     const err = bundle.structuredContent.error as { code: string; message: string };
+    // Export is real behind an injected exporter; without one it reports so.
     expect(err.code).toBe('NO_PROVIDER');
-    expect(err.message).toContain('F-LIB-14');
+    expect(err.message).toContain('not available');
   });
 
   it('kilnry_library_manage creates a folder under the Library root', async () => {

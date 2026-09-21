@@ -59,6 +59,30 @@ export interface ToolServices {
   // caller because it needs provider keys; absent means cloning is not available
   // on this surface.
   voiceCloner?: VoiceCloner;
+  // Export bundle builder for kilnry_library_manage.export_bundle (F-LIB-14).
+  // Supplied by the caller because it needs the media package's strip and label
+  // helpers; absent means export is not available on this surface.
+  bundleExporter?: BundleExporter;
+}
+
+/** What the export_bundle action needs: build a bundle from chosen assets. */
+export interface BundleExporter {
+  export(options: {
+    asset_ids: string[];
+    format?: 'zip' | 'folder' | undefined;
+    include_sidecars?: boolean | undefined;
+    metadata?: 'keep' | 'strip' | 'embed_if_missing' | undefined;
+    provenance?: 'none' | 'iptc' | 'c2pa' | 'both' | undefined;
+    include_lineage?: boolean | undefined;
+    manifest?: boolean | undefined;
+    rename?: boolean | undefined;
+  }): Promise<{
+    bundle_id: string;
+    bundle_path: string;
+    format: string;
+    entries: unknown[];
+    notes: string[];
+  }>;
 }
 
 /** What the clone action needs: consent-gated voice cloning. */

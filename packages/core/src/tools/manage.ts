@@ -52,9 +52,11 @@ export const libraryManageTool: KilnryTool = {
     new_name: z.string().optional(),
     tags: z.array(z.string()).optional(),
     prompt: z.string().optional(),
+    options: z.record(z.string(), z.unknown()).optional(),
   },
   outputSchema: {
     ok: z.boolean().optional(),
+    bundle: z.record(z.string(), z.unknown()).optional(),
     error: z.record(z.string(), z.unknown()).optional(),
   },
   annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
@@ -66,7 +68,37 @@ export const libraryManageTool: KilnryTool = {
     const assetIds = Array.isArray(input.asset_ids) ? (input.asset_ids as string[]) : [];
 
     if (action === 'export_bundle') {
-      return toolError('NO_PROVIDER', 'Exporting a bundle is F-LIB-14 and arrives in a later milestone.');
+      if (!services.bundleExporter) {
+        return toolError('NO_PROVIDER', 'Bundle export is not available on this connection.');
+      }
+      if (assetIds.length === 0) {
+        return toolError('INVALID_INPUT', 'Choose at least one asset to export.');
+      }
+      try {
+        const opts = (input.options as Record<string, unknown> | undefined) ?? {};
+        const result = await services.bundleExporter.export({
+          asset_ids: assetIds,
+          ...(typeof opts.format === 'string' ? { format: opts.format as 'zip' | 'folder' } : {}),
+          ...(typeof opts.include_sidecars === 'boolean' ? { include_sidecars: opts.include_sidecars } : {}),
+          ...(typeof opts.metadata === 'string'
+            ? { metadata: opts.metadata as 'keep' | 'strip' | 'embed_if_missing' }
+            : {}),
+          ...(typeof opts.provenance === 'string'
+            ? { provenance: opts.provenance as 'none' | 'iptc' | 'c2pa' | 'both' }
+            : {}),
+          ...(typeof opts.include_lineage === 'boolean' ? { include_lineage: opts.include_lineage } : {}),
+          ...(typeof opts.manifest === 'boolean' ? { manifest: opts.manifest } : {}),
+          ...(typeof opts.rename === 'boolean' ? { rename: opts.rename } : {}),
+        });
+        return {
+          text: `Exported ${result.entries.length} asset(s) to ${result.bundle_path}.`,
+          structuredContent: { ok: true, bundle: result },
+        };
+      } catch (error) {
+        const code =
+          error && typeof error === 'object' && 'code' in error ? String(error.code) : 'INVALID_INPUT';
+        return toolError(code, error instanceof Error ? error.message : 'The export could not be built.');
+      }
     }
     if (action === 'create_folder') {
       const name = typeof input.new_name === 'string' ? input.new_name : '';

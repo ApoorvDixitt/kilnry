@@ -4437,6 +4437,53 @@ html[data-motion='reduced'] *::after {
 .result-tile-transform:hover {
   color: var(--text);
 }
+.export-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+.export-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.export-dialog-header h3 {
+  margin: 0;
+  font-size: 14px;
+}
+.export-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.export-field select {
+  padding: 7px 10px;
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+.export-check {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 13px;
+  color: var(--text);
+}
+.export-note,
+.export-done {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
 .character-usage-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));

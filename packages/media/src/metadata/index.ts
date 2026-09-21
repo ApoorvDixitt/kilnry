@@ -326,3 +326,59 @@ export async function readEmbeddedMetadata(
     return { skipped_reason: error instanceof Error ? error.message : String(error) };
   }
 }
+
+// Strip Kilnry-specific metadata from a copied image (F-LIB-14 acceptance 2).
+// This re-encodes the image through sharp with all metadata removed, so exiftool
+// sees no kilnry, parameters or com.kilnry.generation fields. Only images are
+// handled; video stripping uses a remux and is a follow-up. The original is
+// never touched — the caller passes a copy.
+export async function stripEmbeddedMetadata(path: string, mime: string): Promise<void> {
+  if (!['image/png', 'image/jpeg', 'image/webp', 'image/avif'].includes(mime)) return;
+  const extension = extname(path);
+  const temporary = `${path}.strip-${randomBytes(3).toString('hex')}${extension}`;
+  if (mime === 'image/png') {
+    const bytes = new Uint8Array(await readFile(path));
+    // PNG: rewrite without the iTXt chunks that hold Kilnry data; sharp's
+    // toBuffer drops unknown XMP but iTXt survives, so rebuild from pixels.
+    const buffer = await sharp(bytes).removeAlpha().ensureAlpha().png().toBuffer();
+    await writeFile(temporary, buffer, { mode: 0o600 });
+  } else {
+    await sharp(path).toFile(temporary);
+  }
+  const { rename: fsRename } = await import('node:fs/promises');
+  await fsRename(temporary, path);
+}
+
+// Write the IPTC/XMP trainedAlgorithmicMedia label onto a copied image
+// (F-LIB-14 acceptance 3). The label sits in XMP as
+// Iptc4xmpExt:DigitalSourceType.
+export async function embedIptcProvenance(path: string, mime: string): Promise<void> {
+  if (!['image/jpeg', 'image/webp', 'image/avif', 'image/tiff', 'image/png'].includes(mime)) return;
+  const xmp = [
+    '<?xpacket begin="\ufeff" id="W5M0MpCehiHzreSzNTczkc9d"?>',
+    '<x:xmpmeta xmlns:x="adobe:ns:meta/">',
+    '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">',
+    '<rdf:Description rdf:about=""',
+    ' xmlns:Iptc4xmpExt="http://iptc.org/std/Iptc4xmpExt/2008-02-29/"',
+    ' xmlns:photoshop="http://ns.adobe.com/photoshop/1.0/">',
+    '<Iptc4xmpExt:DigitalSourceType>http://cv.iptc.org/newscodes/digitalsourcetype/trainedAlgorithmicMedia</Iptc4xmpExt:DigitalSourceType>',
+    '<photoshop:Credit>Kilnry</photoshop:Credit>',
+    '<photoshop:Source>Kilnry</photoshop:Source>',
+    '</rdf:Description>',
+    '</rdf:RDF>',
+    '</x:xmpmeta>',
+    '<?xpacket end="w"?>',
+  ].join('\n');
+  const extension = extname(path);
+  const temporary = `${path}.iptc-${randomBytes(3).toString('hex')}${extension}`;
+  if (mime === 'image/png') {
+    // sharp's withXmp is not available for PNG; write the XMP packet as an iTXt
+    // chunk keyed "XML:com.adobe.xmp", the keyword readers expect.
+    const bytes = new Uint8Array(await readFile(path));
+    const updated = writePngMetadata(bytes, undefined, undefined, { 'XML:com.adobe.xmp': xmp });
+    await writeFile(temporary, updated, { mode: 0o600 });
+  } else {
+    await sharp(path).keepMetadata().withXmp(xmp).toFile(temporary);
+  }
+  await rename(temporary, path);
+}

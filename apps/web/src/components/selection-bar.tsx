@@ -23,6 +23,7 @@ export function SelectionBar({
   onClear,
   onTag,
   onLabel,
+  onExport,
 }: {
   count: number;
   inTrash: boolean;
@@ -31,6 +32,7 @@ export function SelectionBar({
   onClear: () => void;
   onTag?: (tag: string) => void;
   onLabel?: (label: string | null) => void;
+  onExport?: () => void;
 }): React.ReactNode {
   if (count === 0) return null;
   return (
@@ -69,6 +71,11 @@ export function SelectionBar({
             </button>
           ))
         : null}
+      {!inTrash && onExport ? (
+        <button type="button" onClick={onExport}>
+          {message('library.selection.export')}
+        </button>
+      ) : null}
       {inTrash ? (
         <button type="button" onClick={onRestore}>
           <RotateCcw aria-hidden size={14} strokeWidth={1.75} />

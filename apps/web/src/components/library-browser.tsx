@@ -13,6 +13,7 @@ import { FolderTree, type FolderNode } from './folder-tree';
 import { AssetGrid } from './asset-grid';
 import { InspectorDrawer } from './inspector-drawer';
 import { SelectionBar } from './selection-bar';
+import { ExportBundleDialog } from './export-bundle-dialog';
 
 async function json<T>(response: Response): Promise<T> {
   const body = (await response.json()) as T & { error?: { message?: string } };
@@ -30,6 +31,7 @@ export function LibraryBrowser(): React.ReactNode {
   const [query, setQuery] = useState('');
   const [searchResults, setSearchResults] = useState<AssetListItem[] | null>(null);
   const [selection, setSelection] = useState<Set<string>>(new Set());
+  const [exportOpen, setExportOpen] = useState(false);
   const [error, setError] = useState<string>();
 
   const toggleSelect = useCallback((id: string) => {
@@ -244,8 +246,12 @@ export function LibraryBrowser(): React.ReactNode {
           onLabel={(label) => {
             for (const id of selection) void patchAsset(id, { label });
           }}
+          onExport={() => setExportOpen(true)}
         />
       </div>
+      {exportOpen ? (
+        <ExportBundleDialog assetIds={[...selection]} onClose={() => setExportOpen(false)} />
+      ) : null}
       {detail ? (
         <InspectorDrawer
           detail={detail}

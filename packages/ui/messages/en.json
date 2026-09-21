@@ -727,7 +727,32 @@
       "restore": "Restore",
       "deleteForever": "Delete forever",
       "confirmDelete": "Delete {n} assets? They go to Trash for 30 days.",
-      "trashedNote": "Deleted · {days} days left"
+      "trashedNote": "Deleted · {days} days left",
+      "export": "Export bundle"
+    },
+    "export": {
+      "title": "Export bundle",
+      "close": "Close",
+      "format": "Format",
+      "formatZip": "Zip (.zip)",
+      "formatFolder": "Copy to folder",
+      "metadata": "Embedded metadata",
+      "metadataKeep": "Keep",
+      "metadataStrip": "Strip",
+      "metadataEmbed": "Embed if missing",
+      "provenance": "Provenance label",
+      "provNone": "None",
+      "provIptc": "IPTC (trained algorithmic media)",
+      "provC2pa": "C2PA manifest",
+      "provBoth": "Both",
+      "c2paNote": "C2PA signing uses a key generated on this machine; viewers will show it as unverified issuer 'Kilnry local'.",
+      "sidecars": "Include sidecars",
+      "lineage": "Include lineage sources",
+      "rename": "Rename files sequentially",
+      "run": "Export",
+      "exporting": "Exporting…",
+      "done": "Exported to {path}.",
+      "failed": "The bundle could not be built. Try again."
     },
     "viewer": {
       "back": "Back to Library",
