@@ -35,7 +35,7 @@ export function handleValidity(handle: string): HandleValidity {
 }
 
 // Whether the Create button may be enabled for a path and its fields. The cast
-// builder is never submittable in this milestone.
+// builder becomes submittable once an anchor has been picked from its grid.
 export function canCreate(input: {
   path: CreatePath;
   displayName: string;
@@ -44,10 +44,11 @@ export function canCreate(input: {
   textBody?: string;
   anchorAssetId?: string;
   photoCount?: number;
+  castPickedAssetId?: string;
 }): boolean {
-  if (input.path === 'cast') return false;
   if (!input.displayName.trim()) return false;
   if (input.handleValidity !== 'ok' || !input.handleAvailable) return false;
+  if (input.path === 'cast') return Boolean(input.castPickedAssetId && input.castPickedAssetId.trim());
   if (input.path === 'text') return Boolean(input.textBody && input.textBody.trim());
   if (input.path === 'library') return Boolean(input.anchorAssetId && input.anchorAssetId.trim());
   if (input.path === 'photo') return (input.photoCount ?? 0) > 0;

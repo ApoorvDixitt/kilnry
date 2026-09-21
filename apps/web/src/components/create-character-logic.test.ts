@@ -33,8 +33,9 @@ describe('canCreate', () => {
     handleAvailable: true,
   };
 
-  it('never allows the cast builder in this milestone', () => {
+  it('blocks the cast builder until an anchor is picked, then allows it', () => {
     expect(canCreate({ ...base, path: 'cast' })).toBe(false);
+    expect(canCreate({ ...base, path: 'cast', castPickedAssetId: 'asset-1' })).toBe(true);
   });
 
   it('requires a display name and an available valid handle', () => {

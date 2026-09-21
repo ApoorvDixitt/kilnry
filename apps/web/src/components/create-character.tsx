@@ -11,6 +11,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { apiFetch } from '../lib/api-client';
 import { message } from '../lib/messages';
 import { canCreate, handleValidity, suggestHandle, type CreatePath } from './create-character-logic';
+import { CastBuilder } from './cast-builder';
 
 type ElementKind = 'prop' | 'environment' | 'style';
 
@@ -40,6 +41,7 @@ export function CreateCharacter(): React.ReactNode {
   const [consentStatus, setConsentStatus] = useState<'self' | 'written' | 'none'>('none');
   const [textBody, setTextBody] = useState('');
   const [anchorAssetId, setAnchorAssetId] = useState('');
+  const [castPick, setCastPick] = useState<{ asset_id: string; cast_params: Record<string, unknown> }>();
   const [photoFiles, setPhotoFiles] = useState<File[]>([]);
   const [available, setAvailable] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -78,8 +80,9 @@ export function CreateCharacter(): React.ReactNode {
         textBody,
         anchorAssetId,
         photoCount: photoFiles.length,
+        ...(castPick ? { castPickedAssetId: castPick.asset_id } : {}),
       }),
-    [path, displayName, validity, available, textBody, anchorAssetId, photoFiles],
+    [path, displayName, validity, available, textBody, anchorAssetId, photoFiles, castPick],
   );
 
   const save = useCallback(async () => {
@@ -89,6 +92,10 @@ export function CreateCharacter(): React.ReactNode {
       let references: Array<{ asset_id: string; role: 'anchor' | 'turnaround'; view?: string }> | undefined;
       if (path === 'library' && anchorAssetId.trim()) {
         references = [{ asset_id: anchorAssetId.trim(), role: 'anchor', view: 'front' }];
+      } else if (path === 'cast' && castPick) {
+        // The picked cast member becomes the anchor; the other three stay in the
+        // Library (F-CHR-15).
+        references = [{ asset_id: castPick.asset_id, role: 'anchor', view: 'front' }];
       } else if (path === 'photo' && photoFiles.length > 0) {
         // Import the photos into the Library first (free), then use the first as
         // the anchor and the rest as untagged turnaround uploads.
@@ -184,8 +191,6 @@ export function CreateCharacter(): React.ReactNode {
             role="tab"
             aria-selected={path === option.id}
             className={path === option.id ? 'on' : ''}
-            disabled={option.id === 'cast'}
-            title={option.id === 'cast' ? message('characters.create.castDisabled') : undefined}
             onClick={() => setPath(option.id)}
           >
             {message(option.label)}
@@ -193,9 +198,7 @@ export function CreateCharacter(): React.ReactNode {
         ))}
       </div>
 
-      {path === 'cast' ? (
-        <p className="create-character-disabled">{message('characters.create.castDisabled')}</p>
-      ) : null}
+      {path === 'cast' ? <CastBuilder onPick={setCastPick} /> : null}
 
       <div className="create-character-form">
         {isElement ? (

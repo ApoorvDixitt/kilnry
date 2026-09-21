@@ -918,6 +918,21 @@
       "cloning": "Cloning…",
       "failed": "The voice could not be cloned. Try again."
     },
+    "cast": {
+      "archetype": "Archetype",
+      "age": "Age range",
+      "look": "Look",
+      "region": "Region or heritage (optional)",
+      "wardrobe": "Wardrobe",
+      "vibe": "Vibe",
+      "setting": "Setting hint (used only for an alternate)",
+      "generate": "Generate a cast",
+      "generating": "Generating…",
+      "noMinors": "Kilnry does not generate minors as characters.",
+      "pick": "Pick the anchor",
+      "pickHint": "Pick the anchor. The other three stay in the Library.",
+      "failed": "The cast could not be generated. Try again."
+    },
     "voices": {
       "previewText": "Hello from Kilnry. This is a short preview of how I sound.",
       "play": "Play preview",
