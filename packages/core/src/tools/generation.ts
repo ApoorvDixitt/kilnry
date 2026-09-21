@@ -17,7 +17,7 @@ import { probeMedia } from '@kilnry/media';
 import { confirmationDecision } from '../budget/confirmation.js';
 import { ANALYZE_TASKS, CHEAPEST_VLM, analyzeMedia, isSupportedAnalyzeTask } from '../characters/analyze.js';
 import { loadRegistry, providerRouteStates } from '../registry/store.js';
-import type { Capability } from '../types.js';
+import { capabilityFor, type Capability, type Kind } from '../types.js';
 import { getAssetDetail } from '../library/assets.js';
 import { indexAsset } from '../library/index.js';
 import { resolveInRoot } from '../library/containment.js';
@@ -74,6 +74,7 @@ export const generateTool: KilnryTool = {
         const result = await services.engine.estimate(
           {
             kind: (request.kind as string) ?? 'image',
+            capability: capabilityFor(((request.kind as Kind) ?? 'image') as Kind, []),
             prompt: (request.prompt as string) ?? '',
             model: request.model === 'auto' ? undefined : (request.model as string | undefined),
             params: (request.params as Record<string, unknown>) ?? {},
@@ -132,6 +133,7 @@ export const generateTool: KilnryTool = {
         const job = await services.engine.createJob({
           request: {
             kind: (request.kind as string) ?? 'image',
+            capability: capabilityFor(((request.kind as Kind) ?? 'image') as Kind, []),
             prompt: (request.prompt as string) ?? '',
             model: request.model === 'auto' ? undefined : (request.model as string | undefined),
             params: (request.params as Record<string, unknown>) ?? {},

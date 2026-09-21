@@ -409,15 +409,14 @@ test('@matrix MCP client matrix reports only what it ran', async ({ page, reques
     typeof unconfirmedStructured.error?.code === 'string';
   expect(hasStructuredEnvelope).toBe(true);
 
-  // When the harness has a routable, priced provider the money-round-trip is
-  // driven end to end: no confirm_cost_usd returns needs_confirmation and no
-  // charge, then confirming starts a job. When no provider is routable in this
-  // run the tool answers NO_PROVIDER; the needs_confirmation logic itself is
-  // covered exhaustively by the @kilnry/core generation unit tests, so this
-  // records the actual outcome rather than asserting a flow the run cannot
-  // produce.
+  // The money-round-trip runs end to end against the same seeded registry and
+  // price snapshots the composer reads: with no confirm_cost_usd the tool returns
+  // needs_confirmation and no charge, then confirming the acknowledged cost starts
+  // a job. The endpoint prices an image request through a connected, priced
+  // OpenRouter model, so this run drives and asserts the full flow.
   let moneyRoundTrip: 'needs_confirmation_then_job' | 'no_provider' | 'auto_approved';
   let startedJob: string | undefined;
+  expect(unconfirmedStructured.needs_confirmation).toBe(true);
   if (unconfirmedStructured.needs_confirmation === true) {
     const acknowledged = unconfirmedStructured.total_estimate_usd ?? 0.02;
     const confirmed = await rpc(
@@ -439,10 +438,8 @@ test('@matrix MCP client matrix reports only what it ran', async ({ page, reques
     moneyRoundTrip = 'auto_approved';
   }
 
-  // One resources/list read, recorded verbatim. Concrete resource templates
-  // arrive with F-MCP-03 (M5 group 7); this records whatever the endpoint
-  // truthfully answers today rather than asserting a shape that does not exist
-  // yet.
+  // One resources/list read, recorded verbatim. The endpoint serves the four
+  // resource templates from F-MCP-03; this records whatever it answers.
   const resourcesList = await rpc(request, bearer, 'resources/list', {}, 5);
 
   rmSync(outDir, { recursive: true, force: true });

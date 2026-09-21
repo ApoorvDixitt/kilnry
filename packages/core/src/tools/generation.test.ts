@@ -65,6 +65,38 @@ describe('generation tools (F-MCP-02 §3.2, §3.6)', () => {
     expect((result.structuredContent.error as { code: string }).code).toBe('NO_PROVIDER');
   });
 
+  it('derives the capability from the kind so the router can match a model (F-MCP-02)', async () => {
+    // Regression guard: kilnry_generate must set the request capability the same
+    // way the composer does (capabilityFor), or the router filters on an absent
+    // capability, matches no model, and answers NO_PROVIDER even when a priced,
+    // connected provider exists. This stub captures the request the tool prices.
+    const state = await db();
+    const seen: Array<{ kind: string | undefined; capability: string | undefined }> = [];
+    const engine = {
+      estimate(request: { kind?: string | undefined; capability?: string | undefined }) {
+        seen.push({ kind: request.kind, capability: request.capability });
+        return Promise.resolve({
+          request,
+          estimate: { estimate_usd: 0.02, authoritative_usd: 0.02, route: {} },
+        });
+      },
+    };
+    const result = await generateTool.execute(
+      {
+        requests: [
+          { kind: 'image', prompt: 'a teacup' },
+          { kind: 'video', prompt: 'a clip' },
+        ],
+      },
+      { db: state, scope: 'full', engine: engine as never },
+    );
+    expect(result.structuredContent.needs_confirmation).toBe(true);
+    expect(seen).toEqual([
+      { kind: 'image', capability: 'text2image' },
+      { kind: 'video', capability: 'text2video' },
+    ]);
+  });
+
   it('reports NO_PROVIDER for transform until a provider arrives', async () => {
     const state = await db();
     const result = await transformTool.execute(
