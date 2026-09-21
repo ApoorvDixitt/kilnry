@@ -14,6 +14,7 @@ import { AssetGrid } from './asset-grid';
 import { InspectorDrawer } from './inspector-drawer';
 import { SelectionBar } from './selection-bar';
 import { ExportBundleDialog } from './export-bundle-dialog';
+import { DiskBanner } from './disk-banner';
 
 async function json<T>(response: Response): Promise<T> {
   const body = (await response.json()) as T & { error?: { message?: string } };
@@ -200,6 +201,7 @@ export function LibraryBrowser(): React.ReactNode {
         }
       />
       <div className="library-grid-area">
+        <DiskBanner />
         <div className="library-toolbar-row">
           <input
             type="search"

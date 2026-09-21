@@ -754,6 +754,11 @@
       "done": "Exported to {path}.",
       "failed": "The bundle could not be built. Try again."
     },
+    "disk": {
+      "clearCache": "Clear cache",
+      "clearing": "Clearing…",
+      "openSettings": "Open Settings"
+    },
     "viewer": {
       "back": "Back to Library",
       "missing": "This file isn't in your Library any more.",
