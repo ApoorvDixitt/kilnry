@@ -111,9 +111,13 @@ export const charactersTool: KilnryTool = {
         const { lookupHandle, listVersions } = await import('../characters/store.js');
         const head = await lookupHandle(services.db, handle);
         const versions = head ? await listVersions(services.db, head.id) : [];
+        // A product Element exposes only the claims the user ticked, never the
+        // full extracted list (F-ELM-04 acceptance 2).
+        const facts = (item.appearance as { product_facts?: { approved_claims?: string[] } }).product_facts;
+        const approvedClaims = facts?.approved_claims ?? [];
         return {
           text: `@${item.handle} (${item.kind}).`,
-          structuredContent: { item: { ...item, versions } },
+          structuredContent: { item: { ...item, versions, approved_claims: approvedClaims } },
         };
       } catch (error) {
         return toolError('NOT_FOUND', error instanceof Error ? error.message : 'Character not found.');

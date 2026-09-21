@@ -4301,6 +4301,57 @@ html[data-motion='reduced'] *::after {
   height: 100%;
   object-fit: cover;
 }
+.product-url {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.product-url-intake {
+  display: flex;
+  gap: 8px;
+}
+.product-url-input {
+  flex: 1;
+  padding: 7px 10px;
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+.product-url-title {
+  margin: 0;
+  font-weight: 600;
+  color: var(--text);
+}
+.product-url-images {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 8px;
+}
+.product-url-images img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.product-url-claims {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 10px;
+}
+.product-url-claim {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  font-size: 13px;
+  color: var(--text);
+}
 .character-usage-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));

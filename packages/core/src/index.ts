@@ -37,6 +37,7 @@ export * from './characters/consent.js';
 export * from './characters/training.js';
 export * from './characters/voice-clone.js';
 export * from './characters/cast.js';
+export * from './characters/product-extract.js';
 export * from './characters/full.js';
 export * from './characters/state-groups.js';
 export * from './characters/voices.js';

@@ -832,6 +832,7 @@
       "fromPhoto": "From photo",
       "fromLibrary": "From Library",
       "fromText": "From text",
+      "fromUrl": "From URL",
       "castBuilder": "Cast builder",
       "castDisabled": "The cast builder arrives in a later release.",
       "displayName": "Display name",
@@ -932,6 +933,15 @@
       "pick": "Pick the anchor",
       "pickHint": "Pick the anchor. The other three stay in the Library.",
       "failed": "The cast could not be generated. Try again."
+    },
+    "product": {
+      "url": "Product page address",
+      "fetch": "Fetch",
+      "fetching": "Reading…",
+      "claims": "Claims found",
+      "claimsHint": "Tick only the claims you are allowed to make. Workflows use ticked claims word for word and never add new ones.",
+      "claimsEmpty": "No claims found — workflows will stay claim-free.",
+      "failed": "That page could not be read. Paste the image and title instead."
     },
     "voices": {
       "previewText": "Hello from Kilnry. This is a short preview of how I sound.",

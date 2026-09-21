@@ -6,7 +6,7 @@
 // Framework-free helpers for the Create Character flow (F-CHR-02), unit-tested
 // without a browser.
 
-export type CreatePath = 'photo' | 'library' | 'text' | 'cast';
+export type CreatePath = 'photo' | 'library' | 'text' | 'cast' | 'url';
 
 const HANDLE_RE = /^[a-z0-9_-]{2,32}$/;
 const RESERVED = new Set(['all', 'none', 'auto', 'me', 'self', 'element', 'voice', 'character']);
@@ -45,10 +45,12 @@ export function canCreate(input: {
   anchorAssetId?: string;
   photoCount?: number;
   castPickedAssetId?: string;
+  productTitle?: string;
 }): boolean {
   if (!input.displayName.trim()) return false;
   if (input.handleValidity !== 'ok' || !input.handleAvailable) return false;
   if (input.path === 'cast') return Boolean(input.castPickedAssetId && input.castPickedAssetId.trim());
+  if (input.path === 'url') return Boolean(input.productTitle && input.productTitle.trim());
   if (input.path === 'text') return Boolean(input.textBody && input.textBody.trim());
   if (input.path === 'library') return Boolean(input.anchorAssetId && input.anchorAssetId.trim());
   if (input.path === 'photo') return (input.photoCount ?? 0) > 0;

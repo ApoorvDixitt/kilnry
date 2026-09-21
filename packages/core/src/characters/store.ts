@@ -26,6 +26,18 @@ export interface Appearance {
   negative_traits: string[];
   palette_hex?: string[];
   gendered_noun?: 'woman' | 'man' | 'person' | 'figure';
+  // A product Element fetched from a URL carries its facts here (F-ELM-04). Only
+  // the approved (ticked) claims are ever exposed to a workflow.
+  product_facts?: {
+    title?: string;
+    description?: string;
+    brand?: string;
+    price?: string;
+    claims: string[];
+    approved_claims: string[];
+    source_url?: string;
+    fetched_at?: string;
+  };
 }
 
 export interface CharacterHead {

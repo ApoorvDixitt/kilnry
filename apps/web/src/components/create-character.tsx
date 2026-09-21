@@ -12,6 +12,7 @@ import { apiFetch } from '../lib/api-client';
 import { message } from '../lib/messages';
 import { canCreate, handleValidity, suggestHandle, type CreatePath } from './create-character-logic';
 import { CastBuilder } from './cast-builder';
+import { ProductFromUrl } from './product-from-url';
 
 type ElementKind = 'prop' | 'environment' | 'style';
 
@@ -22,6 +23,7 @@ function format(template: string, values: Record<string, string | number>): stri
 const PATHS: Array<{ id: CreatePath; label: string }> = [
   { id: 'photo', label: 'characters.create.fromPhoto' },
   { id: 'library', label: 'characters.create.fromLibrary' },
+  { id: 'url', label: 'characters.create.fromUrl' },
   { id: 'text', label: 'characters.create.fromText' },
   { id: 'cast', label: 'characters.create.castBuilder' },
 ];
@@ -42,6 +44,7 @@ export function CreateCharacter(): React.ReactNode {
   const [textBody, setTextBody] = useState('');
   const [anchorAssetId, setAnchorAssetId] = useState('');
   const [castPick, setCastPick] = useState<{ asset_id: string; cast_params: Record<string, unknown> }>();
+  const [product, setProduct] = useState<import('./product-from-url').ProductElement>();
   const [photoFiles, setPhotoFiles] = useState<File[]>([]);
   const [available, setAvailable] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -81,8 +84,9 @@ export function CreateCharacter(): React.ReactNode {
         anchorAssetId,
         photoCount: photoFiles.length,
         ...(castPick ? { castPickedAssetId: castPick.asset_id } : {}),
+        ...(product?.facts.title ? { productTitle: product.facts.title } : {}),
       }),
-    [path, displayName, validity, available, textBody, anchorAssetId, photoFiles, castPick],
+    [path, displayName, validity, available, textBody, anchorAssetId, photoFiles, castPick, product],
   );
 
   const save = useCallback(async () => {
@@ -132,6 +136,20 @@ export function CreateCharacter(): React.ReactNode {
           : {}),
         ...(isElement ? {} : { is_real_person: isRealPerson }),
         ...(path === 'text' && textBody.trim() ? { from: { text: textBody.trim() } } : {}),
+        ...(path === 'url' && product
+          ? {
+              product_facts: {
+                ...(product.facts.title ? { title: product.facts.title } : {}),
+                ...(product.facts.description ? { description: product.facts.description } : {}),
+                ...(product.facts.brand ? { brand: product.facts.brand } : {}),
+                ...(product.facts.price ? { price: product.facts.price } : {}),
+                claims: product.facts.claims,
+                approved_claims: product.approved_claims,
+                source_url: product.facts.source_url,
+                fetched_at: product.facts.fetched_at,
+              },
+            }
+          : {}),
         ...(references ? { references } : {}),
       };
       const response = await apiFetch('/api/characters/manage', {
@@ -185,7 +203,9 @@ export function CreateCharacter(): React.ReactNode {
       </div>
 
       <div className="create-character-segments" role="tablist">
-        {PATHS.filter((option) => !(isElement && option.id === 'cast')).map((option) => (
+        {PATHS.filter(
+          (option) => !(isElement && option.id === 'cast') && !(!isElement && option.id === 'url'),
+        ).map((option) => (
           <button
             key={option.id}
             role="tab"
@@ -199,6 +219,8 @@ export function CreateCharacter(): React.ReactNode {
       </div>
 
       {path === 'cast' ? <CastBuilder onPick={setCastPick} /> : null}
+
+      {path === 'url' ? <ProductFromUrl onFacts={setProduct} /> : null}
 
       <div className="create-character-form">
         {isElement ? (

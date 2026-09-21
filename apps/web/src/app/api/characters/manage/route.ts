@@ -106,6 +106,19 @@ const Body = z.object({
       license: z.enum(['private', 'cc0', 'cc-by', 'commercial-release']).optional(),
     })
     .optional(),
+  product_facts: z
+    .object({
+      title: z.string().optional(),
+      description: z.string().optional(),
+      brand: z.string().optional(),
+      price: z.string().optional(),
+      claims: z.array(z.string()).optional(),
+      approved_claims: z.array(z.string()).optional(),
+      source_url: z.string().optional(),
+      fetched_at: z.string().optional(),
+    })
+    .optional(),
+  palette_hex: z.array(z.string()).optional(),
 });
 
 // Create and change Characters and Elements (F-CHR-02, F-CHR-03, F-CHR-06). The
@@ -129,6 +142,38 @@ export async function POST(request: Request): Promise<Response> {
         ...(body.description ? { description: body.description } : {}),
         ...(body.tags ? { tags: body.tags } : {}),
         ...(body.is_real_person !== undefined ? { is_real_person: body.is_real_person } : {}),
+        // A product Element from a URL carries its facts and brand palette in the
+        // version's appearance (F-ELM-04). Only ticked claims are kept.
+        ...(body.product_facts || body.palette_hex
+          ? {
+              appearance: {
+                descriptor: '',
+                anchors: [],
+                negative_traits: [],
+                ...(body.palette_hex ? { palette_hex: body.palette_hex } : {}),
+                ...(body.product_facts
+                  ? {
+                      product_facts: {
+                        ...(body.product_facts.title ? { title: body.product_facts.title } : {}),
+                        ...(body.product_facts.description
+                          ? { description: body.product_facts.description }
+                          : {}),
+                        ...(body.product_facts.brand ? { brand: body.product_facts.brand } : {}),
+                        ...(body.product_facts.price ? { price: body.product_facts.price } : {}),
+                        ...(body.product_facts.source_url
+                          ? { source_url: body.product_facts.source_url }
+                          : {}),
+                        ...(body.product_facts.fetched_at
+                          ? { fetched_at: body.product_facts.fetched_at }
+                          : {}),
+                        claims: body.product_facts.claims ?? [],
+                        approved_claims: body.product_facts.approved_claims ?? [],
+                      },
+                    }
+                  : {}),
+              },
+            }
+          : {}),
       });
       if (body.references && body.references.length > 0) {
         await addReferences(db, head.id, body.references);
