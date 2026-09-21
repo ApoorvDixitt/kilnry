@@ -18,6 +18,7 @@ import { adapters } from '@kilnry/providers';
 import { authenticateMcp, isAllowedMcpHost } from '../../server/mcp';
 import { presetServices } from '../../server/presets';
 import { trainingRunner } from '../../server/training';
+import { voiceCloner } from '../../server/voices';
 import { ensureRuntimeEngine, runtimeServices } from '../../server/runtime';
 
 // Next must run this on the Node.js runtime (the transport and token store use
@@ -65,6 +66,7 @@ async function handle(request: Request): Promise<Response> {
       skillsRoots: { bundled: join(config.data_dir, 'skills') },
       presets: await presetServices(),
       training: await trainingRunner(),
+      voiceCloner: await voiceCloner(),
     },
   });
 }

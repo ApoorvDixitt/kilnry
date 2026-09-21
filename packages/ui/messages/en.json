@@ -888,6 +888,7 @@
       "trainFailed": "The training could not start. Try again.",
       "clone": "Clone voice",
       "cloneDisabled": "Voice cloning arrives in a later release.",
+      "unbind": "Unbind voice",
       "voiceNone": "No voice bound yet.",
       "usageEmpty": "Nothing made with this character yet.",
       "notFound": "That character does not exist.",
@@ -897,6 +898,25 @@
       "sheetApproval": "Approve the turnaround before Kilnry spends on the rest",
       "approveTurnaround": "Approve turnaround",
       "denyTurnaround": "Deny"
+    },
+    "clone": {
+      "title": "Clone a voice",
+      "close": "Close",
+      "name": "Name",
+      "sample": "Sample (a public URL to your recording)",
+      "seconds": "Length in seconds",
+      "tooShort": "Too short. Providers need at least 10 seconds of clean speech.",
+      "provider": "Provider",
+      "providerMinimax": "MiniMax",
+      "providerElevenlabs": "ElevenLabs IVC",
+      "providerFal": "Kling (via fal)",
+      "consentMinimax": "Only clone voices you own or have permission to use.",
+      "consentElevenlabs": "You must have the explicit permission of the person whose voice you are cloning.",
+      "consentFal": "Use a clean recording of a single voice that you have the right to use.",
+      "consentOwn": "I confirm this is my voice or I have the speaker's explicit permission to clone it. I understand the clone is stored in my provider account.",
+      "clone": "Clone · {price}",
+      "cloning": "Cloning…",
+      "failed": "The voice could not be cloned. Try again."
     },
     "voices": {
       "previewText": "Hello from Kilnry. This is a short preview of how I sound.",

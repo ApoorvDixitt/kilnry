@@ -189,22 +189,72 @@ export const charactersTool: KilnryTool = {
 export const voicesTool: KilnryTool = {
   name: 'kilnry_voices',
   description:
-    'List voices for text to speech (read-only listing). Filter provider presets and any cloned voices by provider, language, gender, or text query. Returns each voice with its provider, id, name, language, gender, tags, and whether it is a clone. Previewing and cloning route to a provider and arrive in a later milestone.',
+    'List voices for text to speech and clone a new one. List filters provider presets and cloned voices by provider, language, gender, or text query. Clone sends a sample to a provider behind a consent and cost confirmation and can bind the result to a Character. Returns each voice with its provider, id, name, language, gender, tags, and whether it is a clone.',
   inputSchema: {
     action: z.enum(['list', 'preview', 'clone', 'delete']).default('list'),
     provider: z.string().optional(),
     language: z.string().optional(),
     query: z.string().optional(),
+    name: z.string().optional(),
+    sample_url: z.string().optional(),
+    sample_seconds: z.number().optional(),
+    consent: z.boolean().optional(),
+    bind_to: z.string().optional(),
+    confirm_cost_usd: z.number().optional(),
   },
   outputSchema: {
     voices: z.array(z.record(z.string(), z.unknown())).optional(),
+    voice: z.record(z.string(), z.unknown()).optional(),
     error: z.record(z.string(), z.unknown()).optional(),
   },
+  // The spending list wins over the read-only hint for cloning: a clone must go
+  // through the consent-and-cost gate, so kilnry_voices is treated as a spending
+  // tool by the approval policy even though listing is read-only.
   annotations: { readOnlyHint: true, openWorldHint: true },
   async execute(input, services: ToolServices): Promise<ToolResult> {
     const action = typeof input.action === 'string' ? input.action : 'list';
+    if (action === 'clone') {
+      if (!services.voiceCloner) {
+        return toolError('NO_PROVIDER', 'Voice cloning is not available on this connection.');
+      }
+      const name = typeof input.name === 'string' ? input.name : '';
+      const sampleUrl = typeof input.sample_url === 'string' ? input.sample_url : '';
+      const provider =
+        input.provider === 'elevenlabs' || input.provider === 'fal'
+          ? (input.provider as 'elevenlabs' | 'fal')
+          : 'minimax';
+      if (!name || !sampleUrl) {
+        return toolError('INVALID_INPUT', 'Cloning needs a name and a sample_url.');
+      }
+      if (input.consent !== true) {
+        return toolError('CONFIRMATION_REQUIRED', 'Confirm consent to clone this voice.');
+      }
+      const confirmed = typeof input.confirm_cost_usd === 'number' ? input.confirm_cost_usd : undefined;
+      if (confirmed === undefined) {
+        return toolError('CONFIRMATION_REQUIRED', 'Confirm the clone cost with confirm_cost_usd.');
+      }
+      try {
+        const result = await services.voiceCloner.clone({
+          name,
+          provider,
+          sample_url: sampleUrl,
+          sample_seconds: typeof input.sample_seconds === 'number' ? input.sample_seconds : 0,
+          consent_confirmed: true,
+          confirmed_cost_usd: confirmed,
+          ...(typeof input.bind_to === 'string' ? { bind_to: input.bind_to } : {}),
+        });
+        return {
+          text: `Cloned ${result.voice_id} on ${result.provider}${result.bound_to ? `, bound to @${result.bound_to}` : ''}.`,
+          structuredContent: { voice: result },
+        };
+      } catch (error) {
+        const code =
+          error && typeof error === 'object' && 'code' in error ? String(error.code) : 'PROVIDER_ERROR';
+        return toolError(code, error instanceof Error ? error.message : 'The voice could not be cloned.');
+      }
+    }
     if (action !== 'list') {
-      return toolError('NO_PROVIDER', 'Voice preview and cloning arrive in a later milestone.');
+      return toolError('NO_PROVIDER', 'Voice preview and deletion arrive in a later milestone.');
     }
     const filter: { provider?: string; language?: string; query?: string } = {};
     if (typeof input.provider === 'string') filter.provider = input.provider;

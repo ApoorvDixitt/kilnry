@@ -4192,6 +4192,75 @@ html[data-motion='reduced'] *::after {
   font-size: 12px;
   max-width: 42ch;
 }
+.clone-voice-drawer {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+.clone-voice-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.clone-voice-header h3 {
+  margin: 0;
+  font-size: 14px;
+}
+.clone-voice-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.clone-voice-field input {
+  padding: 7px 10px;
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+.clone-voice-providers {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 10px;
+}
+.clone-voice-provider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text);
+}
+.clone-voice-consent-provider {
+  margin: 0;
+  font-size: 13px;
+  font-style: italic;
+  color: var(--text);
+}
+.clone-voice-consent-check {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 8px;
+}
+.clone-voice-warn {
+  margin: 0;
+  font-size: 12px;
+  color: var(--warning);
+}
 .character-usage-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));

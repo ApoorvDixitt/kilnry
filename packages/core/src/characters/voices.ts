@@ -3,8 +3,8 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
-import { desc } from 'drizzle-orm';
-import { voices as voicesTable, type DatabaseState } from '@kilnry/db';
+import { and, desc, eq } from 'drizzle-orm';
+import { voices as voicesTable, characterVoices, type DatabaseState } from '@kilnry/db';
 
 // A voice a user can preview, pin, and @mention (F-VOI-01). Presets ship with
 // Kilnry; clones are rows the user created (voice cloning itself is M5).
@@ -157,4 +157,84 @@ export async function listVoices(db: DatabaseState, filter: VoiceFilter = {}): P
     ...(row.previewAssetId ? { preview_url: `/api/media/${row.previewAssetId}` } : {}),
   }));
   return filterVoices([...clones, ...presetVoices()], filter);
+}
+
+// Bind one voice to a Character version (F-CHR-08). Binding is per version and a
+// later version inherits it; a preset bind is free, a clone was already paid for.
+// The stored value is the voices.id (a ulid), resolved to provider + voice_id at
+// use. Binding never copies the voice: voices are shared.
+export async function bindVoice(
+  db: DatabaseState,
+  characterId: string,
+  version: number,
+  voiceUlid: string,
+): Promise<void> {
+  const existing = await db.db
+    .select({ characterId: characterVoices.characterId })
+    .from(characterVoices)
+    .where(and(eq(characterVoices.characterId, characterId), eq(characterVoices.version, version)))
+    .limit(1);
+  if (existing[0]) {
+    await db.db
+      .update(characterVoices)
+      .set({ voiceUlid })
+      .where(and(eq(characterVoices.characterId, characterId), eq(characterVoices.version, version)));
+    return;
+  }
+  await db.db.insert(characterVoices).values({ characterId, version, voiceUlid });
+}
+
+// Remove a Character version's binding. The voice row itself is left untouched
+// because voices are shared (PRD-07 §9 acceptance 3).
+export async function unbindVoice(db: DatabaseState, characterId: string, version: number): Promise<void> {
+  await db.db
+    .delete(characterVoices)
+    .where(and(eq(characterVoices.characterId, characterId), eq(characterVoices.version, version)));
+}
+
+/** The provider and voice id bound to a Character version, if any. */
+export async function boundVoice(
+  db: DatabaseState,
+  characterId: string,
+  version: number,
+): Promise<{ ulid: string; provider: string; voice_id: string } | undefined> {
+  const binding = await db.db
+    .select({ voiceUlid: characterVoices.voiceUlid })
+    .from(characterVoices)
+    .where(and(eq(characterVoices.characterId, characterId), eq(characterVoices.version, version)))
+    .limit(1);
+  if (!binding[0]) return undefined;
+  const row = await db.db.select().from(voicesTable).where(eq(voicesTable.id, binding[0].voiceUlid)).limit(1);
+  if (!row[0]) return undefined;
+  return { ulid: row[0].id, provider: row[0].providerId, voice_id: row[0].voiceId };
+}
+
+export interface ClonedVoiceInput {
+  id: string;
+  provider: string;
+  voice_id: string;
+  name: string;
+  language?: string;
+  consent_confirmed_at: Date;
+  cost_usd?: number;
+  sample_asset_id?: string;
+  preview_asset_id?: string;
+}
+
+// Record a cloned voice row (F-VOI-02). A clone always carries is_clone, its
+// clone kind, the exact provider voice id and the moment consent was confirmed.
+export async function recordClonedVoice(db: DatabaseState, input: ClonedVoiceInput): Promise<void> {
+  await db.db.insert(voicesTable).values({
+    id: input.id,
+    providerId: input.provider,
+    voiceId: input.voice_id,
+    name: input.name,
+    language: input.language ?? null,
+    isClone: true,
+    cloneKind: 'instant',
+    consentConfirmedAt: input.consent_confirmed_at,
+    costUsd: input.cost_usd === undefined ? null : String(input.cost_usd),
+    sampleAssetId: input.sample_asset_id ?? null,
+    previewAssetId: input.preview_asset_id ?? null,
+  });
 }

@@ -21,6 +21,7 @@ import {
   type UsageAsset,
 } from './character-detail-logic';
 import { VersionSwitcher } from './version-switcher';
+import { CloneVoiceDrawer } from './clone-voice';
 
 type DetailTab = 'sheet' | 'identities' | 'voice' | 'usage' | 'settings';
 
@@ -37,6 +38,31 @@ export function CharacterDetail({ handle }: { handle: string }): React.ReactNode
   const [building, setBuilding] = useState(false);
   const [training, setTraining] = useState<string | null>(null);
   const [trainError, setTrainError] = useState<string>();
+  const [cloneOpen, setCloneOpen] = useState(false);
+
+  // Reload the character after a change (a clone, a bind, a set-current).
+  const reloadCharacter = useCallback(() => {
+    void fetch(`/api/characters/${encodeURIComponent(handle)}`)
+      .then((response) => response.json() as Promise<{ item?: FullCharacterView }>)
+      .then((body) => {
+        if (body.item) setItem(body.item);
+      })
+      .catch(() => undefined);
+  }, [handle]);
+
+  // Unbind the current version's voice (F-CHR-08). The voice itself is kept.
+  const unbindVoice = useCallback(() => {
+    void apiFetch('/api/voices/manage', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'unbind', handle }),
+    })
+      .then((response) => (response.ok ? (response.json() as Promise<{ item?: FullCharacterView }>) : null))
+      .then((body) => {
+        if (body?.item) setItem(body.item);
+      })
+      .catch(() => undefined);
+  }, [handle]);
 
   // Switch which version is current (F-CHR-10, PRD-07 §11). Selecting a version
   // calls set_current and reloads the character so the header, references and
@@ -371,15 +397,21 @@ export function CharacterDetail({ handle }: { handle: string }): React.ReactNode
               ? `${item.voice.provider} · ${item.voice.voice_id}`
               : message('characters.detail.voiceNone')}
           </p>
-          <button
-            className="btn primary"
-            type="button"
-            disabled
-            title={message('characters.detail.cloneDisabled')}
-          >
+          {item.voice ? (
+            <button className="btn" type="button" onClick={unbindVoice}>
+              {message('characters.detail.unbind')}
+            </button>
+          ) : null}
+          <button className="btn primary" type="button" onClick={() => setCloneOpen(true)}>
             {message('characters.detail.clone')}
           </button>
-          <p className="muted">{message('characters.detail.cloneDisabled')}</p>
+          {cloneOpen ? (
+            <CloneVoiceDrawer
+              handle={item.handle}
+              onClose={() => setCloneOpen(false)}
+              onCloned={reloadCharacter}
+            />
+          ) : null}
         </section>
       ) : null}
 

@@ -55,6 +55,23 @@ export interface ToolServices {
   // adapters and the on-disk identities folder; absent means training is not
   // available on this surface and the action returns not-available.
   training?: TrainingRunner;
+  // Voice cloning for the kilnry_voices.clone action (F-VOI-02). Supplied by the
+  // caller because it needs provider keys; absent means cloning is not available
+  // on this surface.
+  voiceCloner?: VoiceCloner;
+}
+
+/** What the clone action needs: consent-gated voice cloning. */
+export interface VoiceCloner {
+  clone(input: {
+    name: string;
+    provider: 'minimax' | 'elevenlabs' | 'fal';
+    sample_url: string;
+    sample_seconds: number;
+    consent_confirmed: boolean;
+    confirmed_cost_usd: number;
+    bind_to?: string;
+  }): Promise<{ voice_ulid: string; provider: string; voice_id: string; bound_to?: string }>;
 }
 
 /** What the train action needs: consent-gated identity training. */
