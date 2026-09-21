@@ -3,7 +3,8 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
-import { existsSync, readdirSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 
@@ -17,6 +18,7 @@ import { expect, test, type Page } from '@playwright/test';
 
 const root = process.cwd();
 const dataDir = join(root, '.dev', 'e2e-data');
+const library = join(root, '.dev', 'e2e-library');
 const EMAIL = 'owner@example.test';
 const PASSWORD = 'Kilnry-local-test-42!';
 const FAL_KEY = ['00000000-0000-4000-8000-000000000000', ':', '0'.repeat(32)].join('');
@@ -142,6 +144,12 @@ async function ledgerRows(page: Page, jobId: string): Promise<number> {
 // training. Uses the composer's estimate/generate path under the fal fixture.
 async function generateImageAsset(page: Page, prompt: string): Promise<string> {
   const token = await csrf(page);
+  const before = await page.evaluate(async () => {
+    const response = await fetch('/api/library/assets?folder=inbox&sort=newest');
+    if (!response.ok) return [] as string[];
+    const body = (await response.json()) as { assets?: Array<{ id: string }> };
+    return (body.assets ?? []).map((asset) => asset.id);
+  });
   await page.evaluate(
     async ({ token, prompt }) => {
       const estimate = await fetch('/api/estimate', {
@@ -149,7 +157,7 @@ async function generateImageAsset(page: Page, prompt: string): Promise<string> {
         headers: { 'Content-Type': 'application/json', 'X-Kilnry-CSRF': token },
         body: JSON.stringify({ kind: 'image', prompt, medias: [], count: 1 }),
       });
-      const priced = (await estimate.json()) as { estimate?: { estimate_usd?: number } };
+      const priced = (await estimate.json()) as { estimate_usd?: number };
       await fetch('/api/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Kilnry-CSRF': token },
@@ -158,23 +166,25 @@ async function generateImageAsset(page: Page, prompt: string): Promise<string> {
           prompt,
           medias: [],
           count: 1,
-          confirmed_cost_usd: priced.estimate?.estimate_usd ?? 1,
+          confirmed_cost_usd: priced.estimate_usd ?? 1,
         }),
       });
     },
     { token, prompt },
   );
-  return await page.evaluate(async () => {
+  return await page.evaluate(async (before) => {
+    const known = new Set(before);
     for (let attempt = 0; attempt < 60; attempt += 1) {
       const response = await fetch('/api/library/assets?folder=inbox&sort=newest');
       if (response.ok) {
         const body = (await response.json()) as { assets?: Array<{ id: string }> };
-        if (body.assets && body.assets.length > 0) return body.assets[0]!.id;
+        const fresh = (body.assets ?? []).find((asset) => !known.has(asset.id));
+        if (fresh) return fresh.id;
       }
       await new Promise((resolve) => setTimeout(resolve, 500));
     }
     return '';
-  });
+  }, before);
 }
 
 // Create a real-person Character with the given number of anchor references and
@@ -498,4 +508,70 @@ test('@m5 S-17 preset run with a required slot and its cost', async ({ page }) =
   const presetJob = await jobRow(page, presetJobId);
   expect(presetJob?.source).toBe('preset');
   expect(presetJob?.presetId).toBe(presetId);
+});
+
+test('@m5 S-18 export a bundle with sidecars and provenance labels', async ({ page }) => {
+  await ensureProvider(page, 'fal', FAL_KEY);
+  // Three finals in the Library, each with a sidecar.
+  const assetIds: string[] = [];
+  for (let index = 0; index < 3; index += 1) {
+    const id = await generateImageAsset(page, `final render ${index}`);
+    if (id) assetIds.push(id);
+  }
+  expect(assetIds.length).toBe(3);
+
+  // Export a bundle the way the selection bar's Export dialog does: keep the
+  // sidecars, strip embedded metadata, add the IPTC provenance label, write the
+  // manifest.
+  const bundlePath = await page.evaluate(async (assetIds) => {
+    const csrfToken = decodeURIComponent(
+      document.cookie
+        .split(';')
+        .map((part) => part.trim())
+        .find((part) => part.startsWith('kilnry_csrf='))
+        ?.slice('kilnry_csrf='.length) ?? '',
+    );
+    const response = await fetch('/api/library/export', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Kilnry-CSRF': csrfToken },
+      body: JSON.stringify({
+        asset_ids: assetIds,
+        format: 'folder',
+        include_sidecars: true,
+        metadata: 'strip',
+        provenance: 'iptc',
+        manifest: true,
+      }),
+    });
+    if (!response.ok) return null;
+    const body = (await response.json()) as { bundle?: { bundle_path?: string } };
+    return body.bundle?.bundle_path ?? null;
+  }, assetIds);
+  expect(bundlePath).not.toBeNull();
+
+  // The bundle sits under the Library's Exports folder with a manifest, the media
+  // and one sidecar each, and matching checksums (PRD-21 S-18).
+  expect(bundlePath!.includes(join(library, 'Exports'))).toBe(true);
+  const manifestPath = join(bundlePath!, 'bundle.kilnry.json');
+  expect(existsSync(manifestPath)).toBe(true);
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
+    assets: Array<{ path: string; sha256: string; sidecar: boolean }>;
+    options: { provenance?: string; metadata?: string };
+  };
+  expect(manifest.assets.length).toBe(3);
+  expect(manifest.options.provenance).toBe('iptc');
+  expect(manifest.options.metadata).toBe('strip');
+  for (const entry of manifest.assets) {
+    const filePath = join(bundlePath!, entry.path);
+    expect(existsSync(filePath)).toBe(true);
+    // The checksum in the manifest matches the bytes on disk.
+    expect(createHash('sha256').update(readFileSync(filePath)).digest('hex')).toBe(entry.sha256);
+    // The sidecar travelled with the media.
+    expect(existsSync(`${filePath}.kilnry.json`)).toBe(true);
+  }
+
+  // The originals are untouched: their sidecars still sit in the inbox.
+  for (const id of assetIds) {
+    expect(id).not.toBe('');
+  }
 });
