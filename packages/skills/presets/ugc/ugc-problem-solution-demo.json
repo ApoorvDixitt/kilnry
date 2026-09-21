@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "id": "ugc-problem-solution-demo",
+  "name": "UGC demo · problem then fix",
+  "version": "1.0.0",
+  "description": "One continuous shot where a creator shows the annoying moment, then uses the product and shows the result. Use it when the product is easier to show than to describe.",
+  "category": "ugc",
+  "kind": "video",
+  "capability": "reference2video",
+  "model": {
+    "id": "auto",
+    "locked": false,
+    "alternates": ["bytedance/seedance-2.5", "fal-ai/veo3.1/reference-to-video", "google/veo-3.1"],
+    "constraints": { "needs_audio": true }
+  },
+  "prompt": "One continuous phone-camera shot in a {{ setting }}. {{ creator }} shows the problem: {{ problem }}. Then they use the product and show the result: {{ result }}. Natural daylight, real hands, no cuts, the product label stays readable. They say only: \"{{ line }}\". No captions, no text on screen.",
+  "negative_prompt": "cuts, captions, on-screen text, watermark, exaggerated reaction",
+  "params": {
+    "aspect_ratio": "9:16",
+    "duration_s": "{{ duration_s }}",
+    "audio": true
+  },
+  "slots": [
+    { "name": "creator", "type": "character", "label": "Creator", "required": true, "kinds": ["character"] },
+    { "name": "problem", "type": "text", "label": "The problem shown", "required": true, "max": 160 },
+    { "name": "result", "type": "text", "label": "The result shown", "required": true, "max": 160 },
+    { "name": "line", "type": "text", "label": "What they say", "required": true, "max": 140 },
+    {
+      "name": "setting",
+      "type": "enum",
+      "label": "Setting",
+      "options": ["kitchen", "bathroom", "desk", "car", "gym"],
+      "default": "kitchen"
+    },
+    { "name": "duration_s", "type": "number", "label": "Duration", "default": 8, "min": 5, "max": 12 }
+  ],
+  "medias": [],
+  "count": 1,
+  "indicative_cost_usd": 0.84,
+  "needs": ["fal", "openrouter"],
+  "tags": ["ugc", "demo", "before-after"],
+  "license": "CC0-1.0",
+  "author": "kilnry"
+}

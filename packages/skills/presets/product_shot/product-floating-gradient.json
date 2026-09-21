@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "id": "product-floating-gradient",
+  "name": "Floating on gradient",
+  "version": "1.0.0",
+  "description": "The product suspended mid-air against a smooth two-colour gradient with a soft shadow below. The bold shot for launches and paid social.",
+  "category": "product_shot",
+  "kind": "image_edit",
+  "capability": "image_edit",
+  "model": {
+    "id": "auto",
+    "locked": false,
+    "alternates": [
+      "fal-ai/nano-banana-2/edit",
+      "fal-ai/bytedance/seedream/v4.5/edit",
+      "bytedance-seed/seedream-4.5"
+    ],
+    "constraints": { "refs_count": 1 }
+  },
+  "prompt": "Studio product photograph: the product in image 1, unchanged in shape, colour and label, floating in mid-air and tilted slightly toward the camera, against a smooth gradient from {{ from_colour }} to {{ to_colour }}. A soft round shadow on the floor below it, crisp rim light along one edge, no visible support or string. Label sharp and readable. No text, no watermark.",
+  "negative_prompt": "visible stand, string, hands, warped label, text, watermark, harsh reflections",
+  "params": {
+    "aspect_ratio": "{{ aspect }}",
+    "resolution": "2K"
+  },
+  "slots": [
+    {
+      "name": "product",
+      "type": "media",
+      "label": "Product image",
+      "required": true,
+      "roles": ["product"],
+      "accept": ["image"]
+    },
+    { "name": "from_colour", "type": "color", "label": "Gradient from", "default": "#1B3C87" },
+    { "name": "to_colour", "type": "color", "label": "Gradient to", "default": "#0A0F1E" },
+    {
+      "name": "aspect",
+      "type": "enum",
+      "label": "Aspect",
+      "options": ["1:1", "4:5", "9:16"],
+      "default": "1:1"
+    }
+  ],
+  "medias": [{ "role": "product", "from_slot": "product" }],
+  "count": 1,
+  "indicative_cost_usd": 0.04,
+  "needs": ["fal", "openrouter"],
+  "tags": ["packshot", "gradient", "launch"],
+  "license": "CC0-1.0",
+  "author": "kilnry"
+}

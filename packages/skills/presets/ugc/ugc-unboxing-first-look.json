@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "id": "ugc-unboxing-first-look",
+  "name": "UGC unboxing · first look",
+  "version": "1.0.0",
+  "description": "Hands open a package and lift the product into frame for a first look, filmed like a real phone video on a table. Use it for launch teasers and first-impression clips.",
+  "category": "ugc",
+  "kind": "video",
+  "capability": "image2video",
+  "model": {
+    "id": "auto",
+    "locked": false,
+    "alternates": [
+      "bytedance/seedance-2.0",
+      "fal-ai/kling-video/v3/standard/image-to-video",
+      "kwaivgi/kling-v3.0-std"
+    ],
+    "constraints": { "needs_audio": false }
+  },
+  "prompt": "Hands lift the product from an opened box on a {{ surface }} table and turn it once toward the camera for a first look. Filmed on a phone from just above the table, daylight from a window, small natural hand movement, the label stays readable and unchanged. {{#if extra}}{{ extra }}.{{/if}} No text on screen, no logos other than the product's own.",
+  "negative_prompt": "on-screen text, watermark, extra hands, warped label, floating product",
+  "params": {
+    "aspect_ratio": "9:16",
+    "duration_s": "{{ duration_s }}",
+    "audio": false
+  },
+  "slots": [
+    {
+      "name": "packshot",
+      "type": "media",
+      "label": "Product or box photo",
+      "required": true,
+      "roles": ["start_frame"],
+      "accept": ["image"]
+    },
+    {
+      "name": "surface",
+      "type": "enum",
+      "label": "Table",
+      "options": ["light oak", "white laminate", "dark walnut", "brushed steel"],
+      "default": "light oak"
+    },
+    { "name": "duration_s", "type": "number", "label": "Duration", "default": 6, "min": 4, "max": 10 },
+    {
+      "name": "extra",
+      "type": "text",
+      "label": "Extra direction",
+      "default": "",
+      "help": "e.g. 'a mug of coffee beside the box'"
+    }
+  ],
+  "medias": [{ "role": "start_frame", "from_slot": "packshot" }],
+  "count": 1,
+  "indicative_cost_usd": 0.45,
+  "needs": ["fal", "openrouter"],
+  "tags": ["ugc", "unboxing", "launch"],
+  "license": "CC0-1.0",
+  "author": "kilnry"
+}
