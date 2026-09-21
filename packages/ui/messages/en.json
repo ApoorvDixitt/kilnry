@@ -639,6 +639,12 @@
     "cancel": "Cancel",
     "retry": "Retry",
     "checkStatus": "Check status",
+    "timeoutRow": "No answer from {provider} after {minutes} min. Kilnry hasn't resubmitted, so you won't be charged twice. Checking their status first.",
+    "retryConfirmTitle": "Retry may bill twice",
+    "retryConfirmBody": "Retry will submit a new request and may bill twice if the first one completes. Check {provider} first?",
+    "retryConfirmCheck": "Check {provider} first",
+    "retryConfirmProceed": "Retry anyway",
+    "retryConfirmCancel": "Cancel",
     "refunded": "refunded",
     "status": {
       "queued": "Queued",

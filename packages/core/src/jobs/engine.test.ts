@@ -450,6 +450,65 @@ describe('pg-boss job engine', () => {
     expect(fake.state.pollCalls).toBe(1);
   });
 
+  it('checks a timed-out job without resubmitting and completes it on re-poll (S-11)', async () => {
+    // A job that keeps polling running hits the short poll timeout and fails; its
+    // stored handle stays. checkJob re-polls that same request — now the fixture
+    // reports completed — so the job finishes without a second submit.
+    const fake = fakeAdapter({ keepRunning: true });
+    const { engine, state } = await harness(fake.adapter, true, {
+      pollScheduleMs: [50],
+      pollTimeoutMs: 300,
+    });
+    const created = await createConfirmed(engine, 'timeout-check');
+    expect(await engine.waitForJob(created.job_id, 5000)).toMatchObject({
+      status: 'failed',
+      errorCode: 'TIMEOUT',
+    });
+    const submitsAfterTimeout = fake.state.submitCalls;
+    expect(submitsAfterTimeout).toBe(1);
+    const failedRow = (await state.db.select().from(jobs).where(eq(jobs.id, created.job_id)))[0];
+    expect(failedRow?.providerRequestId).toBeTruthy();
+
+    // The provider has since finished; a status check re-polls and completes it.
+    fake.state.keepRunning = false;
+    fake.state.poll = [{ state: 'completed', result: fake.state.result }];
+    await engine.checkJob(created.job_id);
+    const done = (await state.db.select().from(jobs).where(eq(jobs.id, created.job_id)))[0];
+    expect(done?.status).toBe('completed');
+    // No second submit: the same provider request id was reused.
+    expect(fake.state.submitCalls).toBe(submitsAfterTimeout);
+    expect(done?.providerRequestId).toBe(failedRow?.providerRequestId);
+  });
+
+  it('leaves a still-rendering job running and hands it to the worker on check (S-11)', async () => {
+    // When the one bounded poll finds the request still in flight, the check must
+    // not resubmit or hang: it leaves the job running with a watching step label
+    // and hands it back to the worker through the resume queue.
+    const fake = fakeAdapter({ keepRunning: true });
+    const { engine, state } = await harness(fake.adapter, true, {
+      pollScheduleMs: [50],
+      pollTimeoutMs: 300,
+    });
+    const created = await createConfirmed(engine, 'still-rendering');
+    expect(await engine.waitForJob(created.job_id, 5000)).toMatchObject({
+      status: 'failed',
+      errorCode: 'TIMEOUT',
+    });
+    const submitsAfterTimeout = fake.state.submitCalls;
+    const failedRow = (await state.db.select().from(jobs).where(eq(jobs.id, created.job_id)))[0];
+    // The next poll still reports running; stop the engine first so the resume
+    // enqueue is not immediately consumed, letting us observe the running state.
+    await engine.stop();
+    fake.state.poll = [{ state: 'running', progress: 0.5 }];
+    await engine.checkJob(created.job_id);
+    const watching = (await state.db.select().from(jobs).where(eq(jobs.id, created.job_id)))[0];
+    expect(watching?.status).toBe('running');
+    expect(watching?.stepLabel).toContain('Kilnry is watching');
+    // Still no second submit; the stored request id is unchanged.
+    expect(fake.state.submitCalls).toBe(submitsAfterTimeout);
+    expect(watching?.providerRequestId).toBe(failedRow?.providerRequestId);
+  });
+
   it('keeps an accepted job resumable across a graceful engine restart', async () => {
     const fake = fakeAdapter({ keepRunning: true });
     const { engine, state } = await harness(fake.adapter, true, {

@@ -62,6 +62,11 @@ interface StoredResolved {
 
 const budgetLockId = 1_264_843_079;
 
+// A Check status (F-JOB-04) does a single bounded poll rather than the full poll
+// window, so the request returns within seconds even when the provider is still
+// rendering; a still-running job is handed back to the worker afterwards.
+const CHECK_POLL_DEADLINE_MS = 20_000;
+
 export interface JobEngineOptions {
   state: DatabaseState;
   keyStore: ProviderKeyStore;
@@ -589,6 +594,105 @@ export class JobEngine {
         .where(eq(jobs.id, jobId));
     });
     await this.#enqueue(jobId, ProviderIdSchema.parse(row.providerId));
+  }
+  // Check the provider's status for a failed job that already has a submitted
+  // request, without submitting again (S-11, F-JOB-04). This does one bounded
+  // poll of the stored provider request id (a deadline of about twenty seconds,
+  // never the full poll window) and reacts to what it finds: a finished request
+  // downloads and completes on the original estimate; a request still in flight
+  // leaves the job running with a watching step label and hands it back to the
+  // worker's normal poll window through the resume queue; a request the provider
+  // no longer knows fails again with the timeout copy. It never resubmits, so
+  // the user is never billed twice.
+  async checkJob(jobId: string): Promise<void> {
+    const row = await this.#job(jobId);
+    if (row.status !== 'failed') {
+      throw new KilnryError('INVALID_INPUT', 'Only a failed job can be re-checked.');
+    }
+    const handle = storedHandle(row);
+    if (!handle) {
+      throw new KilnryError('INVALID_INPUT', 'This job has no submitted request to check.');
+    }
+    const provider = ProviderIdSchema.parse(row.providerId);
+    const adapter = this.#options.adapters[provider];
+    if (!adapter) throw new KilnryError('NO_PROVIDER', `No adapter is registered for ${provider}.`);
+    const key = await this.#options.keyStore.get(provider);
+    if (!key) throw new KilnryError('NO_PROVIDER', `No ${provider} key is configured.`);
+    const request = CanonicalRequestSchema.parse(row.request);
+    const estimate = estimateFromRow(row, request);
+
+    // Move to running while keeping the stored handle so a concurrent view shows
+    // the check is under way; a failure below returns it to failed.
+    await this.#options.state.db
+      .update(jobs)
+      .set({ status: 'running', errorCode: null, errorMessage: null, retryable: null, stepLabel: 'checking' })
+      .where(eq(jobs.id, jobId));
+
+    const controller = new AbortController();
+    const deadline = setTimeout(
+      () => controller.abort(new DOMException('Check timed out', 'AbortError')),
+      CHECK_POLL_DEADLINE_MS,
+    );
+    this.#controllers.set(jobId, controller);
+    const tempDir = join(this.#options.dataDir, 'tmp', jobId);
+    await mkdir(tempDir, { recursive: true, mode: 0o700 });
+    const context = this.#adapterContext(adapter, key, controller.signal, tempDir);
+    try {
+      const status = await adapter.poll(handle, context);
+      if (status.state === 'completed') {
+        await this.#complete(await this.#job(jobId), request, estimate, adapter, status.result, context);
+        return;
+      }
+      if (status.state === 'moderated') {
+        await this.#finishError(await this.#job(jobId), status.error, true, status.billed);
+        return;
+      }
+      if (status.state === 'failed') {
+        await this.#finishError(await this.#job(jobId), status.error, false);
+        return;
+      }
+      // Still queued or running: keep it running, show it is being watched, and
+      // hand it to the worker so the normal poll window applies (the same resume
+      // path the offline reconnect uses).
+      await this.#options.state.db
+        .update(jobs)
+        .set({ stepLabel: `Still rendering at ${provider}; Kilnry is watching` })
+        .where(eq(jobs.id, jobId));
+      this.#options.events.emit({
+        type: 'job.updated',
+        job_id: jobId,
+        status: 'running',
+        step_label: `Still rendering at ${provider}; Kilnry is watching`,
+        provider_request_id: handle.provider_request_id,
+        estimate_usd: numeric(row.estimateUsd),
+        ts: this.#options.now().toISOString(),
+      });
+      // Hand it to the worker's normal poll window (the offline-resume path). If
+      // the engine is stopped, #recover re-enqueues running jobs on next start.
+      if (this.#started) await this.#enqueue(jobId, provider, true);
+    } catch (error) {
+      const current = await this.#job(jobId);
+      if (current.status === 'cancelled') return;
+      const normalized = adapter.normalizeError(error);
+      // Whatever went wrong, the request was never resubmitted; fail back with
+      // the ambiguous-timeout copy so the user can check or retry again.
+      await this.#finishError(
+        current,
+        new KilnryError(
+          'TIMEOUT',
+          `No answer from ${provider}. Kilnry has not resubmitted, so the request was not sent twice.`,
+          {
+            provider,
+            retryable: true,
+            details: { billed: 'maybe', poll_timeout: true, cause: normalized.code },
+          },
+        ),
+        false,
+      );
+    } finally {
+      clearTimeout(deadline);
+      this.#controllers.delete(jobId);
+    }
   }
 
   async waitForJob(jobId: string, timeoutMs = 30_000): Promise<JobRow> {

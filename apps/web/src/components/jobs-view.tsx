@@ -82,7 +82,19 @@ export function JobsView(): React.ReactNode {
 
   const retry = useCallback(
     (id: string) => {
-      void apiFetch(`/api/jobs/${id}/retry`, { method: 'POST' }).then(load);
+      const row = rows.find((each) => each.id === id);
+      const confirmed = Number(row?.estimateUsd ?? row?.actualUsd ?? 0);
+      void apiFetch(`/api/jobs/${id}/retry`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirmed_cost_usd: Number.isFinite(confirmed) ? confirmed : 0 }),
+      }).then(load);
+    },
+    [load, rows],
+  );
+  const check = useCallback(
+    (id: string) => {
+      void apiFetch(`/api/jobs/${id}/check`, { method: 'POST' }).then(load);
     },
     [load],
   );
@@ -133,7 +145,7 @@ export function JobsView(): React.ReactNode {
           {rows.length === 0 ? message('jobs.empty') : message('jobs.filteredEmpty')}
         </p>
       ) : (
-        <JobsTable rows={shown} onRetry={retry} onCancel={cancel} />
+        <JobsTable rows={shown} onRetry={retry} onCancel={cancel} onCheck={check} />
       )}
     </section>
   );

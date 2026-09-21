@@ -18,6 +18,33 @@ const mp4 = Buffer.from(
 // A single HTTPS location the fal video fixture points at; the engine downloads
 // the bytes from here after the queue job completes.
 const FAL_VIDEO_URL = 'https://v3.fal.media/files/test/kilnry-fixture.mp4';
+// Where a completed fal LoRA training points at its safetensors file (F-CHR-07).
+const FAL_LORA_URL = 'https://v3.fal.media/files/test/kilnry-lora.safetensors';
+
+// A tiny valid MP3 frame the speech and voice fixtures return as bytes.
+const mp3 = Buffer.from(
+  'SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjYyLjMuMTAwAAAAAAAAAAAAAAD/+xDEAAPAAAGkAAAAIAAANIAAAAT/',
+  'base64',
+);
+// A tiny fixture safetensors payload (bytes only; the trainer verifies its hash).
+const safetensors = Buffer.from('safetensors-fixture-bytes');
+
+// The ambiguous-timeout scenario (S-11) needs a MiniMax video task that hangs
+// past the poll timeout and then reports Success on the same task id. The task
+// counter and a per-task poll count live on globalThis so they survive any
+// module re-evaluation during the dev server's lifetime. When a short test
+// timeout is set, the first few polls report Processing (so the first job's poll
+// loop reaches its timeout) and later polls report Success (so a Check status on
+// the same task id finds it finished) — deterministic and independent of
+// wall-clock timing.
+const MINIMAX_HOLD_POLLS = 2;
+const mmState = globalThis as typeof globalThis & {
+  __kilnryMinimaxTaskCounter?: number;
+  __kilnryMinimaxPolls?: Map<string, number>;
+};
+mmState.__kilnryMinimaxTaskCounter ??= 2891;
+mmState.__kilnryMinimaxPolls ??= new Map<string, number>();
+const minimaxPolls = mmState.__kilnryMinimaxPolls;
 
 type TestGlobal = typeof globalThis & {
   __kilnryTestMswStarted?: boolean;
@@ -72,6 +99,10 @@ export function startTestMsw(): void {
         ],
       }),
     ),
+    // fal create-voice (Kling) is synchronous and returns a voice id (F-VOI-02).
+    http.post('https://queue.fal.run/fal-ai/kling-video/create-voice', () =>
+      HttpResponse.json({ voice_id: 'fal_kling_voice_1' }),
+    ),
     // fal is a queue provider: submit returns a request id and polling URLs, the
     // status turns to COMPLETED, and the response carries a downloadable output.
     // A prompt containing TRIGGER is rejected exactly as S-09 states: HTTP 422
@@ -105,7 +136,12 @@ export function startTestMsw(): void {
       HttpResponse.json({ status: 'COMPLETED', logs: [] }),
     ),
     http.get('https://queue.fal.run/*/requests/*', ({ request }) => {
-      const isVideo = /video|kling|veo|seedance/i.test(new URL(request.url).pathname);
+      const path = new URL(request.url).pathname;
+      // A LoRA training request finishes with a safetensors file (F-CHR-07).
+      if (/lora-fast-training|flux-lora|training/i.test(path)) {
+        return HttpResponse.json({ diffusers_lora_file: { url: FAL_LORA_URL } });
+      }
+      const isVideo = /video|kling|veo|seedance|lipsync|sync|latentsync/i.test(path);
       return isVideo
         ? HttpResponse.json({ video: { url: FAL_VIDEO_URL, content_type: 'video/mp4' } })
         : HttpResponse.json({
@@ -125,6 +161,93 @@ export function startTestMsw(): void {
     http.get('https://gen.pollinations.ai/v1/models', () => HttpResponse.json({ data: [{ id: 'flux' }] })),
     http.post('https://gen.pollinations.ai/v1/images/generations', () =>
       HttpResponse.json({ data: [{ b64_json: png.toString('base64'), media_type: 'image/png' }] }),
+    ),
+    // --- MiniMax (M5): video with a togglable hang, speech, and voice cloning ---
+    // Video submit returns a task id. The status endpoint reports Processing until
+    // KILNRY_TEST_TIMEOUT_S seconds have elapsed since the task was first seen,
+    // then Success with a video URL. This lets the ambiguous-timeout scenario
+    // (S-11) reach the poll timeout, and a later "Check status" find the finished
+    // task on the same stored task id — no second submit is ever needed.
+    http.post('https://api.minimax.io/v2/video_generation', () => {
+      const taskId = String(mmState.__kilnryMinimaxTaskCounter!++);
+      return HttpResponse.json({ task_id: taskId, base_resp: { status_code: 0, status_msg: 'success' } });
+    }),
+    http.get('https://api.minimax.io/v2/video_generation/:taskId', ({ params }) => {
+      const taskId = String(params.taskId);
+      const count = (minimaxPolls.get(taskId) ?? 0) + 1;
+      minimaxPolls.set(taskId, count);
+      // The first two polls of a task report processing so the first job's short
+      // poll loop reaches its timeout; the third poll onward (a Check status on
+      // the same task id) reports the finished video. This is deterministic and
+      // drives the ambiguous-timeout scenario (S-11) without wall-clock timing.
+      if (count <= MINIMAX_HOLD_POLLS) {
+        return HttpResponse.json({ status: 'processing', base_resp: { status_code: 0 } });
+      }
+      return HttpResponse.json({
+        status: 'succeeded',
+        video_url: FAL_VIDEO_URL,
+        base_resp: { status_code: 0 },
+      });
+    }),
+    http.get('https://api.minimax.io/v1/query/video_generation', () =>
+      HttpResponse.json({ base_resp: { status_code: 0 } }),
+    ),
+    // Text to speech returns the audio as a hex string in the body.
+    http.post('https://api.minimax.io/v1/t2a_v2', async ({ request }) => {
+      const body = (await request
+        .clone()
+        .json()
+        .catch(() => ({}))) as { text?: string };
+      return HttpResponse.json({
+        data: { audio: mp3.toString('hex') },
+        extra_info: { usage_characters: (body.text ?? '').length },
+        base_resp: { status_code: 0, status_msg: 'success' },
+      });
+    }),
+    // Voice cloning: upload the sample, then create the clone.
+    http.post('https://api.minimax.io/v1/files/upload', () =>
+      HttpResponse.json({ file: { file_id: 'file_fixture_1' }, base_resp: { status_code: 0 } }),
+    ),
+    http.post('https://api.minimax.io/v1/voice_clone', () =>
+      HttpResponse.json({ base_resp: { status_code: 0, status_msg: 'success' } }),
+    ),
+    // --- ElevenLabs (M5): key test, voice add, and text to speech ---
+    http.get('https://api.elevenlabs.io/v1/user/subscription', () =>
+      HttpResponse.json({ tier: 'starter', character_limit: 100_000, character_count: 0 }),
+    ),
+    http.post('https://api.elevenlabs.io/v1/voices/add', () =>
+      HttpResponse.json({ voice_id: 'el_fixture_voice_1' }),
+    ),
+    http.post('https://api.elevenlabs.io/v1/text-to-speech/:voiceId', () =>
+      HttpResponse.arrayBuffer(mp3.buffer.slice(mp3.byteOffset, mp3.byteOffset + mp3.byteLength), {
+        headers: { 'Content-Type': 'audio/mpeg' },
+      }),
+    ),
+    // --- Higgsfield (M5): free estimate, and Soul ID custom references ---
+    http.post('https://api.higgsfield.ai/estimate/*', () =>
+      HttpResponse.json({ credits: '1.500', usd: '0.094' }),
+    ),
+    http.post('https://api.higgsfield.ai/v1/custom-references', () =>
+      HttpResponse.json({ id: 'cr_fixture_1', status: 'queued' }),
+    ),
+    http.get('https://api.higgsfield.ai/v1/custom-references/:id', () =>
+      HttpResponse.json({ id: 'cr_fixture_1', status: 'completed' }),
+    ),
+    // The Higgsfield generation request id status (Soul 2 in Create, S-23).
+    http.post('https://api.higgsfield.ai/*', () =>
+      HttpResponse.json({
+        request_id: 'hf_req_1',
+        status_url: 'https://api.higgsfield.ai/requests/hf_req_1/status',
+      }),
+    ),
+    http.get('https://api.higgsfield.ai/requests/:id/status', () =>
+      HttpResponse.json({ status: 'completed', results: [{ url: FAL_VIDEO_URL.replace('.mp4', '.png') }] }),
+    ),
+    // The safetensors bytes a completed fal LoRA training points at (F-CHR-07).
+    http.get(FAL_LORA_URL, () =>
+      HttpResponse.arrayBuffer(safetensors.buffer.slice(0, safetensors.byteLength), {
+        headers: { 'Content-Type': 'application/octet-stream' },
+      }),
     ),
   );
   server.listen({ onUnhandledRequest: 'error' });
