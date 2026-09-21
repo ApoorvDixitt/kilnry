@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "id": "kilnry.camera.orbit-360",
+  "name": "Orbit 360",
+  "version": "1.0.0",
+  "description": "One continuous circle around a still subject at eye level. Eight seconds is about right for a full turn, so this one costs more than the others.",
+  "category": "camera",
+  "kind": "video",
+  "capability": "image2video",
+  "model": {
+    "id": "fal-ai/kling-video/v3/standard/image-to-video",
+    "locked": false,
+    "alternates": ["kwaivgi/kling-v3.0-std", "fal-ai/veo3.1/lite/image-to-video", "minimax/hailuo-3"],
+    "constraints": { "needs_audio": false, "duration_s": 8 }
+  },
+  "prompt": "Camera orbits {{subject}} in one continuous smooth circle at eye level, subject stays centred and still, consistent lighting through the turn, {{extra}}",
+  "negative_prompt": "subject rotating, cuts, jump in the turn, morphing, text",
+  "params": {
+    "duration_s": 8,
+    "audio": false,
+    "resolution": "720p"
+  },
+  "slots": [
+    {
+      "name": "frame",
+      "type": "media",
+      "label": "Start frame",
+      "required": true,
+      "roles": ["start_frame"],
+      "accept": ["image"]
+    },
+    {
+      "name": "subject",
+      "type": "text",
+      "label": "Subject",
+      "required": true,
+      "max": 200
+    },
+    {
+      "name": "extra",
+      "type": "text",
+      "label": "Anything else",
+      "default": "keep the light of the still",
+      "max": 200
+    }
+  ],
+  "medias": [{ "role": "start_frame", "from_slot": "frame" }],
+  "count": 1,
+  "indicative_cost_usd": 0.67,
+  "needs": ["fal", "openrouter"],
+  "tags": ["camera", "orbit", "turntable"],
+  "license": "CC0-1.0",
+  "author": "kilnry"
+}

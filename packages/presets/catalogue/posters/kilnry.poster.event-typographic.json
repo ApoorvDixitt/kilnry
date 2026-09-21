@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "id": "kilnry.poster.event-typographic",
+  "name": "Event Poster · Typographic",
+  "version": "1.0.0",
+  "description": "A type-led event poster on a strong grid with printed paper texture. Ideogram sets legible headlines, which most image models still fumble.",
+  "category": "posters",
+  "kind": "image",
+  "capability": "text2image",
+  "model": {
+    "id": "fal-ai/ideogram/v3",
+    "locked": false,
+    "alternates": ["openai/gpt-image-2"]
+  },
+  "prompt": "Poster with the exact headline '{{headline}}' in large {{type_style}} type, sub-line '{{subline}}', {{palette}} palette, strong grid, printed paper texture, 2:3",
+  "negative_prompt": "misspelled words, garbled letters, watermark, clutter",
+  "params": {
+    "aspect_ratio": "2:3",
+    "resolution": "2K"
+  },
+  "slots": [
+    {
+      "name": "headline",
+      "type": "text",
+      "label": "Headline",
+      "required": true,
+      "max": 40
+    },
+    {
+      "name": "subline",
+      "type": "text",
+      "label": "Sub-line",
+      "default": "",
+      "max": 80
+    },
+    {
+      "name": "type_style",
+      "type": "enum",
+      "label": "Type style",
+      "options": ["grotesque sans", "tall condensed", "classic serif", "stencil"],
+      "default": "grotesque sans"
+    },
+    {
+      "name": "palette",
+      "type": "text",
+      "label": "Palette",
+      "default": "ink black and warm off-white",
+      "max": 120
+    }
+  ],
+  "medias": [],
+  "count": 1,
+  "indicative_cost_usd": 0.03,
+  "needs": ["fal", "openrouter"],
+  "tags": ["poster", "typography", "event"],
+  "license": "CC0-1.0",
+  "author": "kilnry"
+}

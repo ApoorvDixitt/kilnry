@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "id": "kilnry.camera.dolly-in",
+  "name": "Dolly In",
+  "version": "1.0.0",
+  "description": "A camera move you drop onto a still: the camera glides forward on a track, focus held, background compressing. Bring your own subject line.",
+  "category": "camera",
+  "kind": "video",
+  "capability": "image2video",
+  "model": {
+    "id": "fal-ai/kling-video/v3/standard/image-to-video",
+    "locked": false,
+    "alternates": ["kwaivgi/kling-v3.0-std", "fal-ai/veo3.1/lite/image-to-video", "minimax/hailuo-3"],
+    "constraints": { "needs_audio": false, "duration_s": 5 }
+  },
+  "prompt": "Slow smooth dolly in toward {{subject}}, camera glides forward on a track, focus held on the subject, background compresses, no zoom, {{extra}}",
+  "negative_prompt": "zoom lens breathing, shake, cuts, morphing, text",
+  "params": {
+    "duration_s": 5,
+    "audio": false,
+    "resolution": "720p"
+  },
+  "slots": [
+    {
+      "name": "frame",
+      "type": "media",
+      "label": "Start frame",
+      "required": true,
+      "roles": ["start_frame"],
+      "accept": ["image"]
+    },
+    {
+      "name": "subject",
+      "type": "text",
+      "label": "Subject",
+      "required": true,
+      "max": 200,
+      "help": "What the camera moves toward, e.g. 'the chai glass on the counter'."
+    },
+    {
+      "name": "extra",
+      "type": "text",
+      "label": "Anything else",
+      "default": "keep the light of the still",
+      "max": 200
+    }
+  ],
+  "medias": [{ "role": "start_frame", "from_slot": "frame" }],
+  "count": 1,
+  "indicative_cost_usd": 0.42,
+  "needs": ["fal", "openrouter"],
+  "tags": ["camera", "dolly", "i2v"],
+  "license": "CC0-1.0",
+  "author": "kilnry"
+}

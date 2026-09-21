@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "id": "kilnry.camera.crash-zoom",
+  "name": "Crash Zoom",
+  "version": "1.0.0",
+  "description": "A static wide that punches in hard to one detail and stops dead. Kling pro keeps the landing crisp.",
+  "category": "camera",
+  "kind": "video",
+  "capability": "image2video",
+  "model": {
+    "id": "fal-ai/kling-video/v3/pro/image-to-video",
+    "locked": false,
+    "alternates": ["kwaivgi/kling-v3.0-pro", "fal-ai/veo3.1/lite/image-to-video"],
+    "constraints": { "needs_audio": false, "duration_s": 5 }
+  },
+  "prompt": "Static wide shot, then a sudden fast punch-in to {{subject}} and its {{detail}}, snaps to a hard stop, slight motion blur only during the zoom, {{extra}}",
+  "negative_prompt": "slow zoom, drifting after the stop, cuts, morphing, text",
+  "params": {
+    "duration_s": 5,
+    "audio": false,
+    "resolution": "1080p"
+  },
+  "slots": [
+    {
+      "name": "frame",
+      "type": "media",
+      "label": "Start frame",
+      "required": true,
+      "roles": ["start_frame"],
+      "accept": ["image"]
+    },
+    {
+      "name": "subject",
+      "type": "text",
+      "label": "Subject",
+      "required": true,
+      "max": 200
+    },
+    {
+      "name": "detail",
+      "type": "text",
+      "label": "Detail to land on",
+      "required": true,
+      "max": 120,
+      "help": "The part the zoom stops on, e.g. 'the ingredients list'."
+    },
+    {
+      "name": "extra",
+      "type": "text",
+      "label": "Anything else",
+      "default": "keep the light of the still",
+      "max": 200
+    }
+  ],
+  "medias": [{ "role": "start_frame", "from_slot": "frame" }],
+  "count": 1,
+  "indicative_cost_usd": 0.56,
+  "needs": ["fal", "openrouter"],
+  "tags": ["camera", "zoom", "punch-in"],
+  "license": "CC0-1.0",
+  "author": "kilnry"
+}

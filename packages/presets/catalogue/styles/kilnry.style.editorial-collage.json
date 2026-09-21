@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "id": "kilnry.style.editorial-collage",
+  "name": "Editorial Collage",
+  "version": "1.0.0",
+  "description": "Cut-paper collage with halftone photo fragments, torn edges and one bold accent shape, in the energy of a magazine spread.",
+  "category": "styles",
+  "kind": "image",
+  "capability": "text2image",
+  "model": {
+    "id": "fal-ai/flux-2-pro",
+    "locked": false,
+    "alternates": ["black-forest-labs/flux.2-pro"]
+  },
+  "prompt": "{{subject}} in an editorial cut-paper collage: halftone photo fragments, torn edges, bold {{accent}} shapes, one thick outline, magazine layout energy, no text",
+  "negative_prompt": "clean vector, photographic realism, text, watermark",
+  "params": {
+    "aspect_ratio": "4:5",
+    "resolution": "2K"
+  },
+  "slots": [
+    {
+      "name": "subject",
+      "type": "text",
+      "label": "Subject",
+      "required": true,
+      "max": 200,
+      "help": "A description, or the @handle of an Element."
+    },
+    {
+      "name": "accent",
+      "type": "color",
+      "label": "Accent shapes",
+      "default": "#FF5A36"
+    }
+  ],
+  "medias": [],
+  "count": 1,
+  "indicative_cost_usd": 0.03,
+  "needs": ["fal", "openrouter"],
+  "tags": ["style", "collage", "editorial"],
+  "license": "CC0-1.0",
+  "author": "kilnry"
+}

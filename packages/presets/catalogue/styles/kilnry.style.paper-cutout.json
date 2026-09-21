@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "id": "kilnry.style.paper-cutout",
+  "name": "Paper Cutout",
+  "version": "1.0.0",
+  "description": "Layered construction-paper illustration with visible edges and shadows between the layers.",
+  "category": "styles",
+  "kind": "image",
+  "capability": "text2image",
+  "model": {
+    "id": "fal-ai/bytedance/seedream/v4.5/text-to-image",
+    "locked": false,
+    "alternates": ["bytedance-seed/seedream-4.5", "black-forest-labs/flux.2-pro"]
+  },
+  "prompt": "{{subject}} as a layered paper-cutout illustration, visible paper edges and drop shadows between layers, {{palette}} construction-paper palette, flat frontal light, no text",
+  "negative_prompt": "photographic detail, gradients, text, watermark",
+  "params": {
+    "aspect_ratio": "1:1",
+    "resolution": "2K"
+  },
+  "slots": [
+    {
+      "name": "subject",
+      "type": "text",
+      "label": "Subject",
+      "required": true,
+      "max": 200,
+      "help": "A description, or the @handle of a Character."
+    },
+    {
+      "name": "palette",
+      "type": "text",
+      "label": "Palette",
+      "default": "coral, mustard and sage",
+      "max": 120
+    }
+  ],
+  "medias": [],
+  "count": 1,
+  "indicative_cost_usd": 0.04,
+  "needs": ["fal", "openrouter"],
+  "tags": ["style", "paper", "illustration"],
+  "license": "CC0-1.0",
+  "author": "kilnry"
+}

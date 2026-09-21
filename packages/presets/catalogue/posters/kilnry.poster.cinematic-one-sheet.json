@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "id": "kilnry.poster.cinematic-one-sheet",
+  "name": "Cinematic One-Sheet",
+  "version": "1.0.0",
+  "description": "A film one-sheet built around a Character: low-angle portrait, moody grade, title in the lower third and room for a billing block.",
+  "category": "posters",
+  "kind": "image",
+  "capability": "text2image",
+  "model": {
+    "id": "google/gemini-3-pro-image",
+    "locked": false,
+    "alternates": ["fal-ai/nano-banana-pro"]
+  },
+  "prompt": "Film one-sheet: {{character}} in a dramatic low-angle portrait, {{setting}} behind, moody {{palette}} grade, title '{{title}}' in the lower third, billing block space below, 2:3",
+  "negative_prompt": "flat lighting, watermark, misspelled words, crowded frame",
+  "params": {
+    "aspect_ratio": "2:3",
+    "resolution": "2K"
+  },
+  "slots": [
+    {
+      "name": "character",
+      "type": "character",
+      "label": "Character",
+      "required": true,
+      "kinds": ["character"]
+    },
+    {
+      "name": "setting",
+      "type": "text",
+      "label": "Setting",
+      "default": "a rain-slick city street at night",
+      "max": 200
+    },
+    {
+      "name": "palette",
+      "type": "enum",
+      "label": "Grade",
+      "options": ["teal and orange", "cold blue", "sepia and amber", "desaturated green"],
+      "default": "teal and orange"
+    },
+    {
+      "name": "title",
+      "type": "text",
+      "label": "Title",
+      "default": "",
+      "max": 40
+    }
+  ],
+  "medias": [],
+  "count": 1,
+  "indicative_cost_usd": 0.13,
+  "needs": ["fal", "openrouter"],
+  "tags": ["poster", "cinematic", "one-sheet"],
+  "license": "CC0-1.0",
+  "author": "kilnry"
+}

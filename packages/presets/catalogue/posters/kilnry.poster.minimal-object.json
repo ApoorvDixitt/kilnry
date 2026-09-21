@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "id": "kilnry.poster.minimal-object",
+  "name": "Minimal Object Poster",
+  "version": "1.0.0",
+  "description": "One object alone on a flat field with generous margins and a small caption, laid out the Swiss way.",
+  "category": "posters",
+  "kind": "image",
+  "capability": "text2image",
+  "model": {
+    "id": "fal-ai/bytedance/seedream/v4.5/text-to-image",
+    "locked": false,
+    "alternates": ["bytedance-seed/seedream-4.5"]
+  },
+  "prompt": "Minimal gallery poster: {{subject}} alone on a {{bg}} field, generous margins, small caption line '{{caption}}' at the bottom, Swiss layout, 2:3",
+  "negative_prompt": "clutter, extra objects, watermark, busy pattern",
+  "params": {
+    "aspect_ratio": "2:3",
+    "resolution": "2K"
+  },
+  "slots": [
+    {
+      "name": "subject",
+      "type": "text",
+      "label": "Subject",
+      "required": true,
+      "max": 200,
+      "help": "A description, or the @handle of an Element."
+    },
+    {
+      "name": "bg",
+      "type": "color",
+      "label": "Field colour",
+      "default": "#E8E4DC"
+    },
+    {
+      "name": "caption",
+      "type": "text",
+      "label": "Caption",
+      "default": "",
+      "max": 60
+    }
+  ],
+  "medias": [],
+  "count": 1,
+  "indicative_cost_usd": 0.04,
+  "needs": ["fal", "openrouter"],
+  "tags": ["poster", "minimal", "swiss"],
+  "license": "CC0-1.0",
+  "author": "kilnry"
+}

@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "id": "kilnry.poster.retro-travel",
+  "name": "Retro Travel",
+  "version": "1.0.0",
+  "description": "A vintage travel poster in flat colour blocks with screen-print grain and a tall condensed headline.",
+  "category": "posters",
+  "kind": "image",
+  "capability": "text2image",
+  "model": {
+    "id": "fal-ai/flux-2-pro",
+    "locked": false,
+    "alternates": ["black-forest-labs/flux.2-pro"]
+  },
+  "prompt": "Vintage travel poster of {{place}}, flat colour blocks, screen-print grain, warm {{palette}} palette, headline '{{headline}}' in tall condensed letters, 2:3",
+  "negative_prompt": "photographic detail, gradients, watermark, misspelled words",
+  "params": {
+    "aspect_ratio": "2:3",
+    "resolution": "2K"
+  },
+  "slots": [
+    {
+      "name": "place",
+      "type": "text",
+      "label": "Place",
+      "required": true,
+      "max": 120
+    },
+    {
+      "name": "palette",
+      "type": "enum",
+      "label": "Palette",
+      "options": ["sunset orange and teal", "ochre and forest", "coral and cream", "dusk purple and gold"],
+      "default": "sunset orange and teal"
+    },
+    {
+      "name": "headline",
+      "type": "text",
+      "label": "Headline",
+      "default": "",
+      "max": 40
+    }
+  ],
+  "medias": [],
+  "count": 1,
+  "indicative_cost_usd": 0.03,
+  "needs": ["fal", "openrouter"],
+  "tags": ["poster", "retro", "travel"],
+  "license": "CC0-1.0",
+  "author": "kilnry"
+}

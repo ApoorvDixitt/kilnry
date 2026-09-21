@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "id": "kilnry.thumb.before-after",
+  "name": "Before / After Split",
+  "version": "1.0.0",
+  "description": "A thumbnail split down the middle, dull on the left and bright on the right, same camera in both halves.",
+  "category": "thumbnails",
+  "kind": "image",
+  "capability": "text2image",
+  "model": {
+    "id": "google/gemini-3.1-flash-image",
+    "locked": false,
+    "alternates": ["fal-ai/nano-banana-2"]
+  },
+  "prompt": "Thumbnail split down the middle: left half {{before}} in dull desaturated light, right half {{after}} bright and saturated, hard vertical divider, same camera, 16:9, no text",
+  "negative_prompt": "text, watermark, soft divider, mismatched framing",
+  "params": {
+    "aspect_ratio": "16:9",
+    "resolution": "1K"
+  },
+  "slots": [
+    {
+      "name": "before",
+      "type": "text",
+      "label": "Before",
+      "required": true,
+      "max": 200
+    },
+    {
+      "name": "after",
+      "type": "text",
+      "label": "After",
+      "required": true,
+      "max": 200
+    },
+    {
+      "name": "product",
+      "type": "character",
+      "label": "Product",
+      "kinds": ["prop"],
+      "help": "A product Element, if it appears in both halves."
+    }
+  ],
+  "medias": [],
+  "count": 1,
+  "indicative_cost_usd": 0.07,
+  "needs": ["fal", "openrouter"],
+  "tags": ["thumbnail", "before-after", "split"],
+  "license": "CC0-1.0",
+  "author": "kilnry"
+}

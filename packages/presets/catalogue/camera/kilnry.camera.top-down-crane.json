@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "id": "kilnry.camera.top-down-crane",
+  "name": "Top-down Crane",
+  "version": "1.0.0",
+  "description": "Straight overhead, rising slowly to show the surroundings while the subject stays centred. Veo 3.1 lite handles this one cheaply.",
+  "category": "camera",
+  "kind": "video",
+  "capability": "image2video",
+  "model": {
+    "id": "fal-ai/veo3.1/lite/image-to-video",
+    "locked": false,
+    "alternates": ["google/veo-3.1-lite", "kwaivgi/kling-v3.0-std"],
+    "constraints": { "needs_audio": false, "duration_s": 5 }
+  },
+  "prompt": "Camera directly overhead of {{subject}}, slowly cranes upward while keeping the subject centred, revealing the surrounding {{surface}}, {{extra}}",
+  "negative_prompt": "tilted angle, subject drifting off centre, cuts, morphing, text",
+  "params": {
+    "duration_s": 5,
+    "audio": false,
+    "resolution": "720p"
+  },
+  "slots": [
+    {
+      "name": "frame",
+      "type": "media",
+      "label": "Start frame",
+      "required": true,
+      "roles": ["start_frame"],
+      "accept": ["image"]
+    },
+    {
+      "name": "subject",
+      "type": "text",
+      "label": "Subject",
+      "required": true,
+      "max": 200
+    },
+    {
+      "name": "surface",
+      "type": "text",
+      "label": "Surrounding surface",
+      "required": true,
+      "max": 120,
+      "help": "What comes into view as the camera rises, e.g. 'the laid table'."
+    },
+    {
+      "name": "extra",
+      "type": "text",
+      "label": "Anything else",
+      "default": "keep the light of the still",
+      "max": 200
+    }
+  ],
+  "medias": [{ "role": "start_frame", "from_slot": "frame" }],
+  "count": 1,
+  "indicative_cost_usd": 0.15,
+  "needs": ["fal", "openrouter"],
+  "tags": ["camera", "crane", "top-down"],
+  "license": "CC0-1.0",
+  "author": "kilnry"
+}

@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "id": "kilnry.camera.whip-pan",
+  "name": "Whip Pan",
+  "version": "1.0.0",
+  "description": "A half-second whip from one thing to another with heavy blur, landing sharp and level. Built to be used as a transition between two clips.",
+  "category": "camera",
+  "kind": "video",
+  "capability": "image2video",
+  "model": {
+    "id": "fal-ai/kling-video/v3/standard/image-to-video",
+    "locked": false,
+    "alternates": ["kwaivgi/kling-v3.0-std", "fal-ai/veo3.1/lite/image-to-video"],
+    "constraints": { "needs_audio": false, "duration_s": 5 }
+  },
+  "prompt": "Camera whip-pans from {{from}} to {{subject}} in under half a second with heavy motion blur, lands sharp and level, {{extra}}",
+  "negative_prompt": "slow pan, tilted landing, cuts, morphing, text",
+  "params": {
+    "duration_s": 5,
+    "audio": false,
+    "resolution": "720p"
+  },
+  "slots": [
+    {
+      "name": "frame",
+      "type": "media",
+      "label": "Start frame",
+      "required": true,
+      "roles": ["start_frame"],
+      "accept": ["image"]
+    },
+    {
+      "name": "from",
+      "type": "text",
+      "label": "Panning from",
+      "required": true,
+      "max": 120,
+      "help": "Where the pan starts, e.g. 'the empty doorway'."
+    },
+    {
+      "name": "subject",
+      "type": "text",
+      "label": "Panning to",
+      "required": true,
+      "max": 200
+    },
+    {
+      "name": "extra",
+      "type": "text",
+      "label": "Anything else",
+      "default": "keep the light of the still",
+      "max": 200
+    }
+  ],
+  "medias": [{ "role": "start_frame", "from_slot": "frame" }],
+  "count": 1,
+  "indicative_cost_usd": 0.42,
+  "needs": ["fal", "openrouter"],
+  "tags": ["camera", "whip-pan", "transition"],
+  "license": "CC0-1.0",
+  "author": "kilnry"
+}
