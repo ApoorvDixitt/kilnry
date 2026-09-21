@@ -30,10 +30,13 @@ const estimate = {
   eta_s: 12,
 };
 
+let body: Record<string, unknown> = {};
+
 beforeEach(() => {
+  body = { resolved, estimate, model: { model: 'fal-ai/bytedance/seedream/v4.5/edit', reason: 'primary' } };
   vi.stubGlobal(
     'fetch',
-    vi.fn(async () => new Response(JSON.stringify({ resolved, estimate }), { status: 200 })),
+    vi.fn(async () => new Response(JSON.stringify(body), { status: 200 })),
   );
 });
 
@@ -199,5 +202,37 @@ describe('the preset use drawer (F-PRE-02)', () => {
     const invalid = host.querySelector('.preset-field.is-invalid');
     expect(invalid?.querySelector('label')?.textContent).toContain('Product');
     expect(invalid?.querySelector('.preset-field-error')?.textContent).toBe('Fill this in before running.');
+  });
+
+  it('says nothing about the model when the first hint is the one used', async () => {
+    const host = await render(<PresetDrawer preset={preset()} onClose={() => undefined} />);
+    expect(host.querySelector('.preset-model-note')).toBeNull();
+  });
+
+  it('says which alternate it fell back to when the first hint is out of reach', async () => {
+    body = { resolved, estimate, model: { model: 'bytedance-seed/seedream-4.5', reason: 'alternate' } };
+    const host = await render(<PresetDrawer preset={preset()} onClose={() => undefined} />);
+    expect(host.querySelector('.preset-model-note')?.textContent).toBe(
+      'Using bytedance-seed/seedream-4.5, the next model this preset suggests that one of your keys can reach.',
+    );
+    expect((host.querySelector('select[aria-label="Change the model"]') as HTMLSelectElement).value).toBe(
+      'bytedance-seed/seedream-4.5',
+    );
+  });
+
+  it('says the router will choose when no hint can be reached', async () => {
+    body = { resolved, estimate, model: { model: 'auto', reason: 'auto' } };
+    const host = await render(<PresetDrawer preset={preset()} onClose={() => undefined} />);
+    expect(host.querySelector('.preset-model-note')?.textContent).toBe(
+      'None of the models this preset suggests is reachable with your keys, so the router will pick one.',
+    );
+  });
+
+  it('says when a Character anchor stands in for the first frame', async () => {
+    body = { resolved, estimate, model: { model: 'minimax/hailuo-3', reason: 'primary' }, anchor: true };
+    const host = await render(<PresetDrawer preset={preset()} onClose={() => undefined} />);
+    expect(host.querySelector('.preset-anchor-note')?.textContent).toBe(
+      'This preset has no still to start from, so the Character anchor becomes the first frame.',
+    );
   });
 });

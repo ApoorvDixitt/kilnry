@@ -143,10 +143,13 @@ export function PresetDrawer({
   currentFolder?: string;
 }): React.ReactNode {
   const [values, setValues] = useState<SlotValues>(() => initialValues(preset));
-  const [model, setModel] = useState(preset.model.id);
+  // Undefined means the hints decide; a string means the user chose (F-PRE-06).
+  const [model, setModel] = useState<string | undefined>(undefined);
   const [advanced, setAdvanced] = useState(false);
   const [resolved, setResolved] = useState<ResolvedPreset | null>(null);
   const [estimate, setEstimate] = useState<CostEstimate | null>(null);
+  const [chosen, setChosen] = useState<{ model: string; reason: string } | null>(null);
+  const [anchor, setAnchor] = useState(false);
   const [running, setRunning] = useState(false);
   const [touched, setTouched] = useState(false);
   const [failure, setFailure] = useState<string>();
@@ -156,19 +159,33 @@ export function PresetDrawer({
 
   // The server resolves and prices; the drawer never templates or prices itself.
   const refresh = useCallback(
-    (nextValues: SlotValues, nextModel: string) => {
+    (nextValues: SlotValues, nextModel: string | undefined) => {
       if (debounce.current) clearTimeout(debounce.current);
       debounce.current = setTimeout(() => {
         void fetch(`/api/presets/${encodeURIComponent(preset.id)}/resolve`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ values: nextValues, model: nextModel }),
+          body: JSON.stringify({
+            values: nextValues,
+            ...(nextModel === undefined ? {} : { model: nextModel }),
+          }),
         })
           .then((response) => (response.ok ? response.json() : null))
-          .then((body: { resolved?: ResolvedPreset; estimate?: CostEstimate | null } | null) => {
-            setResolved(body?.resolved ?? null);
-            setEstimate(body?.estimate ?? null);
-          })
+          .then(
+            (
+              body: {
+                resolved?: ResolvedPreset;
+                estimate?: CostEstimate | null;
+                model?: { model: string; reason: string };
+                anchor?: boolean;
+              } | null,
+            ) => {
+              setResolved(body?.resolved ?? null);
+              setEstimate(body?.estimate ?? null);
+              setChosen(body?.model ?? null);
+              setAnchor(body?.anchor === true);
+            },
+          )
           .catch(() => {
             setResolved(null);
             setEstimate(null);
@@ -197,6 +214,11 @@ export function PresetDrawer({
     );
   const runnable = canRun(preset, values, { estimated: estimate !== null, running, overBudget });
   const priced = estimate === null ? undefined : (estimate.authoritative_usd ?? estimate.estimate_usd);
+  // What the run will use: a locked preset keeps its model, otherwise the user's
+  // choice, otherwise whatever the hints settled on.
+  const effectiveModel = canChangeModel(preset)
+    ? (model ?? chosen?.model ?? preset.model.id)
+    : preset.model.id;
 
   async function run(): Promise<void> {
     if (!runnable || resolved === null || priced === undefined) return;
@@ -209,7 +231,7 @@ export function PresetDrawer({
         body: JSON.stringify(
           runPayload({
             preset,
-            model,
+            model: effectiveModel,
             resolved,
             confirmedCostUsd: priced,
             clientRequestId: crypto.randomUUID(),
@@ -228,7 +250,7 @@ export function PresetDrawer({
 
   function openInCreate(): void {
     if (resolved === null) return;
-    window.location.href = `/create?${openInCreateQuery({ preset, model, resolved })}`;
+    window.location.href = `/create?${openInCreateQuery({ preset, model: effectiveModel, resolved })}`;
   }
 
   return (
@@ -253,6 +275,7 @@ export function PresetDrawer({
 
       <section className="preset-drawer-section">
         <h3 className="preset-drawer-heading">{copy.inputs}</h3>
+        {anchor ? <p className="preset-anchor-note">{message('presets.anchorNote')}</p> : null}
         {preset.slots.map((slot) => (
           <SlotField
             key={slot.name}
@@ -270,7 +293,7 @@ export function PresetDrawer({
           <select
             className="preset-field-control"
             aria-label={copy.change}
-            value={model}
+            value={effectiveModel}
             onChange={(event) => setModel(event.target.value)}
           >
             {modelOptions(preset).map((option) => (
@@ -280,8 +303,15 @@ export function PresetDrawer({
             ))}
           </select>
         ) : (
-          <span className="preset-model-chip">{model}</span>
+          <span className="preset-model-chip">{effectiveModel}</span>
         )}
+        {model === undefined && chosen !== null && chosen.reason !== 'primary' ? (
+          <p className="preset-model-note">
+            {chosen.reason === 'auto'
+              ? message('presets.hintAuto')
+              : message('presets.hintAlternate').replace('{model}', chosen.model)}
+          </p>
+        ) : null}
       </section>
 
       <section className="preset-drawer-section">

@@ -45,3 +45,12 @@ export {
   type SlotValues,
   type RenderedPreset,
 } from './render.js';
+
+export {
+  modelHints,
+  chooseModel,
+  usesCharacterAnchor,
+  ANCHOR_ROLE,
+  type ChosenModel,
+  type HintReason,
+} from './hints.js';

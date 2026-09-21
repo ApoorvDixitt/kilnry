@@ -12,12 +12,13 @@
 
 import { join } from 'node:path';
 import { NextResponse } from 'next/server';
-import { KilnryError, loadConfig } from '@kilnry/core';
-import { getPreset, renderPreset } from '@kilnry/presets';
+import { KilnryError, listProviders, loadConfig, registrySeed } from '@kilnry/core';
+import { chooseModel, getPreset, renderPreset, usesCharacterAnchor } from '@kilnry/presets';
+import { adapters } from '@kilnry/providers';
 import * as z from 'zod';
 import { errorResponse, requireSession } from '../../../../../server/http';
 import { canonicalGeneration, GenerationInput } from '../../../../../server/generation-input';
-import { ensureRuntimeEngine } from '../../../../../server/runtime';
+import { ensureRuntimeEngine, runtimeServices } from '../../../../../server/runtime';
 
 const ResolveInput = z.object({
   values: z.record(z.string(), z.union([z.string(), z.number()])).default({}),
@@ -29,6 +30,14 @@ const ResolveInput = z.object({
 function folderHint(preset: Record<string, unknown>): string | undefined {
   const hint = preset.target_folder_hint;
   return typeof hint === 'string' && hint !== '' ? hint : undefined;
+}
+
+/** Which provider serves a model reference, by the shipped registry. */
+function providerOf(ref: string): string | undefined {
+  for (const model of registrySeed) {
+    if (model.model_id === ref || `${model.provider}/${model.model_id}` === ref) return model.provider;
+  }
+  return undefined;
 }
 
 export async function POST(
@@ -46,18 +55,30 @@ export async function POST(
     }
     const preset = entry.preset;
     const resolved = renderPreset(preset, input.values);
+    const anchor = usesCharacterAnchor(preset);
+
+    // Which model the run will actually use: what the user picked, else the first
+    // hint a connected provider can serve (F-PRE-06). A camera preset is priced
+    // at the video price of that model, so the hint must be settled first.
+    const services = await runtimeServices();
+    const summaries = await listProviders(services.database, adapters);
+    const connected = new Set(summaries.filter((row) => row.connected).map((row) => row.id));
+    const chosen =
+      input.model === undefined
+        ? chooseModel(preset, { connected, providerOf })
+        : { model: input.model, reason: 'primary' as const };
 
     // A preset with an empty required slot is previewed but not priced: there is
     // no request to price yet, and the drawer says which field is missing.
     if (resolved.missing.length > 0 || resolved.prompt.trim() === '') {
-      return NextResponse.json({ resolved, estimate: null });
+      return NextResponse.json({ resolved, estimate: null, model: chosen, anchor });
     }
 
     const payload = GenerationInput.parse({
       kind: preset.kind,
       prompt: resolved.prompt,
       ...(resolved.negative_prompt === undefined ? {} : { negative_prompt: resolved.negative_prompt }),
-      model: input.model ?? preset.model.id,
+      model: chosen.model,
       params: resolved.params,
       medias: resolved.medias.map((media) => ({ role: media.role, asset_id: media.ref })),
       count: resolved.count,
@@ -68,7 +89,7 @@ export async function POST(
     const canonical = canonicalGeneration(payload);
     const engine = await ensureRuntimeEngine();
     const estimate = await engine.estimate(canonical.request, canonical.constraints);
-    return NextResponse.json({ resolved, estimate });
+    return NextResponse.json({ resolved, estimate, model: chosen, anchor });
   } catch (error) {
     return errorResponse(error);
   }

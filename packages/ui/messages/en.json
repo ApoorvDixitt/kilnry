@@ -748,7 +748,10 @@
     "missingField": "Fill this in before running.",
     "runFailed": "That run could not be started. Try again.",
     "pickMedia": "Asset id or Element handle",
-    "pickCharacter": "@handle"
+    "pickCharacter": "@handle",
+    "hintAlternate": "Using {model}, the next model this preset suggests that one of your keys can reach.",
+    "hintAuto": "None of the models this preset suggests is reachable with your keys, so the router will pick one.",
+    "anchorNote": "This preset has no still to start from, so the Character anchor becomes the first frame."
   },
   "characters": {
     "title": "Characters",
