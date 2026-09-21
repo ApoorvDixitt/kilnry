@@ -22,6 +22,8 @@ const PASSWORD = 'Kilnry-local-test-42!';
 const FAL_KEY = ['00000000-0000-4000-8000-000000000000', ':', '0'.repeat(32)].join('');
 // A JWT-shaped MiniMax key (three dot-separated base64url segments).
 const MINIMAX_KEY = ['eyJhbGciOiJIUzI1NiJ9', 'eyJzdWIiOiJraWxucnkifQ', '0'.repeat(43)].join('.');
+// An ElevenLabs key (sk_ + 48 hex).
+const ELEVENLABS_KEY = `sk_${'0'.repeat(48)}`;
 // A Higgsfield key pair (uuid:secret) accepted by the adapter's detector.
 const HIGGSFIELD_KEY = [
   ['00000000', '0000', '4000', '8000', '000000000000'].join('-'),
@@ -332,4 +334,101 @@ test('@m5 S-15 character training stays behind the consent gate', async ({ page 
     "This sends a real person's likeness to Higgsfield, which may train on it. Continue?",
   );
   await expect(page.locator('.character-train-estimate')).toContainText('$2.50');
+});
+
+test('@m5 S-16 voice clone with consent, bound to a Character, priced for speech', async ({ page }) => {
+  await ensureProvider(page, 'fal', FAL_KEY);
+  await ensureProvider(page, 'minimax', MINIMAX_KEY);
+  await ensureProvider(page, 'elevenlabs', ELEVENLABS_KEY);
+
+  // A fictional Character, so cloning turns only on the drawer's own consent tick.
+  const token = await csrf(page);
+  await page.evaluate(async (token) => {
+    await fetch('/api/characters/manage', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Kilnry-CSRF': token },
+      body: JSON.stringify({
+        action: 'create',
+        kind: 'character',
+        handle: 'maya',
+        display_name: 'Maya',
+        is_real_person: false,
+      }),
+    });
+  }, token);
+
+  await page.goto('/characters/maya');
+  await page.getByRole('tab', { name: 'Voice' }).click();
+  await page.getByRole('button', { name: 'Clone voice' }).click();
+
+  // Clone stays disabled until consent is ticked, with the sample long enough.
+  const drawer = page.locator('.clone-voice-drawer');
+  const cloneButton = drawer.locator('.clone-voice-actions button');
+  await drawer.locator('input[type="text"]').first().fill('Maya voice');
+  await drawer.locator('input[type="url"]').fill('https://media.test/maya.wav');
+  const seconds = drawer.locator('input[type="number"]');
+  await seconds.fill('30');
+  await drawer.locator('input[value="minimax"]').check();
+  await expect(cloneButton).toBeDisabled();
+  await expect(cloneButton).toHaveText('Clone · $1.50');
+  await drawer.locator('input[type="checkbox"]').check();
+  await expect(cloneButton).toBeEnabled();
+  await cloneButton.click();
+
+  // A cloned voice row is stored as a clone, bound to Maya. The consent gate is
+  // proven by the disabled Clone button above and enforced again by the route.
+  await expect
+    .poll(
+      async () =>
+        page.evaluate(async () => {
+          const response = await fetch('/api/voices?type=clone');
+          if (!response.ok) return null;
+          const body = (await response.json()) as {
+            voices?: Array<{ is_clone?: boolean; name?: string }>;
+          };
+          return body.voices?.find((voice) => voice.name === 'Maya voice') ?? null;
+        }),
+      { timeout: 20_000 },
+    )
+    .not.toBeNull();
+  const clone = await page.evaluate(async () => {
+    const response = await fetch('/api/voices?type=clone');
+    const body = (await response.json()) as {
+      voices?: Array<{ is_clone?: boolean; name?: string }>;
+    };
+    return body.voices?.find((voice) => voice.name === 'Maya voice') ?? null;
+  });
+  expect(clone?.is_clone).toBe(true);
+
+  // Maya now has a bound voice (F-CHR-08).
+  const maya = await characterView(page, 'maya');
+  expect(maya?.voice).toBeTruthy();
+
+  // A short line of speech is priced through the same estimator the Audio strip
+  // uses: MiniMax turbo speech costs a fraction of a cent for this line.
+  const ttsEstimate = await page.evaluate(async () => {
+    const csrfToken = decodeURIComponent(
+      document.cookie
+        .split(';')
+        .map((part) => part.trim())
+        .find((part) => part.startsWith('kilnry_csrf='))
+        ?.slice('kilnry_csrf='.length) ?? '',
+    );
+    const response = await fetch('/api/estimate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Kilnry-CSRF': csrfToken },
+      body: JSON.stringify({
+        kind: 'audio',
+        prompt: 'Namaste! Aaj hum banayenge ek perfect cutting chai.',
+        model: 'speech-2.8-turbo',
+        medias: [],
+        count: 1,
+      }),
+    });
+    if (!response.ok) return null;
+    const body = (await response.json()) as { estimate_usd?: number };
+    return body.estimate_usd ?? null;
+  });
+  expect(ttsEstimate).not.toBeNull();
+  expect(ttsEstimate).toBeLessThan(0.05);
 });
