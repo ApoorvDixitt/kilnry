@@ -21,9 +21,27 @@ export interface ResolvePreview {
     version: number;
     strategy: string;
     inputs: Array<{ role: string; asset_id: string }>;
+    is_real_person?: boolean;
+    consent_status?: string;
     notes: string[];
   }>;
   warnings: string[];
+}
+
+// A real person with consent on record is the case that needs the extra
+// confirmation before their likeness goes to a provider that trains on inputs
+// (F-CHR-06 with F-PRV-06). Without consent the resolver already warns and
+// training stays blocked, so there is nothing extra to ask here.
+export function consentedRealPeople(preview: ResolvePreview | undefined): string[] {
+  if (!preview) return [];
+  const handles = preview.injections
+    .filter(
+      (injection) =>
+        injection.is_real_person === true &&
+        (injection.consent_status === 'self' || injection.consent_status === 'written'),
+    )
+    .map((injection) => injection.handle);
+  return Array.from(new Set(handles));
 }
 
 // The @token currently being typed, if the caret sits inside one. Returns the

@@ -42,6 +42,11 @@ export interface Injection {
   identity?: { provider: string; remote_id: string; strength: number };
   voice?: { provider: string; voice_id: string };
   slot_index?: number;
+  // Whether the mentioned Character is a real person, and what consent is on
+  // record. Surfaces are shown these so they can ask for the extra confirmation
+  // before a real person's likeness goes to a provider that trains on inputs.
+  is_real_person?: boolean;
+  consent_status?: string;
   notes: string[];
 }
 

@@ -60,6 +60,8 @@ export async function POST(request: Request): Promise<Response> {
           version: i.version,
           strategy: i.strategy,
           inputs: i.inputs.map((input) => ({ role: input.role, asset_id: input.asset_id })),
+          ...(i.is_real_person ? { is_real_person: true } : {}),
+          ...(i.consent_status ? { consent_status: i.consent_status } : {}),
           notes: i.notes,
         })),
         warnings: resolved.warnings,

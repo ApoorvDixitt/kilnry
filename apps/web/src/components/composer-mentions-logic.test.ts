@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 import {
   acceptMention,
   activeMentionQuery,
+  consentedRealPeople,
   distinctPeople,
   type ResolvePreview,
 } from './composer-mentions-logic';
@@ -58,5 +59,35 @@ describe('distinctPeople', () => {
       ],
     };
     expect(distinctPeople(withVoice)).toBe(1);
+  });
+});
+
+describe('consentedRealPeople', () => {
+  const injection = (
+    handle: string,
+    extras: { is_real_person?: boolean; consent_status?: string },
+  ): ResolvePreview['injections'][number] => ({
+    handle,
+    version: 1,
+    strategy: 'reference_images',
+    inputs: [],
+    notes: [],
+    ...extras,
+  });
+
+  it('names only the real people whose consent is on record', () => {
+    const preview: ResolvePreview = {
+      rewritten_prompt: '',
+      warnings: [],
+      injections: [
+        injection('ines', { is_real_person: true, consent_status: 'self' }),
+        injection('rohan', { is_real_person: true, consent_status: 'written' }),
+        injection('nikhil', { is_real_person: true }),
+        injection('maya', {}),
+        injection('ines', { is_real_person: true, consent_status: 'self' }),
+      ],
+    };
+    expect(consentedRealPeople(preview)).toEqual(['ines', 'rohan']);
+    expect(consentedRealPeople(undefined)).toEqual([]);
   });
 });

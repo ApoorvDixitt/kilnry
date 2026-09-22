@@ -157,7 +157,15 @@
       "addKeyGroup": "Connect to use more",
       "addKey": "Add {provider} key",
       "noMatch": "No model matches that. Try a capability: video, edit, tts.",
-      "staleShort": "Price is out of date"
+      "staleShort": "Price is out of date",
+      "trainsOnInputs": "trains on inputs"
+    },
+    "likeness": {
+      "title": "Send a real person's likeness?",
+      "body": "This sends a real person's likeness to {provider}, which may train on it. Continue?",
+      "who": "Likeness in this prompt: {handles}.",
+      "continue": "Continue",
+      "cancel": "Cancel"
     },
     "chips": {
       "group": "Generation settings",
@@ -382,6 +390,8 @@
       "higgsfieldNoticeRetention": "Higgsfield keeps outputs for at least 7 days. Kilnry downloads every result to your Library immediately.",
       "higgsfieldNoticeCheckbox": "I have read this and want to connect Higgsfield.",
       "higgsfieldNoticeSource": "https://higgsfield.ai/terms-of-use-agreement",
+      "higgsfieldAcknowledged": "Training clause acknowledged {date}",
+      "higgsfieldAcknowledgedShow": "Show",
       "status": {
         "ok": "Connected",
         "degraded": "Paused after errors",

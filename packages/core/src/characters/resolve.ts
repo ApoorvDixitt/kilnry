@@ -146,6 +146,8 @@ export function resolvePrompt(
       ...(emit.identity ? { identity: emit.identity } : {}),
       ...(emit.voice ? { voice: emit.voice } : {}),
       ...(emit.slot_index !== undefined ? { slot_index: emit.slot_index } : {}),
+      is_real_person: version.is_real_person,
+      ...(version.consent_status ? { consent_status: version.consent_status } : {}),
       notes: [
         ...emit.notes,
         ...(target.mention?.version !== undefined
@@ -219,6 +221,8 @@ export function resolvePrompt(
       strategy: 'voice_id',
       inputs: [],
       ...(v.voice ? { voice: v.voice } : {}),
+      is_real_person: voiceOwner.version.is_real_person,
+      ...(voiceOwner.version.consent_status ? { consent_status: voiceOwner.version.consent_status } : {}),
       notes: [],
     });
   }

@@ -58,6 +58,32 @@ describe('priceAgeDays', () => {
 });
 
 describe('ModelPicker', () => {
+  it('tags a row whose provider may train on what it is sent', async () => {
+    const host = await render({
+      mode: 'image',
+      models: [
+        model({
+          provider: 'higgsfield',
+          model_id: 'higgsfield-ai/soul/v2/standard',
+          display_name: 'Soul 2 · Higgsfield',
+          training_on_inputs: true,
+          price: { unit: 'image', amount_usd: 0.0032, fetched_at: '2026-09-18T00:00:00.000Z' },
+        }),
+        model({ model_id: 'plain', display_name: 'Plain' }),
+      ],
+      selectedId: 'auto',
+      autoWhy: 'Now: Plain on fal.',
+      onSelect: () => {},
+      now: NOW,
+    });
+
+    const rows = [...host.querySelectorAll('[role="option"]')];
+    const soul = rows.find((row) => row.textContent?.includes('Soul 2 · Higgsfield'));
+    const plain = rows.find((row) => row.textContent?.includes('Plain'));
+    expect(soul?.textContent).toContain('trains on inputs');
+    expect(plain?.textContent).not.toContain('trains on inputs');
+  });
+
   it('lists Auto first with a live explanation and every priced row shows its unit', async () => {
     const host = await render({
       mode: 'image',

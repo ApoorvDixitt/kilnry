@@ -111,6 +111,11 @@ export async function listProviders(
         ...(fetchedAt ? { price_fetched_at: fetchedAt.toISOString() } : {}),
         price_stale: !fetchedAt || Date.now() - fetchedAt.getTime() > 30 * 86_400_000,
         training_on_inputs: adapter?.training_on_inputs ?? false,
+        // When the provider's training notice was acknowledged (D-44), so Settings
+        // can collapse the notice to one acknowledged line.
+        ...(typeof row.extra.accepted_tos_at === 'string'
+          ? { accepted_tos_at: row.extra.accepted_tos_at }
+          : {}),
       },
     ];
   });

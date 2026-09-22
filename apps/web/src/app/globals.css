@@ -6137,3 +6137,56 @@ html[data-motion='reduced'] *::after {
 .preset-save-scaffold {
   font-size: 13px;
 }
+
+/* The collapsed Higgsfield training notice: one acknowledged line with a Show link. */
+.provider-notice-acknowledged {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: var(--text-subtle);
+}
+
+.provider-notice-sep {
+  color: var(--border);
+}
+
+.provider-notice-show {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+/* The confirmation shown before a real person's likeness goes to a provider that
+   may train on it (F-CHR-06 with F-PRV-06). */
+.likeness-confirm {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.likeness-confirm-line {
+  margin: 0;
+  font-size: 14px;
+}
+
+.likeness-confirm-who {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-subtle);
+}
+
+.likeness-confirm-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}

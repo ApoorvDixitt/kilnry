@@ -6,6 +6,7 @@
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { apiFetch } from '../lib/api-client';
 import { message } from '../lib/messages';
 import { ModelPicker, type ComposerMode, type PickerModel } from './model-picker';
 import { ParamChips, type ComposerParams, type ParamsSchema } from './param-chips';
@@ -13,6 +14,7 @@ import { CostStrip, type BudgetLine, type CostEstimate } from './cost-strip';
 import {
   acceptMention,
   activeMentionQuery,
+  consentedRealPeople,
   distinctPeople,
   type MentionSuggestion,
   type ResolvePreview,
@@ -34,6 +36,20 @@ const MODE_CAPABILITIES: Record<ComposerMode, string[]> = {
   video: ['text2video', 'image2video', 'reference2video', 'video2video'],
   audio: ['tts', 'voice_clone', 'music', 'sfx'],
   workflow: [],
+};
+
+// Provider names as they are written to the user in the likeness confirmation.
+const PROVIDER_LABELS: Record<string, string> = {
+  fal: 'fal',
+  openrouter: 'OpenRouter',
+  google: 'Google',
+  openai: 'OpenAI',
+  elevenlabs: 'ElevenLabs',
+  minimax: 'MiniMax',
+  higgsfield: 'Higgsfield',
+  replicate: 'Replicate',
+  ollama: 'Ollama',
+  pollinations: 'Pollinations',
 };
 
 export interface GenerateContext {
@@ -137,6 +153,7 @@ export function Composer({
   const [selectedModel, setSelectedModel] = useState<string | 'auto'>('auto');
   const [params, setParams] = useState<ComposerParams>({ count: 1 });
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [likenessConfirm, setLikenessConfirm] = useState<{ override: boolean }>();
   const [budgetAskDismissed, setBudgetAskDismissed] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -259,7 +276,7 @@ export function Composer({
     }
     const resolveKind = mode === 'workflow' ? 'image' : mode;
     const timer = setTimeout(() => {
-      void fetch('/api/characters/resolve', {
+      void apiFetch('/api/characters/resolve', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -297,12 +314,20 @@ export function Composer({
 
   const peopleCount = distinctPeople(preview ?? undefined);
 
+  // The chosen model's provider, and whether that provider trains on what it is
+  // sent. With Auto the engine picks at submit time, so only an explicitly picked
+  // model can be checked here.
+  const chosenModel =
+    selectedModel === 'auto' ? undefined : available.find((m) => m.model_id === selectedModel);
+  const likenessHandles = chosenModel?.training_on_inputs ? consentedRealPeople(preview ?? undefined) : [];
+  const providerName = chosenModel ? (PROVIDER_LABELS[chosenModel.provider] ?? chosenModel.provider) : '';
+
   const modelChipLabel =
     selectedModel === 'auto'
       ? message('create.picker.auto')
       : (available.find((m) => m.model_id === selectedModel)?.display_name ?? selectedModel);
 
-  function fire(override = false): void {
+  function submit(override = false): void {
     if (state.disabled) return;
     onGenerate?.({
       mode,
@@ -312,6 +337,17 @@ export function Composer({
       override_budget: override,
       ...(batch ? { batch_text: batchText } : {}),
     });
+  }
+
+  // A real person's likeness never leaves for a training-on-inputs provider
+  // without one explicit confirmation (F-CHR-06 with F-PRV-06).
+  function fire(override = false): void {
+    if (state.disabled) return;
+    if (likenessHandles.length > 0) {
+      setLikenessConfirm({ override });
+      return;
+    }
+    submit(override);
   }
 
   const batchParse = batch ? parseBatch(batchText) : null;
@@ -483,6 +519,39 @@ export function Composer({
                 onClick={() => setBudgetAskDismissed(true)}
               >
                 {message('create.budgetAsk.cancel')}
+              </button>
+            </div>
+          </div>
+        ) : null}
+        {likenessConfirm ? (
+          <div className="likeness-confirm" role="alertdialog" aria-label={message('create.likeness.title')}>
+            <p className="likeness-confirm-line">
+              {message('create.likeness.body').replace('{provider}', providerName)}
+            </p>
+            <p className="likeness-confirm-who">
+              {message('create.likeness.who').replace(
+                '{handles}',
+                likenessHandles.map((handle) => `@${handle}`).join(', '),
+              )}
+            </p>
+            <div className="likeness-confirm-actions">
+              <button
+                type="button"
+                className="likeness-confirm-continue"
+                onClick={() => {
+                  const override = likenessConfirm.override;
+                  setLikenessConfirm(undefined);
+                  submit(override);
+                }}
+              >
+                {message('create.likeness.continue')}
+              </button>
+              <button
+                type="button"
+                className="likeness-confirm-cancel"
+                onClick={() => setLikenessConfirm(undefined)}
+              >
+                {message('create.likeness.cancel')}
               </button>
             </div>
           </div>

@@ -27,6 +27,7 @@ interface ProviderSummary {
   max_concurrency?: number;
   price_fetched_at?: string;
   price_stale?: boolean;
+  accepted_tos_at?: string;
 }
 
 interface ApiError {
@@ -53,6 +54,14 @@ async function responseJson<T>(response: Response): Promise<T> {
   const body = (await response.json()) as T & ApiError;
   if (!response.ok) throw new Error(body.error?.message ?? message('settings.providers.requestFailed'));
   return body;
+}
+
+// "18 Sep 2026" — the acknowledgement date as the collapsed notice shows it.
+const SHORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function acknowledgedDate(iso: string): string {
+  const date = new Date(iso);
+  return `${String(date.getDate()).padStart(2, '0')} ${SHORT_MONTHS[date.getMonth()]} ${date.getFullYear()}`;
 }
 
 function detect(value: string): ProviderId | undefined {
@@ -84,6 +93,10 @@ export function ProviderSettings({
   const [concurrency, setConcurrency] = useState<Record<string, string>>({});
   const [ollama, setOllama] = useState<OllamaDetection>();
   const [higgsfieldAccepted, setHiggsfieldAccepted] = useState(false);
+  const [noticeExpanded, setNoticeExpanded] = useState(false);
+  // Once the training clause is acknowledged the full notice collapses to one line
+  // with a Show link, and a later key for the same provider saves without re-ticking.
+  const higgsfieldAcknowledgedAt = providers.find((item) => item.id === 'higgsfield')?.accepted_tos_at;
 
   // Probe the local Ollama runtime on open and every sixty seconds while the
   // Providers page is visible (F-PRV-08). The probe is loopback-only; a missing
@@ -110,7 +123,9 @@ export function ProviderSettings({
   const load = useCallback(async () => {
     const response = await fetch('/api/providers');
     const body = await responseJson<{ providers: ProviderSummary[] }>(response);
-    setProviders(body.providers.filter((item) => ['fal', 'openrouter', 'pollinations'].includes(item.id)));
+    setProviders(
+      body.providers.filter((item) => ['fal', 'openrouter', 'pollinations', 'higgsfield'].includes(item.id)),
+    );
   }, []);
 
   useEffect(() => {
@@ -291,37 +306,59 @@ export function ProviderSettings({
             className="settings-primary"
             type="submit"
             disabled={
-              pending || key.length < 8 || ((detected ?? provider) === 'higgsfield' && !higgsfieldAccepted)
+              pending ||
+              key.length < 8 ||
+              ((detected ?? provider) === 'higgsfield' && !higgsfieldAccepted && !higgsfieldAcknowledgedAt)
             }
           >
             {pending ? message('settings.providers.testing') : message('settings.providers.testAndSave')}
           </button>
         </div>
         {(detected ?? provider) === 'higgsfield' ? (
-          <section
-            className="provider-notice"
-            aria-label={message('settings.providers.higgsfieldNoticeTitle')}
-          >
-            <h4>{message('settings.providers.higgsfieldNoticeTitle')}</h4>
-            <p>{message('settings.providers.higgsfieldNoticeBody')}</p>
-            <p>{message('settings.providers.higgsfieldNoticeRouting')}</p>
-            <p>{message('settings.providers.higgsfieldNoticeRetention')}</p>
-            <a
-              href={message('settings.providers.higgsfieldNoticeSource')}
-              target="_blank"
-              rel="noreferrer noopener"
+          higgsfieldAcknowledgedAt && !noticeExpanded ? (
+            <section
+              className="provider-notice provider-notice-acknowledged"
+              aria-label={message('settings.providers.higgsfieldNoticeTitle')}
             >
-              {message('settings.providers.higgsfieldNoticeSource')}
-            </a>
-            <label className="provider-notice-consent">
-              <input
-                type="checkbox"
-                checked={higgsfieldAccepted}
-                onChange={(event) => setHiggsfieldAccepted(event.target.checked)}
-              />
-              {message('settings.providers.higgsfieldNoticeCheckbox')}
-            </label>
-          </section>
+              <span>
+                {message('settings.providers.higgsfieldAcknowledged').replace(
+                  '{date}',
+                  acknowledgedDate(higgsfieldAcknowledgedAt),
+                )}
+              </span>
+              <span className="provider-notice-sep" aria-hidden>
+                {' · '}
+              </span>
+              <button type="button" className="provider-notice-show" onClick={() => setNoticeExpanded(true)}>
+                {message('settings.providers.higgsfieldAcknowledgedShow')}
+              </button>
+            </section>
+          ) : (
+            <section
+              className="provider-notice"
+              aria-label={message('settings.providers.higgsfieldNoticeTitle')}
+            >
+              <h4>{message('settings.providers.higgsfieldNoticeTitle')}</h4>
+              <p>{message('settings.providers.higgsfieldNoticeBody')}</p>
+              <p>{message('settings.providers.higgsfieldNoticeRouting')}</p>
+              <p>{message('settings.providers.higgsfieldNoticeRetention')}</p>
+              <a
+                href={message('settings.providers.higgsfieldNoticeSource')}
+                target="_blank"
+                rel="noreferrer noopener"
+              >
+                {message('settings.providers.higgsfieldNoticeSource')}
+              </a>
+              <label className="provider-notice-consent">
+                <input
+                  type="checkbox"
+                  checked={higgsfieldAccepted}
+                  onChange={(event) => setHiggsfieldAccepted(event.target.checked)}
+                />
+                {message('settings.providers.higgsfieldNoticeCheckbox')}
+              </label>
+            </section>
+          )
         ) : null}
         <small>
           {detected

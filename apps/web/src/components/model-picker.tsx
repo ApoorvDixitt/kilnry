@@ -85,6 +85,9 @@ function tagsFor(model: PickerModel): string[] {
   tags.push(model.quality_tier);
   if (model.supports.audio) tags.push('audio');
   if (model.supports.references_max > 0) tags.push(`refs ≤ ${model.supports.references_max}`);
+  // D-44: a provider that may train on what it is sent is named on the row, so the
+  // choice is visible at the moment the model is picked.
+  if (model.training_on_inputs) tags.push(message('create.picker.trainsOnInputs'));
   return tags;
 }
 
