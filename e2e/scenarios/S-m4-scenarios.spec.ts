@@ -215,8 +215,10 @@ test('@m4 S-06 a read-only token cannot spend', async ({ page, request }) => {
   const matching = await page.evaluate(async () => {
     const response = await fetch('/api/jobs');
     if (!response.ok) return -1;
-    const body = (await response.json()) as { jobs: Array<{ prompt?: string | null }> };
-    return body.jobs.filter((job) => job.prompt === 'a read-only token must never spend').length;
+    const body = (await response.json()) as {
+      jobs: Array<{ request?: { prompt?: string | null } | null }>;
+    };
+    return body.jobs.filter((job) => job.request?.prompt === 'a read-only token must never spend').length;
   });
   expect(matching).toBe(0);
 });

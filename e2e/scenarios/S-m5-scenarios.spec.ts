@@ -527,7 +527,7 @@ test('@m5 S-16 voice clone with consent, bound to a Character, priced for speech
 
 test('@m5 S-17 preset run with a required slot and its cost', async ({ page }) => {
   await ensureProvider(page, 'fal', FAL_KEY);
-  // A Library asset to drop into the product slot.
+  // A Library asset for the product slot.
   const productAsset = await generateImageAsset(page, 'a serum bottle on white');
   expect(productAsset).not.toBe('');
 
@@ -541,55 +541,39 @@ test('@m5 S-17 preset run with a required slot and its cost', async ({ page }) =
   const runButton = drawer.locator('.preset-run-button');
   await expect(runButton).toBeDisabled();
 
-  // Fill and run through the same resolve/generate path the drawer's Run uses:
-  // resolve the preset with the product slot filled to get the priced request,
-  // then create the job with source "preset" and the preset id.
-  const presetId = 'kilnry.product.ice-cube-splash';
-  const presetJobId = await page.evaluate(
-    async ({ presetId, productAsset }) => {
-      const csrfToken = decodeURIComponent(
-        document.cookie
-          .split(';')
-          .map((part) => part.trim())
-          .find((part) => part.startsWith('kilnry_csrf='))
-          ?.slice('kilnry_csrf='.length) ?? '',
-      );
-      const resolve = await fetch(`/api/presets/${encodeURIComponent(presetId)}/resolve`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Kilnry-CSRF': csrfToken },
-        body: JSON.stringify({ values: { product: productAsset } }),
-      });
-      const resolved = (await resolve.json()) as {
-        resolved?: { prompt?: string; medias?: Array<{ role: string; ref: string }> };
-        estimate?: { estimate_usd?: number } | null;
-      };
-      const generate = await fetch('/api/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Kilnry-CSRF': csrfToken },
-        body: JSON.stringify({
-          kind: 'image_edit',
-          prompt: resolved.resolved?.prompt ?? 'ice cube splash',
-          source: 'preset',
-          preset_id: presetId,
-          medias: (resolved.resolved?.medias ?? []).map((media) => ({
-            role: media.role,
-            asset_id: media.ref,
-          })),
-          count: 1,
-          confirmed_cost_usd: resolved.estimate?.estimate_usd ?? 1,
-        }),
-      });
-      const body = (await generate.json()) as { jobs?: Array<{ job_id?: string }>; job_id?: string };
-      return body.jobs?.[0]?.job_id ?? body.job_id ?? '';
-    },
-    { presetId, productAsset },
-  );
-  expect(presetJobId).not.toBe('');
+  // Fill the product slot from the tray's Library list, which is how the slot is
+  // filled when the drawer is the only thing on screen.
+  await drawer.locator('.preset-media-library-open').click();
+  await drawer.locator(`.preset-media-library-item[data-asset-id="${productAsset}"]`).click();
 
-  // The job is tagged source: "preset" with the preset id set (PRD-21 S-17).
-  const presetJob = await jobRow(page, presetJobId);
+  // With the slot filled the cost strip prices the run and Run is enabled,
+  // carrying the same figure.
+  await expect(runButton).toBeEnabled({ timeout: 20_000 });
+  const priceLabel = (await runButton.textContent()) ?? '';
+  expect(priceLabel).toMatch(/Run · \$\d+\.\d{2}/);
+  await expect(drawer.locator('.cost-strip')).toContainText('$');
+
+  // What the drawer says it will send, so the Jobs screen can be checked against it.
+  await drawer.locator('.preset-advanced-toggle').click();
+  const previewed = ((await drawer.locator('.preset-prompt-preview').textContent()) ?? '').trim();
+  expect(previewed).not.toBe('');
+
+  // Running from the drawer creates the job, and the Jobs screen shows it.
+  const before = await jobCount(page);
+  await runButton.click();
+  await expect.poll(async () => jobCount(page), { timeout: 30_000 }).toBe(before + 1);
+
+  // The job the drawer created is tagged source "preset" with the preset id, and
+  // it carries the prompt the drawer previewed.
+  const presetJob = await latestJob(page);
   expect(presetJob?.source).toBe('preset');
-  expect(presetJob?.presetId).toBe(presetId);
+  expect(presetJob?.presetId).toBe('kilnry.product.ice-cube-splash');
+
+  // It runs to completion: the product image the slot holds is sent to the
+  // provider, and the result lands with the prompt visible on the Jobs screen.
+  await expect.poll(async () => (await latestJob(page))?.status, { timeout: 60_000 }).toBe('completed');
+  await page.goto('/jobs');
+  await expect(page.locator('.jobs-table')).toContainText(previewed.slice(0, 30));
 });
 
 test('@m5 S-18 export a bundle with sidecars and provenance labels', async ({ page }) => {
@@ -602,39 +586,36 @@ test('@m5 S-18 export a bundle with sidecars and provenance labels', async ({ pa
   }
   expect(assetIds.length).toBe(3);
 
-  // Export a bundle the way the selection bar's Export dialog does: keep the
-  // sidecars, strip embedded metadata, add the IPTC provenance label, write the
-  // manifest.
-  const bundlePath = await page.evaluate(async (assetIds) => {
-    const csrfToken = decodeURIComponent(
-      document.cookie
-        .split(';')
-        .map((part) => part.trim())
-        .find((part) => part.startsWith('kilnry_csrf='))
-        ?.slice('kilnry_csrf='.length) ?? '',
-    );
-    const response = await fetch('/api/library/export', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Kilnry-CSRF': csrfToken },
-      body: JSON.stringify({
-        asset_ids: assetIds,
-        format: 'folder',
-        include_sidecars: true,
-        metadata: 'strip',
-        provenance: 'iptc',
-        manifest: true,
-      }),
-    });
-    if (!response.ok) return null;
-    const body = (await response.json()) as { bundle?: { bundle_path?: string } };
-    return body.bundle?.bundle_path ?? null;
-  }, assetIds);
-  expect(bundlePath).not.toBeNull();
+  // Select the three finals in the Library and open the export dialog from the
+  // selection bar.
+  await page.goto('/library');
+  const tiles = page.locator('.asset-tile-wrap');
+  await expect.poll(async () => tiles.count(), { timeout: 30_000 }).toBeGreaterThanOrEqual(3);
+  for (let index = 0; index < 3; index += 1) {
+    await tiles.nth(index).locator('input.asset-select').check();
+  }
+  await page.locator('.selection-bar').getByRole('button', { name: 'Export bundle' }).click();
+
+  // Choose a folder bundle that keeps the sidecars, strips embedded metadata and
+  // adds the IPTC provenance label.
+  const dialog = page.locator('.export-dialog');
+  await dialog.getByLabel('Format').selectOption('folder');
+  await dialog.getByLabel('Embedded metadata').selectOption('strip');
+  await dialog.getByLabel('Provenance label').selectOption('iptc');
+  const sidecars = dialog.locator('.export-check input[type="checkbox"]').first();
+  await expect(sidecars).toBeChecked();
+
+  // Exporting reports where the bundle landed.
+  await dialog.getByRole('button', { name: 'Export' }).click();
+  const done = dialog.locator('.export-done');
+  await expect(done).toBeVisible({ timeout: 60_000 });
+  const bundlePath = ((await done.textContent()) ?? '').replace('Exported to ', '').replace(/\.$/, '').trim();
+  expect(bundlePath).not.toBe('');
 
   // The bundle sits under the Library's Exports folder with a manifest, the media
   // and one sidecar each, and matching checksums (PRD-21 S-18).
-  expect(bundlePath!.includes(join(library, 'Exports'))).toBe(true);
-  const manifestPath = join(bundlePath!, 'bundle.kilnry.json');
+  expect(bundlePath.includes(join(library, 'Exports'))).toBe(true);
+  const manifestPath = join(bundlePath, 'bundle.kilnry.json');
   expect(existsSync(manifestPath)).toBe(true);
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
     assets: Array<{ path: string; sha256: string; sidecar: boolean }>;
@@ -644,7 +625,7 @@ test('@m5 S-18 export a bundle with sidecars and provenance labels', async ({ pa
   expect(manifest.options.provenance).toBe('iptc');
   expect(manifest.options.metadata).toBe('strip');
   for (const entry of manifest.assets) {
-    const filePath = join(bundlePath!, entry.path);
+    const filePath = join(bundlePath, entry.path);
     expect(existsSync(filePath)).toBe(true);
     // The checksum in the manifest matches the bytes on disk.
     expect(createHash('sha256').update(readFileSync(filePath)).digest('hex')).toBe(entry.sha256);
@@ -652,10 +633,9 @@ test('@m5 S-18 export a bundle with sidecars and provenance labels', async ({ pa
     expect(existsSync(`${filePath}.kilnry.json`)).toBe(true);
   }
 
-  // The originals are untouched: their sidecars still sit in the inbox.
-  for (const id of assetIds) {
-    expect(id).not.toBe('');
-  }
+  // The provenance choice the user made is what the bundle records.
+  const labelled = manifest.assets[0];
+  expect(labelled?.sidecar).toBe(true);
 });
 
 // The second half of S-23, after the notice has been acknowledged and S-15 has left
