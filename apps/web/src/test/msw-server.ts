@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
+import { chatCompletionHandler } from './chat-openrouter-fixture';
 
 const png = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAIAAAACACAYAAADDPmHLAAAACXBIWXMAAAsTAAALEwEAmpwYAAAFLUlEQVR4nO2b224bVRSGfc3hjQovwFXhNShCQtxw016DuCwSgdKqCT1ElCCaVhUC6iatnbSpjVfaom3XceyMMxjl4HmChdZISChqZJrM9p7xfBdLshI5s2etL3uvw78rSSyKSWl9UAm9AEwAAAiEHQAIhCMACIQcAAiEJBAIhCoACIQyEAiEPgAQCI0gIBA6gUAgtIKBQJgFAIEwDAICYRoIBMI4GAgEPQAQCIIQIBAUQUAgSMKAQNAEFhWCa49u6JmLH+ob58+mdubiOb1RW2QYVAb7+NbnWvnsvVfaJ0tfMAya9f/8yjHB/9du1m56ez6y8DgsALbtTwLgna8+AoBZtTfPn50IwFsX3geAkzr4MHqqo/Z9HT67o/3GD9qtL+jLR1e0s3JJ2w/mUrPP9jP7Xb9xS4fP7urf7Wr63TwA8PaFDwDgdZy616tp1PpZt+rz6qpfn8q26vMatW6nf9PPEXBuIgDvcgRMduR42NDd5/e0W7t66qC7Y6xbm0+fMR42MwPASr1JACzW/ZWDhU8CD4cNHW7eSbdxX4F3R8yeNdy8mz47i3ewUu+44H+69KVX/xUagL/cb9pZnV7g3StA2H3xiyZx69TvYqWeZfuWE5jZtu/zP7/QABz0H2tv/VqwwLsj1lu/nq4ptF9KAcCoU9X2yrfBg+6OmK1p5O4H988MA9BKM/vQgXYTzCqGLI4EAPiPE8ZxK63PQwfX/U+ztY53iwFBpQjB336yGDyo7jVte2OxEBDkHoBB48fgwXSn2AnyfhzkGoAinPlugkVyOxe+LBwA1r8PHTyXkY3c78H9WSgArKZur+av1HMnNHuXg0E++wS5BCBPTR6Xkdk7hfZrIQCI//w1eLCcJ7PWdWj/5hoAG66E7O07z9ZZ/S7TSeLMAWBTvdBBcp7NxCah/ZxLAGyeP82RbrBdYOVSrnaB3ABgQovQwXFTst0X94L7O3cAZCHfKop1a/PB/Z0rAExvFzoobsq2v10P7vfcADALLV9X0BZxpUzbvyVgO80lHbWrut9f1/Hwj9TsswlNBs2lqSWi3bWF4H7PBQCmvfft7PaDbzSS5bTSmLSecdTUaHM5/Y7fdc3pYZSNqLTQAPge+nQeXj7RebvXq+nLh5e9rm3UCS8hCw6A3djxGfyDnY0Tr+1wZ8MrBHloCgUHwJfUy7bwLDLtvV7N23EweGqCkZIDsLW24MW5duZntcZoc9nLGrfWvgcAu5Tpp92aXYI1jppeqgN796TsO4APx+40f8p8nYNm9tpEm3wmZQegXZ3L3LFW52e9zlGnmvk6LbdIyg5A1k4183FNa7+/7mWtof0/kwD4GLeOh00AKAoARYI1YQcojlNdgdZa6iOAtQoAlB3WhB0AABKOAHaAhByAIyAhCSQHSKgCSAITykCqgIQ+AGVgQiOIPkBCJ5BGEK3gmE4gs4CYVjDDoJhZANPAmGEQ4+CYaSB6gJhxMIKQGD0AiqAYQQiSsBhFEJrAGEkYotAYTSBK2xhRaOmVtg5VcLmVtq5Aa0UWDgCKLJwdQJGFcwQosnByAEUWThKoyMKpAhRZOGWgIgunD6DIwmkEaS5k4ZiUuxOICQAAgbADAIFwBACBkAMAgZAEAoFQBQCBUAYCgdAHAAKhEQQEQicQCIRWMBAIswAgEIZBQCBMA4FAGAcDgaAHAAJBEAIEgiIICARJGBAImkAgEEShQCCogoFAkIUDgXAvAAiEiyFAINwMAgLhahgQCHcDgUC4HAoEwu1gIJDUB/8AdbkgI99wwUMAAAAASUVORK5CYII=',
@@ -90,85 +91,6 @@ type TestGlobal = typeof globalThis & {
   __kilnryTestMswServer?: ReturnType<typeof setupServer>;
 };
 
-// The S-24 chat scenario needs a scripted large language model (LLM). The
-// OpenRouter chat-completions fixture below inspects the conversation to decide
-// which tool the agent should call next: it discovers a skill, loads it, prices
-// the plan, then asks for one kilnry_generate of three video variants without a
-// confirmed cost so an ApprovalCard is raised; once that generate has run it
-// answers with plain text so the turn ends.
-interface OpenAiMessage {
-  role: string;
-  content?: unknown;
-  tool_calls?: Array<{ function?: { name?: string } }>;
-}
-
-// How many assistant tool-call rounds are already in the conversation.
-function priorToolRounds(messages: OpenAiMessage[]): { generateAsked: boolean; toolResults: number } {
-  let generateAsked = false;
-  let toolResults = 0;
-  for (const message of messages) {
-    if (message.role === 'assistant' && Array.isArray(message.tool_calls)) {
-      if (message.tool_calls.some((call) => call.function?.name === 'kilnry_generate')) {
-        generateAsked = true;
-      }
-    }
-    if (message.role === 'tool') toolResults += 1;
-  }
-  return { generateAsked, toolResults };
-}
-
-// One OpenAI-style streaming tool call: an id/name chunk, the arguments, then a
-// finish_reason of tool_calls, ending with [DONE]. The AI SDK's OpenAI-compatible
-// parser reads these into a single tool call.
-function toolCallStream(id: string, name: string, args: Record<string, unknown>): string {
-  const model = 'anthropic/claude-sonnet-5';
-  const base = { id: `chatcmpl-${id}`, object: 'chat.completion.chunk', created: 0, model };
-  const chunks = [
-    { ...base, choices: [{ index: 0, delta: { role: 'assistant', content: '' }, finish_reason: null }] },
-    {
-      ...base,
-      choices: [
-        {
-          index: 0,
-          delta: {
-            tool_calls: [
-              {
-                index: 0,
-                id: `call_${id}`,
-                type: 'function',
-                function: { name, arguments: JSON.stringify(args) },
-              },
-            ],
-          },
-          finish_reason: null,
-        },
-      ],
-    },
-    { ...base, choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] },
-  ];
-  return `${chunks.map((chunk) => `data: ${JSON.stringify(chunk)}`).join('\n\n')}\n\ndata: [DONE]\n\n`;
-}
-
-function textStream(text: string): string {
-  const model = 'anthropic/claude-sonnet-5';
-  const base = { id: 'chatcmpl-final', object: 'chat.completion.chunk', created: 0, model };
-  const chunks = [
-    { ...base, choices: [{ index: 0, delta: { role: 'assistant', content: text }, finish_reason: null }] },
-    {
-      ...base,
-      choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
-      usage: { prompt_tokens: 200, completion_tokens: 40, total_tokens: 240 },
-    },
-  ];
-  return `${chunks.map((chunk) => `data: ${JSON.stringify(chunk)}`).join('\n\n')}\n\ndata: [DONE]\n\n`;
-}
-
-function sse(body: string): Response {
-  return new HttpResponse(body, {
-    headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' },
-  });
-}
-
 export function startTestMsw(): void {
   const global = globalThis as TestGlobal;
   if (global.__kilnryTestMswStarted) return;
@@ -176,49 +98,7 @@ export function startTestMsw(): void {
     http.get('https://openrouter.ai/api/v1/key', () =>
       HttpResponse.json({ data: { label: 'Kilnry test', limit_remaining: 10 } }),
     ),
-    // The scripted chat LLM for S-24. It walks the agent through discovering a
-    // skill, loading it, pricing the plan, then a single kilnry_generate of three
-    // video variants with no confirmed cost (so an ApprovalCard is raised); once
-    // that generate has run it answers with plain text so the turn ends.
-    http.post('https://openrouter.ai/api/v1/chat/completions', async ({ request }) => {
-      const body = (await request
-        .clone()
-        .json()
-        .catch(() => ({}))) as { messages?: OpenAiMessage[] };
-      const messages = Array.isArray(body.messages) ? body.messages : [];
-      const state = priorToolRounds(messages);
-      if (state.generateAsked) {
-        return sse(textStream('Here are your three chai reel variants.'));
-      }
-      if (state.toolResults === 0) {
-        return sse(toolCallStream('skills-list', 'kilnry_skills', { action: 'list' }));
-      }
-      if (state.toolResults === 1) {
-        return sse(
-          toolCallStream('skills-load', 'kilnry_skills', { action: 'load', name: 'ugc-hook-talking-head' }),
-        );
-      }
-      if (state.toolResults === 2) {
-        return sse(
-          toolCallStream('estimate', 'kilnry_estimate', {
-            requests: [
-              { kind: 'video', prompt: 'chai reel variant 1' },
-              { kind: 'video', prompt: 'chai reel variant 2' },
-              { kind: 'video', prompt: 'chai reel variant 3' },
-            ],
-          }),
-        );
-      }
-      return sse(
-        toolCallStream('generate', 'kilnry_generate', {
-          requests: [
-            { kind: 'video', prompt: 'chai reel variant 1' },
-            { kind: 'video', prompt: 'chai reel variant 2' },
-            { kind: 'video', prompt: 'chai reel variant 3' },
-          ],
-        }),
-      );
-    }),
+    chatCompletionHandler,
     http.post('https://openrouter.ai/api/v1/images', () =>
       HttpResponse.json({
         data: [{ b64_json: png.toString('base64'), media_type: 'image/png' }],

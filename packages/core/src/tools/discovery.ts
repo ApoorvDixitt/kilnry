@@ -13,6 +13,7 @@ import { budgetStatus } from '../budget/enforcer.js';
 import { spendLedgerGrouped, type LedgerGroupBy } from '../budget/spend-ledger.js';
 import { loadRegistry, priceSummary, providerRouteStates } from '../registry/store.js';
 import { listProviders } from '../providers/service.js';
+import { capabilityFor, type Kind } from '../types.js';
 import { toolError, type KilnryTool, type ToolResult, type ToolServices } from './types.js';
 
 function connectedNote(connected: boolean): string {
@@ -113,14 +114,14 @@ export const estimateTool: KilnryTool = {
       const priced = await services.engine.estimate(
         {
           kind: kind as never,
+          capability: capabilityFor(kind as Kind, []),
           prompt,
-          model: model === 'auto' ? undefined : model,
           params,
           medias: [],
           count,
           injections: [],
         } as never,
-        {},
+        model === 'auto' ? {} : { pinned_model: model },
       );
       const usd = priced.estimate.authoritative_usd ?? priced.estimate.estimate_usd;
       return {

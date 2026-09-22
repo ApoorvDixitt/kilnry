@@ -34,6 +34,11 @@ export interface ToolServices {
   // Generations at or below this cost run without a confirmation round trip
   // (F-MCP-06). Absent means every non-zero spend needs confirmation.
   autoApproveBelowUsd?: number;
+  // Which surface invoked a spending tool. Chat supplies these so approved jobs
+  // are attributable to the thread and its user's explicit approval; Model
+  // Context Protocol callers keep the defaults.
+  jobSource?: 'chat' | 'mcp';
+  confirmedBy?: 'user' | 'mcp';
   // The Library root and its id, for tools that read or change files on disk
   // (kilnry_library_manage, kilnry_import). Absent when the Library is not set.
   libraryRoot?: string;

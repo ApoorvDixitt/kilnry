@@ -8,6 +8,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   ApprovalCard,
+  BudgetReachedCard,
   groupToolCalls,
   summariseArguments,
   ToolCallCard,
@@ -113,7 +114,10 @@ describe('ApprovalCard (F-CHT-03)', () => {
     const headers = [...host.querySelectorAll('.chat-approval-table th')].map((node) => node.textContent);
     expect(headers).toEqual(['Call', 'Model', 'Count', 'Cost']);
     expect(host.querySelectorAll('.chat-approval-table tbody tr')).toHaveLength(2);
-    expect(host.querySelector('.chat-approval-total strong')?.textContent).toBe('$2.52');
+    expect(host.querySelector('.chat-approval-total strong')?.textContent).toBe('≈ $2.52');
+    expect(host.querySelector('.chat-approval-card h3')?.textContent).toBe(
+      'Agent wants to generate 2 videos',
+    );
   });
 
   it('offers Approve, Edit plan and Deny with their shortcuts', async () => {
@@ -229,5 +233,14 @@ describe('groupToolCalls (F-CHT-03)', () => {
       part('kilnry_generate'),
     ]);
     expect(groups).toHaveLength(3);
+  });
+});
+
+describe('BudgetReachedCard (F-CHT-02)', () => {
+  it('names the reached session cap without offering to spend', async () => {
+    const host = await render(<BudgetReachedCard capUsd={1} />);
+    expect(host.querySelector('h3')?.textContent).toBe('Budget reached');
+    expect(host.querySelector('p')?.textContent).toBe('Session cap $1.00 reached');
+    expect(host.querySelector('button')).toBeNull();
   });
 });

@@ -101,6 +101,12 @@ export async function POST(request: Request): Promise<Response> {
         db: services.database,
         scope: 'full',
         adapters,
+        // Chat's approval policy has already stopped any call that needs the
+        // user's answer. Once the SDK executes it, the shared tool must not ask
+        // for a second confirmation of the same price.
+        autoApproveBelowUsd: Number.POSITIVE_INFINITY,
+        jobSource: 'chat',
+        confirmedBy: 'user',
         assetUrl: (assetId: string) => `http://127.0.0.1:${config.port}/api/media/${assetId}`,
         ...(engine ? { engine } : {}),
         ...(config.library_root ? { libraryRoot: config.library_root } : {}),
@@ -113,13 +119,19 @@ export async function POST(request: Request): Promise<Response> {
 
     // The approval policy prices a pending call with the same engine estimate the
     // tool will use, so the number on the card is the number that gets confirmed.
-    const preEstimate = cachedPreEstimate(
-      engine
-        ? enginePreEstimate((canonical, constraints) =>
-            engine.estimate(canonical as never, constraints as never),
-          )
-        : async () => ({ estimate_usd: 0 }),
-    );
+    const estimatePending = engine
+      ? enginePreEstimate((canonical, constraints) =>
+          engine.estimate(canonical as never, constraints as never),
+        )
+      : async () => ({ estimate_usd: 0, calls: [] });
+    const planned = new Map<string, Awaited<ReturnType<typeof estimatePending>>>();
+    const planKey = (name: string, value: Record<string, unknown>): string =>
+      `${name}:${JSON.stringify(value)}`;
+    const preEstimate = cachedPreEstimate(async (name, value) => {
+      const plan = await estimatePending(name, value);
+      planned.set(planKey(name, value), plan);
+      return plan;
+    });
     const toolApproval = approvalPolicy({
       session: {
         autonomy: session.autonomy,
@@ -162,6 +174,7 @@ export async function POST(request: Request): Promise<Response> {
       promptsRoot: promptLibraryRoot(),
       tools,
       toolApproval,
+      approvalDescriptor: (name, value) => planned.get(planKey(name, value)),
       ...(attached.parts.length > 0 ? { attachmentParts: attached.parts } : {}),
       generateMessageId: () => randomUUID(),
       onStepEnd: async ({ usage }) => {

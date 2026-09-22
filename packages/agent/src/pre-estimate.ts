@@ -10,6 +10,7 @@
 // and the total is what the card shows, with one line per request so the user
 // sees what makes up the number.
 
+import { capabilityFor, type Kind } from '@kilnry/core';
 import type { PreEstimate } from './approval.js';
 
 /** The estimate the engine returns, narrowed to what the card needs. */
@@ -57,14 +58,14 @@ export function enginePreEstimate(estimate: EngineEstimator) {
         const priced = await estimate(
           {
             kind: request.kind,
+            capability: capabilityFor(request.kind as Kind, []),
             prompt: request.prompt,
-            ...(request.model === 'auto' ? {} : { model: request.model }),
             params: request.params,
             medias: [],
             count: request.count,
             injections: [],
           },
-          {},
+          request.model === 'auto' ? {} : { pinned_model: request.model },
         );
         const usd = priced.estimate.authoritative_usd ?? priced.estimate.estimate_usd;
         total += usd;

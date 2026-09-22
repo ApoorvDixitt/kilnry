@@ -106,7 +106,7 @@ export interface ApprovalPolicyInput {
 }
 
 /** The AI SDK asks for this verdict before running a tool. */
-export type ApprovalVerdict = 'user-approval' | undefined;
+export type ApprovalVerdict = 'user-approval' | { type: 'user-approval'; reason: string } | undefined;
 
 /**
  * Build the per-tool approval record the runtime passes to the model call
@@ -115,12 +115,11 @@ export type ApprovalVerdict = 'user-approval' | undefined;
  */
 export function approvalPolicy(
   input: ApprovalPolicyInput,
-): Record<string, (options: { input: Record<string, unknown> }) => Promise<ApprovalVerdict>> {
+): Record<string, (input: Record<string, unknown>) => Promise<ApprovalVerdict>> {
   const { session, preEstimate } = input;
   const tools = input.tools ?? KILNRY_TOOLS;
   const threshold = session.auto_approve_below_usd ?? AUTO_APPROVE_BELOW_USD_DEFAULT;
-  const policy: Record<string, (options: { input: Record<string, unknown> }) => Promise<ApprovalVerdict>> =
-    {};
+  const policy: Record<string, (input: Record<string, unknown>) => Promise<ApprovalVerdict>> = {};
 
   for (const definition of tools) {
     const name = definition.name;
@@ -134,18 +133,21 @@ export function approvalPolicy(
 
     if (name === 'kilnry_library_manage') {
       // Destructive but free: ask only for the actions that lose data.
-      policy[name] = async ({ input: callInput }) =>
-        alwaysAsk(name, callInput) ? 'user-approval' : undefined;
+      policy[name] = async (callInput) => {
+        const parsedInput = callInput ?? {};
+        return alwaysAsk(name, parsedInput) ? 'user-approval' : undefined;
+      };
       continue;
     }
 
     if (!SPEND_TOOLS.has(name)) continue;
 
-    policy[name] = async ({ input: callInput }) => {
-      if (alwaysAsk(name, callInput)) return 'user-approval';
-      if (!isSpendingAction(name, callInput)) return undefined;
+    policy[name] = async (callInput) => {
+      const parsedInput = callInput ?? {};
+      if (alwaysAsk(name, parsedInput)) return 'user-approval';
+      if (!isSpendingAction(name, parsedInput)) return undefined;
 
-      const estimate = await preEstimate(name, callInput);
+      const estimate = await preEstimate(name, parsedInput);
 
       // A daily, monthly or folder cap is the tool's refusal, not a card —
       // unless the workspace asks at its caps, which is the one exception.
@@ -162,7 +164,10 @@ export function approvalPolicy(
         typeof session.budget_usd === 'number' &&
         session.spent_usd + estimate.estimate_usd > session.budget_usd
       ) {
-        return 'user-approval';
+        return {
+          type: 'user-approval',
+          reason: `session-budget:${session.budget_usd.toFixed(2)}`,
+        };
       }
       return undefined;
     };

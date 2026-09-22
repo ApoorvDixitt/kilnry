@@ -190,7 +190,7 @@ export function ApprovalCard({
     <article className="chat-approval-card">
       <h3>
         {calls.length > 1
-          ? message('chat.approvalTitle')
+          ? message('chat.approvalTitle').replace('{n}', String(calls.length))
           : message('chat.approvalSingle').replace('{tool}', toolName)}
       </h3>
       {calls.length === 0 ? null : (
@@ -219,7 +219,7 @@ export function ApprovalCard({
       )}
       <p className="chat-approval-total">
         <span>{message('chat.approvalTotal')}</span>
-        <strong>{money(totalUsd)}</strong>
+        <strong>≈ {money(totalUsd)}</strong>
       </p>
       <div className="chat-approval-actions">
         <button type="button" className="chat-primary" onClick={approve}>
@@ -267,4 +267,14 @@ export function groupToolCalls<T extends { toolName: string; state: ToolCallStat
     groups.push({ head: part, count: 1 });
   }
   return groups;
+}
+
+/** A Run-automatically call that would cross the session cap pauses here. */
+export function BudgetReachedCard({ capUsd }: { capUsd: number }): React.ReactNode {
+  return (
+    <article className="chat-budget-reached" role="alert">
+      <h3>{message('chat.budgetReachedTitle')}</h3>
+      <p>{message('chat.budgetReachedBody').replace('{amount}', capUsd.toFixed(2))}</p>
+    </article>
+  );
 }

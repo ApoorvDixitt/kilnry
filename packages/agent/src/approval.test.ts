@@ -14,6 +14,7 @@ import {
   isSpendingAction,
   withConfirmedCost,
   type ApprovalSession,
+  type ApprovalVerdict,
 } from './approval.js';
 import { headerMeter, meterStep, sessionBudgetReachedText, wouldExceedSessionBudget } from './metering.js';
 
@@ -33,11 +34,11 @@ async function verdict(
   input: Record<string, unknown>,
   estimateUsd = 0.1,
   wouldExceedCaps = false,
-): Promise<string | undefined> {
+): Promise<ApprovalVerdict | 'NOT_REGISTERED'> {
   const policy = policyFor(session, estimateUsd, wouldExceedCaps);
   const entry = policy[tool];
   if (!entry) return 'NOT_REGISTERED';
-  return entry({ input });
+  return entry(input);
 }
 
 describe('approval policy (F-CHT-02, TRD-11 §5)', () => {
@@ -90,10 +91,13 @@ describe('approval policy (F-CHT-02, TRD-11 §5)', () => {
     expect(await verdict(session, 'kilnry_generate', { prompt: 'a' }, 2.5)).toBe('user-approval');
   });
 
-  it('Run automatically: proceeds inside the budget and asks when it would pass', async () => {
+  it('Run automatically: proceeds inside the budget and identifies the session-cap pause', async () => {
     expect(await verdict(automatic, 'kilnry_generate', { prompt: 'a' }, 2)).toBeUndefined();
     const nearlySpent: ApprovalSession = { ...automatic, spent_usd: 4.5 };
-    expect(await verdict(nearlySpent, 'kilnry_generate', { prompt: 'a' }, 1)).toBe('user-approval');
+    expect(await verdict(nearlySpent, 'kilnry_generate', { prompt: 'a' }, 1)).toEqual({
+      type: 'user-approval',
+      reason: 'session-budget:5.00',
+    });
   });
 
   it('leaves a daily or monthly cap to the tool rather than a card', async () => {
@@ -106,7 +110,7 @@ describe('approval policy (F-CHT-02, TRD-11 §5)', () => {
       preEstimate: async () => ({ estimate_usd: 10, would_exceed_caps: true }),
       capBehavior: 'ask',
     });
-    expect(await policy['kilnry_generate']?.({ input: { prompt: 'a' } })).toBe('user-approval');
+    expect(await policy['kilnry_generate']?.({ prompt: 'a' })).toBe('user-approval');
   });
 
   it('does not ask for the free actions of a spending tool', async () => {

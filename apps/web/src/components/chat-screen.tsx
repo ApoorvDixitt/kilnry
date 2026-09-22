@@ -22,6 +22,7 @@ import { apiFetch } from '../lib/api-client';
 import { attachmentKey, ChatAttachmentTray, type ChatAttachment } from './chat-attachment-tray';
 import {
   ApprovalCard,
+  BudgetReachedCard,
   groupToolCalls,
   ToolCallCard,
   type PlannedCall,
@@ -42,31 +43,51 @@ export type MessagePart =
       output?: unknown;
       errorText?: string;
       toolName?: string;
-      approval?: { id: string; reason?: string };
+      approval?: {
+        id: string;
+        reason?: string;
+        requestReason?: string;
+        descriptor?: { estimate_usd?: number; calls?: PlannedCall[] };
+      };
     };
 
 interface PartHandlers {
   autoApproveUsd?: number | undefined;
   onApprove: (approvalId: string, options: { autoApproveBelowUsd?: number }) => void;
   onDeny: (approvalId: string) => void;
+  onEdit?: (() => void) | undefined;
   /** Runs the turn again after a failure that can be retried. */
   onRegenerate?: (() => void) | undefined;
 }
 
-// The planned calls an approval part carries, when the runtime priced them.
+// The planned calls an approval part carries, priced by the route before the SDK
+// emitted the approval request and preserved as its descriptor.
 function plannedCalls(part: MessagePart): PlannedCall[] {
-  const approval = (part as { approval?: { calls?: unknown } }).approval;
-  const calls =
-    approval && typeof approval === 'object' ? (approval as { calls?: unknown }).calls : undefined;
+  const approval = (
+    part as {
+      approval?: { descriptor?: { calls?: unknown } };
+    }
+  ).approval;
+  const calls = approval?.descriptor?.calls;
   return Array.isArray(calls) ? (calls as PlannedCall[]) : [];
 }
 
 function plannedTotal(calls: PlannedCall[], part: MessagePart): number {
   if (calls.length > 0) return calls.reduce((sum, call) => sum + call.estimate_usd, 0);
-  const approval = (part as { approval?: { estimate_usd?: unknown } }).approval;
-  const usd =
-    approval && typeof approval === 'object' ? (approval as { estimate_usd?: unknown }).estimate_usd : 0;
+  const approval = (
+    part as {
+      approval?: { descriptor?: { estimate_usd?: unknown } };
+    }
+  ).approval;
+  const usd = approval?.descriptor?.estimate_usd;
   return typeof usd === 'number' ? usd : 0;
+}
+
+function sessionCapFrom(part: MessagePart): number | undefined {
+  const reason = (part as { approval?: { requestReason?: unknown } }).approval?.requestReason;
+  if (typeof reason !== 'string' || !reason.startsWith('session-budget:')) return undefined;
+  const value = Number(reason.slice('session-budget:'.length));
+  return Number.isFinite(value) ? value : undefined;
 }
 
 /** Draw one message's parts: text, tool cards, and approval cards. */
@@ -138,6 +159,11 @@ export function renderParts(parts: MessagePart[], handlers: PartHandlers): React
     const toolName = group.head.toolName;
     const state = group.head.state;
     if (state === 'approval-requested') {
+      const capUsd = sessionCapFrom(part);
+      if (capUsd !== undefined) {
+        nodes.push(<BudgetReachedCard key={`b-${index}`} capUsd={capUsd} />);
+        continue;
+      }
       const approvalId = (part as { approval?: { id?: string } }).approval?.id ?? '';
       const calls = plannedCalls(part);
       nodes.push(
@@ -151,6 +177,7 @@ export function renderParts(parts: MessagePart[], handlers: PartHandlers): React
             : {})}
           onApprove={(options) => handlers.onApprove(approvalId, options)}
           onDeny={() => handlers.onDeny(approvalId)}
+          {...(handlers.onEdit ? { onEdit: handlers.onEdit } : {})}
         />,
       );
       continue;
@@ -197,6 +224,7 @@ export interface ChatScreenProps {
   models: ChatModelOption[];
   defaultModel?: { provider: string; model: string };
   sessionBudgetUsd?: number;
+  sessionAutonomy?: 'ask_first' | 'run_automatically';
   /** The threshold the approval card's auto-approve checkbox would set. */
   autoApproveUsd?: number;
   ollamaDetected?: boolean;
@@ -204,11 +232,35 @@ export interface ChatScreenProps {
 
 type WorkspaceTab = 'preview' | 'steps' | 'cost';
 
+// The Cost tab reports provider media spend from completed Chat generation calls.
+// Each tool output carries the total that was approved, so no price is recomputed
+// in the browser.
+export function chatGenerationCost(messages: Array<{ parts?: unknown[] }>): number {
+  let total = 0;
+  for (const entry of messages) {
+    for (const raw of entry.parts ?? []) {
+      const part = raw as { type?: string; state?: string; output?: unknown };
+      if (
+        part.type !== 'tool-kilnry_generate' ||
+        part.state !== 'output-available' ||
+        !part.output ||
+        typeof part.output !== 'object'
+      ) {
+        continue;
+      }
+      const value = (part.output as { total_estimate_usd?: unknown }).total_estimate_usd;
+      if (typeof value === 'number') total += value;
+    }
+  }
+  return Math.round(total * 100) / 100;
+}
+
 export function ChatScreen({
   sessionId,
   models,
   defaultModel,
   sessionBudgetUsd,
+  sessionAutonomy = 'ask_first',
   autoApproveUsd,
   ollamaDetected = false,
 }: ChatScreenProps): React.ReactNode {
@@ -224,6 +276,9 @@ export function ChatScreen({
   );
   const [draft, setDraft] = useState('');
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
+  const [autonomy, setAutonomy] = useState(sessionAutonomy);
+  const [budgetUsd, setBudgetUsd] = useState(sessionBudgetUsd ?? 5);
+  const [controlError, setControlError] = useState<string>();
   const dragging = useRef(false);
 
   const transport = useMemo(
@@ -235,6 +290,7 @@ export function ChatScreen({
     transport,
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
   });
+  const generationCost = chatGenerationCost(messages);
 
   // Remember where the user put the divider.
   useEffect(() => {
@@ -263,6 +319,24 @@ export function ChatScreen({
       window.removeEventListener('mouseup', stopDrag);
     };
   }, [onDrag, stopDrag]);
+
+  async function updateSession(patch: {
+    autonomy?: 'ask_first' | 'run_automatically';
+    budget_usd?: number;
+  }): Promise<void> {
+    setControlError(undefined);
+    const response = await apiFetch('/api/chat/session', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: sessionId, ...patch }),
+    });
+    if (!response.ok) {
+      setControlError(message('chat.failed'));
+      return;
+    }
+    if (patch.autonomy) setAutonomy(patch.autonomy);
+    if (typeof patch.budget_usd === 'number') setBudgetUsd(patch.budget_usd);
+  }
 
   // No model, no chat: say what to do instead of showing an unusable screen.
   if (models.length === 0) {
@@ -327,9 +401,41 @@ export function ChatScreen({
           </select>
         </label>
         {ollamaDetected ? <span className="chat-ollama-chip">{message('chat.ollamaFree')}</span> : null}
-        {typeof sessionBudgetUsd === 'number' ? (
-          <span className="chat-budget">
-            {message('chat.sessionBudget')}: ${sessionBudgetUsd.toFixed(2)}
+        <label className="chat-session-control">
+          <span>{message('chat.sessionAutonomy')}</span>
+          <select
+            aria-label={message('chat.sessionAutonomy')}
+            value={autonomy}
+            onChange={(event) =>
+              void updateSession({
+                autonomy: event.target.value as 'ask_first' | 'run_automatically',
+              })
+            }
+          >
+            <option value="ask_first">{message('settings.chat.autonomyAskFirst')}</option>
+            <option value="run_automatically">{message('settings.chat.autonomyAutomatic')}</option>
+          </select>
+        </label>
+        <label className="chat-session-control">
+          <span>{message('chat.sessionBudgetInput')}</span>
+          <input
+            aria-label={message('chat.sessionBudgetInput')}
+            type="number"
+            min={0}
+            step="0.01"
+            value={budgetUsd}
+            onChange={(event) => {
+              const value = Number(event.target.value);
+              if (Number.isFinite(value) && value >= 0) void updateSession({ budget_usd: value });
+            }}
+          />
+        </label>
+        <span className="chat-budget">
+          {message('chat.sessionBudget')}: ${budgetUsd.toFixed(2)}
+        </span>
+        {controlError ? (
+          <span className="chat-control-error" role="alert">
+            {controlError}
           </span>
         ) : null}
       </header>
@@ -352,6 +458,12 @@ export function ChatScreen({
                       addToolApprovalResponse({ id: approvalId, approved: true });
                     },
                     onDeny: (approvalId) => addToolApprovalResponse({ id: approvalId, approved: false }),
+                    onEdit: () => {
+                      setDraft(message('chat.editPlanPrompt'));
+                      requestAnimationFrame(() =>
+                        document.querySelector<HTMLTextAreaElement>('.chat-composer textarea')?.focus(),
+                      );
+                    },
                     onRegenerate: () => void regenerate(),
                   })}
                 </article>
@@ -431,15 +543,22 @@ export function ChatScreen({
             ))}
           </div>
           <div className="chat-workspace-body" role="tabpanel">
-            <p className="chat-workspace-empty">
-              {message(
-                tab === 'preview'
-                  ? 'chat.previewEmpty'
-                  : tab === 'steps'
-                    ? 'chat.stepsEmpty'
-                    : 'chat.costEmpty',
-              )}
-            </p>
+            {tab === 'cost' && generationCost > 0 ? (
+              <div className="chat-cost-ledger">
+                <span>{message('chat.approvalTotal')}</span>
+                <strong>${generationCost.toFixed(2)}</strong>
+              </div>
+            ) : (
+              <p className="chat-workspace-empty">
+                {message(
+                  tab === 'preview'
+                    ? 'chat.previewEmpty'
+                    : tab === 'steps'
+                      ? 'chat.stepsEmpty'
+                      : 'chat.costEmpty',
+                )}
+              </p>
+            )}
           </div>
         </section>
       </div>

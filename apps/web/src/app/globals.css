@@ -6240,3 +6240,61 @@ html[data-motion='reduced'] *::after {
   font-size: 13px;
   color: var(--text-subtle);
 }
+
+/* Per-session autonomy and cap controls (F-CHT-02). */
+.chat-session-control {
+  align-items: center;
+  display: inline-flex;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.chat-session-control select,
+.chat-session-control input {
+  background: var(--background);
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 12px;
+  padding: 5px 7px;
+}
+
+.chat-session-control input {
+  width: 70px;
+}
+
+.chat-control-error {
+  color: var(--danger);
+  font-size: 12px;
+}
+
+.chat-cost-ledger {
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  padding: 10px 0;
+}
+
+.chat-cost-ledger strong {
+  font-family: var(--font-mono);
+}
+
+.chat-budget-reached {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--warning);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+}
+
+.chat-budget-reached h3,
+.chat-budget-reached p {
+  margin: 0;
+}
+
+.chat-budget-reached p {
+  color: var(--text-muted);
+  margin-top: 6px;
+}

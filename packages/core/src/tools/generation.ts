@@ -82,7 +82,9 @@ export const generateTool: KilnryTool = {
             count: (request.count as number) ?? 1,
             injections: [],
           } as never,
-          {},
+          request.model === undefined || request.model === 'auto'
+            ? {}
+            : { pinned_model: String(request.model) },
         );
         const usd = result.estimate.authoritative_usd ?? result.estimate.estimate_usd;
         total += usd;
@@ -140,9 +142,13 @@ export const generateTool: KilnryTool = {
             medias: [],
             count: (request.count as number) ?? 1,
             injections: [],
+            source: services.jobSource ?? 'mcp',
           } as never,
+          ...(request.model === undefined || request.model === 'auto'
+            ? {}
+            : { constraints: { pinned_model: String(request.model) } }),
           confirmed_cost_usd: entry.estimate_usd,
-          confirmed_by: 'mcp',
+          confirmed_by: services.confirmedBy ?? 'mcp',
           ...(typeof input.client_request_id === 'string'
             ? { client_request_id: `${input.client_request_id}:${entry.index}` }
             : {}),

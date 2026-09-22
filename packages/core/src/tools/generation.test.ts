@@ -97,6 +97,51 @@ describe('generation tools (F-MCP-02 §3.2, §3.6)', () => {
     ]);
   });
 
+  it('tags a Chat generation with its surface and the user who approved it', async () => {
+    const state = await db();
+    const created: Array<Record<string, unknown>> = [];
+    const engine = {
+      estimate(request: Record<string, unknown>) {
+        return Promise.resolve({
+          request,
+          estimate: {
+            estimate_usd: 0.42,
+            route: { provider: 'fal', model: 'fal-ai/kling-video/v3/standard/text-to-video' },
+          },
+        });
+      },
+      createJob(input: Record<string, unknown>) {
+        created.push(input);
+        return Promise.resolve({ job_id: 'chat-job', status: 'queued' });
+      },
+    };
+    const result = await generateTool.execute(
+      {
+        requests: [
+          {
+            kind: 'video',
+            prompt: 'chai reel',
+            model: 'fal-ai/kling-video/v3/standard/text-to-video',
+          },
+        ],
+      },
+      {
+        db: state,
+        scope: 'full',
+        engine: engine as never,
+        autoApproveBelowUsd: Number.POSITIVE_INFINITY,
+        jobSource: 'chat',
+        confirmedBy: 'user',
+      },
+    );
+    expect(result.structuredContent.jobs).toHaveLength(1);
+    expect(created[0]).toMatchObject({
+      request: { source: 'chat' },
+      confirmed_by: 'user',
+      constraints: { pinned_model: 'fal-ai/kling-video/v3/standard/text-to-video' },
+    });
+  });
+
   it('reports NO_PROVIDER for transform until a provider arrives', async () => {
     const state = await db();
     const result = await transformTool.execute(

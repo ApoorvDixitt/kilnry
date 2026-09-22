@@ -65,6 +65,9 @@ export default async function ChatPage(): Promise<React.ReactNode> {
       ollamaDetected={ollama.detected}
       autoApproveUsd={AUTO_APPROVE_BELOW_USD_DEFAULT}
       {...(isRef(defaultLlm) ? { defaultModel: defaultLlm } : {})}
+      {...(stored['chat.autonomy'] === 'run_automatically'
+        ? { sessionAutonomy: 'run_automatically' as const }
+        : { sessionAutonomy: 'ask_first' as const })}
       {...(typeof budget === 'number' ? { sessionBudgetUsd: budget } : {})}
     />
   );
@@ -82,7 +85,7 @@ function isRef(value: unknown): value is { provider: string; model: string } {
 async function readChatSettings(
   services: Awaited<ReturnType<typeof runtimeServices>>,
 ): Promise<Record<string, unknown>> {
-  const keys = ['chat.default_llm', 'chat.session_budget_usd', 'chat.ollama_base_url'];
+  const keys = ['chat.default_llm', 'chat.autonomy', 'chat.session_budget_usd', 'chat.ollama_base_url'];
   const rows = await services.database.db.select().from(settings).where(inArray(settings.key, keys));
   const out: Record<string, unknown> = {};
   for (const row of rows) out[row.key] = row.value;

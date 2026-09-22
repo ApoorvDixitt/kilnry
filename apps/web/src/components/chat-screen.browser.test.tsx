@@ -6,7 +6,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it } from 'vitest';
-import { ChatScreen, type ChatModelOption } from './chat-screen';
+import { ChatScreen, chatGenerationCost, type ChatModelOption } from './chat-screen';
 
 let root: Root | undefined;
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -113,5 +113,28 @@ describe('ChatScreen (F-CHT-04)', () => {
     const host = await render(<ChatScreen sessionId="session-1" models={models} />);
     const screen = host.querySelector<HTMLElement>('.chat-screen');
     expect(screen?.style.getPropertyValue('--chat-ratio')).toBe('0.4');
+  });
+});
+
+describe('chatGenerationCost (F-CHT-04)', () => {
+  it('adds completed generation totals and ignores pending tools', () => {
+    expect(
+      chatGenerationCost([
+        {
+          parts: [
+            {
+              type: 'tool-kilnry_generate',
+              state: 'output-available',
+              output: { total_estimate_usd: 1.26 },
+            },
+            {
+              type: 'tool-kilnry_generate',
+              state: 'approval-requested',
+              output: { total_estimate_usd: 9 },
+            },
+          ],
+        },
+      ]),
+    ).toBe(1.26);
   });
 });

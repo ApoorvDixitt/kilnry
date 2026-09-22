@@ -21,6 +21,7 @@ import {
   toUIMessageStream,
   type ToolSet,
   type UIMessage,
+  type UIMessageChunk,
 } from 'ai';
 import type { AttachmentPart } from './attachments.js';
 import {
@@ -69,6 +70,8 @@ export interface ChatTurnInput {
   attachmentParts?: AttachmentPart[];
   /** Which tools need the user's approval before they run (TRD-11 §5). */
   toolApproval?: Record<string, unknown>;
+  /** Which priced plan belongs on a tool approval request. */
+  approvalDescriptor?: (toolName: string, input: Record<string, unknown>) => unknown;
   /** Called at the end of each step with the step's token usage and cost. */
   onStepEnd?: (event: { usage: unknown; cost_usd: number }) => void | Promise<void>;
   /** Called once when the turn ends, with the whole turn's usage. */
@@ -180,14 +183,54 @@ export async function streamChatTurn(input: ChatTurnInput): Promise<Response> {
     },
   });
 
-  return createUIMessageStreamResponse({
-    stream: toUIMessageStream({
-      stream: result.stream,
-      originalMessages: input.messages,
-      ...(input.generateMessageId ? { generateMessageId: input.generateMessageId } : {}),
-      onEnd: async ({ messages }) => {
-        await input.onMessages?.(messages);
-      },
-    }),
+  const uiStream = toUIMessageStream({
+    stream: result.stream,
+    originalMessages: input.messages,
+    ...(input.generateMessageId ? { generateMessageId: input.generateMessageId } : {}),
+    onEnd: async ({ messages }) => {
+      await input.onMessages?.(messages);
+    },
+  });
+
+  // The SDK's approval chunk carries the approval id but not the application's
+  // priced plan. Follow the matching tool-input chunk by call id and attach the
+  // plan as the approval descriptor, which the UI message reader preserves.
+  const describedStream = input.approvalDescriptor
+    ? uiStream.pipeThrough(approvalDescriptorTransform(input.approvalDescriptor))
+    : uiStream;
+
+  return createUIMessageStreamResponse({ stream: describedStream });
+}
+
+/**
+ * Match a UI approval request to the tool input that preceded it and attach the
+ * plan the approval policy priced. Kept as a stream transform so all clients see
+ * the same descriptor, not only the React screen.
+ */
+function approvalDescriptorTransform(
+  descriptor: (toolName: string, input: Record<string, unknown>) => unknown,
+): TransformStream<UIMessageChunk, UIMessageChunk> {
+  const calls = new Map<string, { toolName: string; input: Record<string, unknown> }>();
+  return new TransformStream<UIMessageChunk, UIMessageChunk>({
+    transform(chunk, controller) {
+      if (chunk.type === 'tool-input-available') {
+        calls.set(chunk.toolCallId, {
+          toolName: chunk.toolName,
+          input:
+            chunk.input && typeof chunk.input === 'object' ? (chunk.input as Record<string, unknown>) : {},
+        });
+      }
+      if (chunk.type === 'tool-approval-request') {
+        const call = calls.get(chunk.toolCallId);
+        if (call) {
+          controller.enqueue({
+            ...chunk,
+            approvalDescriptor: descriptor(call.toolName, call.input),
+          });
+          return;
+        }
+      }
+      controller.enqueue(chunk);
+    },
   });
 }
