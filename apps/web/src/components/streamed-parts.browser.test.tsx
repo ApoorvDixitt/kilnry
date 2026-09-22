@@ -56,7 +56,10 @@ const exampleParts: MessagePart[] = [
     input: { requests: [{ kind: 'video', prompt: '@maya sipping the chai in the attached glass' }] },
     approval: {
       id: 'a1',
-      calls: [{ kind: 'video', model: 'kling-3.0-pro', count: 1, estimate_usd: 1.68 }],
+      descriptor: {
+        estimate_usd: 1.68,
+        calls: [{ kind: 'video', model: 'kling-3.0-pro', count: 1, estimate_usd: 1.68 }],
+      },
     } as never,
   },
 ];
@@ -96,7 +99,7 @@ describe('the worked turn from TRD-11 §13', () => {
 
   it('prices the approval card from the planned call', async () => {
     const host = await render(<div>{renderParts(exampleParts, handlers)}</div>);
-    expect(host.querySelector('.chat-approval-total strong')?.textContent).toBe('$1.68');
+    expect(host.querySelector('.chat-approval-total strong')?.textContent).toBe('≈ $1.68');
     expect(host.querySelector('.chat-approval-card h3')?.textContent).toBe(
       'The agent wants to run kilnry_generate.',
     );
