@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { message } from '../lib/messages';
 import { pauseBannerText, shouldShowBanner, warnBannerText, type DiskStatusView } from './disk-banner-logic';
+import { apiFetch } from '../lib/api-client';
 
 export function DiskBanner(): React.ReactNode {
   const [status, setStatus] = useState<DiskStatusView | null>(null);
@@ -33,7 +34,7 @@ export function DiskBanner(): React.ReactNode {
 
   function clear(): void {
     setClearing(true);
-    void fetch('/api/system/disk', { method: 'POST' })
+    void apiFetch('/api/system/disk', { method: 'POST' })
       .then((response) => (response.ok ? (response.json() as Promise<{ status: DiskStatusView }>) : null))
       .then((body) => {
         if (body?.status) setStatus(body.status);

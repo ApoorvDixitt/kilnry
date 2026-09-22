@@ -13,6 +13,7 @@
 
 import { useState } from 'react';
 import { message } from '../lib/messages';
+import { apiFetch } from '../lib/api-client';
 
 export interface ImportIssue {
   level: string;
@@ -80,7 +81,7 @@ const copy = {
 };
 
 async function post(body: Record<string, unknown>): Promise<ImportResult> {
-  const response = await fetch('/api/presets/import', {
+  const response = await apiFetch('/api/presets/import', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),

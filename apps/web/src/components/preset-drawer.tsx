@@ -16,6 +16,7 @@ import { AttachmentTray } from './attachment-tray';
 import { assetIdFromDrag } from './chat-attachment-tray';
 import { PresetSlotPicker } from './preset-slot-picker';
 import { message } from '../lib/messages';
+import { apiFetch } from '../lib/api-client';
 import type { Attachment } from '../lib/attachments';
 import {
   canChangeModel,
@@ -303,7 +304,7 @@ export function PresetDrawer({
     setRunning(true);
     setFailure(undefined);
     try {
-      const response = await fetch('/api/generate', {
+      const response = await apiFetch('/api/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(
@@ -338,7 +339,7 @@ export function PresetDrawer({
       const source = body.preset;
       if (source === undefined) throw new Error(message('presets.saveFailed'));
       const id = `me.${preset.category}.${preset.id.split('.').pop() ?? 'copy'}`;
-      const saved = await fetch('/api/presets/save', {
+      const saved = await apiFetch('/api/presets/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ preset: { ...source, id, author: 'me' } }),

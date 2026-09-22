@@ -18,6 +18,7 @@ import { useChat } from '@ai-sdk/react';
 import { DefaultChatTransport, lastAssistantMessageIsCompleteWithApprovalResponses } from 'ai';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { message } from '../lib/messages';
+import { apiFetch } from '../lib/api-client';
 import { attachmentKey, ChatAttachmentTray, type ChatAttachment } from './chat-attachment-tray';
 import {
   ApprovalCard,
@@ -173,7 +174,7 @@ export function renderParts(parts: MessagePart[], handlers: PartHandlers): React
 
 // Remember the session threshold the approval card's checkbox sets.
 async function saveSessionThreshold(sessionId: string, usd: number): Promise<void> {
-  await fetch('/api/chat/session', {
+  await apiFetch('/api/chat/session', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ session_id: sessionId, auto_approve_below_usd: usd }),
