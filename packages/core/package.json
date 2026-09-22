@@ -1,6 +1,6 @@
 {
   "name": "@kilnry/core",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Shared domain, tools, jobs, Library, and security",
   "private": true,
   "type": "module",

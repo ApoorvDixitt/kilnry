@@ -4,6 +4,8 @@ All notable changes to Kilnry are documented here. The format follows Keep a Cha
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-22
+
 ### Added
 
 - Chat and Agent screen: bring your own language model (OpenRouter by default, Anthropic, OpenAI or Google direct, or a local Ollama model) with the per-million-token price shown (F-CHT-01).

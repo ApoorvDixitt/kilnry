@@ -1,6 +1,6 @@
 {
   "name": "@kilnry/ui",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Kilnry design tokens and components",
   "private": true,
   "type": "module",
