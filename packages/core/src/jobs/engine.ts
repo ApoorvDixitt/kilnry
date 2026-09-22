@@ -9,6 +9,7 @@ import { and, desc, eq, gte, inArray, sql } from 'drizzle-orm';
 import { PgBoss, fromPglite, type Job } from 'pg-boss';
 import type { DatabaseState } from '@kilnry/db';
 import { jobs, providers, spendLedger, characters, characterVersions } from '@kilnry/db';
+import { resolveMediaInputs } from './media-inputs.js';
 import { assertCostConfirmation, reserveBudget } from '../budget/enforcer.js';
 import { KilnryError } from '../errors.js';
 import { eventHub, type EventHub } from '../events/hub.js';
@@ -791,7 +792,15 @@ export class JobEngine {
         .update(jobs)
         .set({ stepLabel: 'submitting', attempts: row.attempts + 1 })
         .where(eq(jobs.id, jobId));
-      handle = await this.#submitWithSafeRetries(adapter, request, context);
+      // A provider cannot read the user's disk, so any Library file this job
+      // sends is uploaded or inlined first (TRD-06 §1 file inputs).
+      const submittable = await resolveMediaInputs(request, {
+        state: this.#options.state,
+        libraryRoot: this.#options.libraryRoot,
+        adapter,
+        context,
+      });
+      handle = await this.#submitWithSafeRetries(adapter, submittable, context);
       const persisted = {
         provider: handle.provider,
         model_id: handle.model_id,

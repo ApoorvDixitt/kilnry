@@ -67,6 +67,62 @@ function fieldId(slot: DrawerSlot): string {
   return `preset-slot-${slot.name}`;
 }
 
+// Choosing a Library asset for a media slot. Dragging a tile in from the Library
+// works when the Library is on screen, and a public address can be pasted, but
+// neither helps when the drawer is the only thing open, so the slot also lists
+// the most recent Library images to pick from (F-PRE-02).
+function PresetMediaLibraryPicker({ onPick }: { onPick: (assetId: string) => void }): React.ReactNode {
+  const [open, setOpen] = useState(false);
+  const [assets, setAssets] = useState<Array<{ id: string; name?: string; kind?: string }>>([]);
+
+  useEffect(() => {
+    if (!open) return;
+    void fetch('/api/library/assets?folder=inbox&sort=newest')
+      .then((response) =>
+        response.ok
+          ? (response.json() as Promise<{ assets?: Array<{ id: string; name?: string; kind?: string }> }>)
+          : null,
+      )
+      .then((body) => setAssets((body?.assets ?? []).filter((asset) => asset.kind !== 'audio').slice(0, 12)))
+      .catch(() => setAssets([]));
+  }, [open]);
+
+  return (
+    <div className="preset-media-library">
+      <button type="button" className="preset-media-library-open" onClick={() => setOpen((prior) => !prior)}>
+        {message('presets.pickFromLibrary')}
+      </button>
+      {open ? (
+        <ul
+          className="preset-media-library-list"
+          role="listbox"
+          aria-label={message('presets.pickFromLibraryTitle')}
+        >
+          {assets.length === 0 ? (
+            <li className="preset-media-library-empty">{message('presets.pickFromLibraryEmpty')}</li>
+          ) : (
+            assets.map((asset) => (
+              <li key={asset.id} role="option" aria-selected={false}>
+                <button
+                  type="button"
+                  className="preset-media-library-item"
+                  data-asset-id={asset.id}
+                  onClick={() => {
+                    onPick(asset.id);
+                    setOpen(false);
+                  }}
+                >
+                  {asset.name ?? asset.id}
+                </button>
+              </li>
+            ))
+          )}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
 /** One field, chosen by the slot type (PRD-09 §2 Inputs). */
 export function SlotField({
   slot,
@@ -136,6 +192,7 @@ export function SlotField({
             }}
             onImportUrl={(url) => onChange(url)}
           />
+          <PresetMediaLibraryPicker onPick={(assetId) => onChange(assetId)} />
         </div>
         {help}
         {error}
@@ -233,15 +290,20 @@ export function PresetDrawer({
   const [failure, setFailure] = useState<string>();
   const [copying, setCopying] = useState(false);
   const debounce = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const resolveTicket = useRef(0);
 
   const missing = useMemo(() => missingRequired(preset, values), [preset, values]);
 
   // The server resolves and prices; the drawer never templates or prices itself.
+  // Answers can come back out of order — filling a slot while the first, empty
+  // resolve is still in flight — so each request carries a number and only the
+  // newest answer is kept.
   const refresh = useCallback(
     (nextValues: SlotValues, nextModel: string | undefined) => {
       if (debounce.current) clearTimeout(debounce.current);
       debounce.current = setTimeout(() => {
-        void fetch(`/api/presets/${encodeURIComponent(preset.id)}/resolve`, {
+        const ticket = (resolveTicket.current += 1);
+        void apiFetch(`/api/presets/${encodeURIComponent(preset.id)}/resolve`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -259,6 +321,7 @@ export function PresetDrawer({
                 anchor?: boolean;
               } | null,
             ) => {
+              if (ticket !== resolveTicket.current) return;
               setResolved(body?.resolved ?? null);
               setEstimate(body?.estimate ?? null);
               setChosen(body?.model ?? null);
@@ -266,6 +329,7 @@ export function PresetDrawer({
             },
           )
           .catch(() => {
+            if (ticket !== resolveTicket.current) return;
             setResolved(null);
             setEstimate(null);
           });

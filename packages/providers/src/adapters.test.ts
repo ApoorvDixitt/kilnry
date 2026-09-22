@@ -475,3 +475,28 @@ describe('Pollinations demo adapter', () => {
     await expectCode(pollinationsAdapter.submit(demoRequest, context()), 'INSUFFICIENT_FUNDS');
   });
 });
+
+describe('fal file inputs', () => {
+  it('puts a local file in fal storage and returns the address to send', async () => {
+    const put: Array<{ length: number; type: string | null }> = [];
+    server.use(
+      http.post('https://rest.alpha.fal.ai/storage/upload/initiate', () =>
+        HttpResponse.json({
+          upload_url: 'https://storage.fal.test/upload/one',
+          file_url: 'https://v3.fal.media/files/test/one.png',
+        }),
+      ),
+      http.put('https://storage.fal.test/upload/one', async ({ request: put_ }) => {
+        const body = await put_.arrayBuffer();
+        put.push({ length: body.byteLength, type: put_.headers.get('content-type') });
+        return new HttpResponse(null, { status: 200 });
+      }),
+    );
+    const uploaded = await falAdapter.uploadFile?.(
+      { bytes: new Uint8Array(tinyPng), mime: 'image/png', file_name: 'one.png' },
+      context(),
+    );
+    expect(uploaded).toEqual({ url: 'https://v3.fal.media/files/test/one.png' });
+    expect(put).toEqual([{ length: tinyPng.byteLength, type: 'image/png' }]);
+  });
+});

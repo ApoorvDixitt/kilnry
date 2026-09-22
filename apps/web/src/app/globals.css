@@ -6190,3 +6190,53 @@ html[data-motion='reduced'] *::after {
   align-items: center;
   gap: 10px;
 }
+
+/* Picking a Library asset for a preset media slot (F-PRE-02). */
+.preset-media-library {
+  position: relative;
+  margin-top: 8px;
+}
+
+.preset-media-library-open {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.preset-media-library-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.preset-media-library-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+
+.preset-media-library-item:hover {
+  background: var(--surface-subtle);
+}
+
+.preset-media-library-empty {
+  padding: 6px 8px;
+  font-size: 13px;
+  color: var(--text-subtle);
+}

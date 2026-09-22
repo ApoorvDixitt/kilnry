@@ -24,7 +24,7 @@ export const SidecarSchema = z
       has_audio: z.boolean().optional(),
     }),
     created_at: z.string().datetime(),
-    source: z.enum(['ui', 'chat', 'mcp', 'workflow', 'import', 'transform', 'assembly']),
+    source: z.enum(['ui', 'chat', 'mcp', 'workflow', 'preset', 'import', 'transform', 'assembly']),
     kind: z.enum(['image', 'video', 'audio', '3d', 'document']),
     generation: z.record(z.string(), z.unknown()).nullable(),
     lineage: z.object({

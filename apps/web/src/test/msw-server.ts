@@ -345,6 +345,14 @@ export function startTestMsw(): void {
         headers: { 'Content-Type': 'audio/mpeg' },
       }),
     ),
+    // fal's own storage for media inputs (TRD-06 §3.1): initiate, then the PUT.
+    http.post('https://rest.alpha.fal.ai/storage/upload/initiate', () =>
+      HttpResponse.json({
+        upload_url: 'https://storage.fal.test/upload/kilnry-input',
+        file_url: 'https://v3.fal.media/files/test/kilnry-input',
+      }),
+    ),
+    http.put('https://storage.fal.test/upload/kilnry-input', () => new HttpResponse(null, { status: 200 })),
     // --- Higgsfield (M5): free estimate, and Soul ID custom references ---
     http.post('https://api.higgsfield.ai/estimate/*', () =>
       HttpResponse.json({ credits: '1.500', usd: '0.094' }),

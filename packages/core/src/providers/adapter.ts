@@ -112,6 +112,16 @@ export interface ProviderAdapter {
     estimate: Estimate,
     context: AdapterContext,
   ): Promise<number>;
+  /**
+   * Put a local file in the provider's own storage and return the address the
+   * provider will read it from (TRD-06 §1 file inputs). Adapters that have no
+   * storage of their own leave this out, and the engine inlines small files
+   * instead.
+   */
+  uploadFile?(
+    file: { bytes: Uint8Array; mime: string; file_name: string },
+    context: AdapterContext,
+  ): Promise<{ url: string }>;
   submit(request: CanonicalRequest, context: AdapterContext): Promise<SubmitHandle>;
   poll(handle: SubmitHandle, context: AdapterContext): Promise<PollStatus>;
   cancel(handle: SubmitHandle, context: AdapterContext): Promise<{ ok: boolean; reason?: string }>;

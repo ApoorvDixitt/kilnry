@@ -233,6 +233,35 @@ export const falAdapter: ProviderAdapter = {
     if (price === undefined || estimate.unit_price.amount_usd <= 0) return estimate.estimate_usd;
     return estimate.estimate_usd * (price / estimate.unit_price.amount_usd);
   },
+  // fal's own storage (TRD-06 §3.1): ask for a presigned address, put the bytes
+  // there, and hand the provider the file address it answered with.
+  async uploadFile(file, context) {
+    const initiated = await requestJson<{ upload_url?: string; file_url?: string }>({
+      provider: 'fal',
+      fetch: context.fetch,
+      signal: context.signal,
+      url: 'https://rest.alpha.fal.ai/storage/upload/initiate',
+      init: {
+        method: 'POST',
+        headers: { ...headers(context.key), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content_type: file.mime, file_name: file.file_name }),
+      },
+      timeoutMs: 30_000,
+    });
+    if (!initiated.upload_url || !initiated.file_url)
+      throw new KilnryError('PROVIDER_ERROR', 'fal did not return an upload address.', {
+        provider: 'fal',
+        retryable: true,
+      });
+    const put = await context.fetch(initiated.upload_url, {
+      method: 'PUT',
+      headers: { 'Content-Type': file.mime },
+      body: file.bytes as unknown as BodyInit,
+      signal: context.signal,
+    });
+    if (!put.ok) throw providerHttpError('fal', put.status, await put.text().catch(() => ''));
+    return { url: initiated.file_url };
+  },
   async submit(request, context) {
     const model = request.params.extra?.model;
     if (typeof model !== 'string' || !model)

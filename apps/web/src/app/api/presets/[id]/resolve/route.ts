@@ -87,8 +87,10 @@ export async function POST(
     });
     const canonical = canonicalGeneration(payload);
     const engine = await ensureRuntimeEngine();
-    const estimate = await engine.estimate(canonical.request, canonical.constraints);
-    return NextResponse.json({ resolved, estimate, model: chosen, anchor });
+    // The engine answers with the routed request and its estimate; the drawer's
+    // cost strip wants the estimate itself.
+    const priced = await engine.estimate(canonical.request, canonical.constraints);
+    return NextResponse.json({ resolved, estimate: priced.estimate, model: chosen, anchor });
   } catch (error) {
     return errorResponse(error);
   }

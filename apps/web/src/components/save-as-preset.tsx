@@ -12,6 +12,7 @@
 
 import { useMemo, useState } from 'react';
 import { message } from '../lib/messages';
+import { apiFetch } from '../lib/api-client';
 import {
   buildPreset,
   canSave,
@@ -107,7 +108,7 @@ export function SaveAsPreset({
     setFailure(undefined);
     setErrors([]);
     try {
-      const response = await fetch('/api/presets/save', {
+      const response = await apiFetch('/api/presets/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ preset: buildPreset({ ...draft, name: saveName }, author), overwrite }),

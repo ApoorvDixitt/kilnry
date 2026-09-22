@@ -14,6 +14,9 @@ export interface JobRow {
   id: string;
   status: string;
   prompt?: string | null;
+  // The jobs route hands back the stored row, where the prompt lives inside the
+  // request it was created from.
+  request?: { prompt?: string | null } | null;
   model?: string | null;
   modelId?: string | null;
   provider?: string | null;
@@ -146,7 +149,7 @@ export function JobsTable({
                   <span className={`status-pill status-${row.status}`}>{statusLabel(row.status)}</span>
                 </td>
                 <td className="jobs-prompt">
-                  {row.prompt?.slice(0, 60) ?? row.stepLabel ?? '—'}
+                  {(row.prompt ?? row.request?.prompt)?.slice(0, 60) ?? row.stepLabel ?? '—'}
                   {ambiguous ? (
                     <span className="jobs-timeout-note" role="note">
                       {timeoutRowText(row)}
