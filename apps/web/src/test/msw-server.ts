@@ -51,6 +51,85 @@ type TestGlobal = typeof globalThis & {
   __kilnryTestMswServer?: ReturnType<typeof setupServer>;
 };
 
+// The S-24 chat scenario needs a scripted large language model (LLM). The
+// OpenRouter chat-completions fixture below inspects the conversation to decide
+// which tool the agent should call next: it discovers a skill, loads it, prices
+// the plan, then asks for one kilnry_generate of three video variants without a
+// confirmed cost so an ApprovalCard is raised; once that generate has run it
+// answers with plain text so the turn ends.
+interface OpenAiMessage {
+  role: string;
+  content?: unknown;
+  tool_calls?: Array<{ function?: { name?: string } }>;
+}
+
+// How many assistant tool-call rounds are already in the conversation.
+function priorToolRounds(messages: OpenAiMessage[]): { generateAsked: boolean; toolResults: number } {
+  let generateAsked = false;
+  let toolResults = 0;
+  for (const message of messages) {
+    if (message.role === 'assistant' && Array.isArray(message.tool_calls)) {
+      if (message.tool_calls.some((call) => call.function?.name === 'kilnry_generate')) {
+        generateAsked = true;
+      }
+    }
+    if (message.role === 'tool') toolResults += 1;
+  }
+  return { generateAsked, toolResults };
+}
+
+// One OpenAI-style streaming tool call: an id/name chunk, the arguments, then a
+// finish_reason of tool_calls, ending with [DONE]. The AI SDK's OpenAI-compatible
+// parser reads these into a single tool call.
+function toolCallStream(id: string, name: string, args: Record<string, unknown>): string {
+  const model = 'anthropic/claude-sonnet-5';
+  const base = { id: `chatcmpl-${id}`, object: 'chat.completion.chunk', created: 0, model };
+  const chunks = [
+    { ...base, choices: [{ index: 0, delta: { role: 'assistant', content: '' }, finish_reason: null }] },
+    {
+      ...base,
+      choices: [
+        {
+          index: 0,
+          delta: {
+            tool_calls: [
+              {
+                index: 0,
+                id: `call_${id}`,
+                type: 'function',
+                function: { name, arguments: JSON.stringify(args) },
+              },
+            ],
+          },
+          finish_reason: null,
+        },
+      ],
+    },
+    { ...base, choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] },
+  ];
+  return `${chunks.map((chunk) => `data: ${JSON.stringify(chunk)}`).join('\n\n')}\n\ndata: [DONE]\n\n`;
+}
+
+function textStream(text: string): string {
+  const model = 'anthropic/claude-sonnet-5';
+  const base = { id: 'chatcmpl-final', object: 'chat.completion.chunk', created: 0, model };
+  const chunks = [
+    { ...base, choices: [{ index: 0, delta: { role: 'assistant', content: text }, finish_reason: null }] },
+    {
+      ...base,
+      choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 200, completion_tokens: 40, total_tokens: 240 },
+    },
+  ];
+  return `${chunks.map((chunk) => `data: ${JSON.stringify(chunk)}`).join('\n\n')}\n\ndata: [DONE]\n\n`;
+}
+
+function sse(body: string): Response {
+  return new HttpResponse(body, {
+    headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' },
+  });
+}
+
 export function startTestMsw(): void {
   const global = globalThis as TestGlobal;
   if (global.__kilnryTestMswStarted) return;
@@ -58,6 +137,49 @@ export function startTestMsw(): void {
     http.get('https://openrouter.ai/api/v1/key', () =>
       HttpResponse.json({ data: { label: 'Kilnry test', limit_remaining: 10 } }),
     ),
+    // The scripted chat LLM for S-24. It walks the agent through discovering a
+    // skill, loading it, pricing the plan, then a single kilnry_generate of three
+    // video variants with no confirmed cost (so an ApprovalCard is raised); once
+    // that generate has run it answers with plain text so the turn ends.
+    http.post('https://openrouter.ai/api/v1/chat/completions', async ({ request }) => {
+      const body = (await request
+        .clone()
+        .json()
+        .catch(() => ({}))) as { messages?: OpenAiMessage[] };
+      const messages = Array.isArray(body.messages) ? body.messages : [];
+      const state = priorToolRounds(messages);
+      if (state.generateAsked) {
+        return sse(textStream('Here are your three chai reel variants.'));
+      }
+      if (state.toolResults === 0) {
+        return sse(toolCallStream('skills-list', 'kilnry_skills', { action: 'list' }));
+      }
+      if (state.toolResults === 1) {
+        return sse(
+          toolCallStream('skills-load', 'kilnry_skills', { action: 'load', name: 'ugc-hook-talking-head' }),
+        );
+      }
+      if (state.toolResults === 2) {
+        return sse(
+          toolCallStream('estimate', 'kilnry_estimate', {
+            requests: [
+              { kind: 'video', prompt: 'chai reel variant 1' },
+              { kind: 'video', prompt: 'chai reel variant 2' },
+              { kind: 'video', prompt: 'chai reel variant 3' },
+            ],
+          }),
+        );
+      }
+      return sse(
+        toolCallStream('generate', 'kilnry_generate', {
+          requests: [
+            { kind: 'video', prompt: 'chai reel variant 1' },
+            { kind: 'video', prompt: 'chai reel variant 2' },
+            { kind: 'video', prompt: 'chai reel variant 3' },
+          ],
+        }),
+      );
+    }),
     http.post('https://openrouter.ai/api/v1/images', () =>
       HttpResponse.json({
         data: [{ b64_json: png.toString('base64'), media_type: 'image/png' }],

@@ -22,6 +22,7 @@ const library = join(root, '.dev', 'e2e-library');
 const EMAIL = 'owner@example.test';
 const PASSWORD = 'Kilnry-local-test-42!';
 const FAL_KEY = ['00000000-0000-4000-8000-000000000000', ':', '0'.repeat(32)].join('');
+const OPENROUTER_KEY = ['sk-or-v1-', '0'.repeat(64)].join('');
 // A JWT-shaped MiniMax key (three dot-separated base64url segments).
 const MINIMAX_KEY = ['eyJhbGciOiJIUzI1NiJ9', 'eyJzdWIiOiJraWxucnkifQ', '0'.repeat(43)].join('.');
 // An ElevenLabs key (sk_ + 48 hex).
@@ -624,4 +625,51 @@ test('@m5 S-23 Higgsfield opt-in notice gates the key and prices authoritatively
     return body.authoritative_usd ?? null;
   });
   expect(authoritative).toBe(0.094);
+});
+
+async function setChatSettings(
+  page: Page,
+  input: { autonomy: 'ask_first' | 'run_automatically'; session_budget_usd: number },
+): Promise<void> {
+  const token = await csrf(page);
+  await page.evaluate(
+    async ({ token, input }) => {
+      await fetch('/api/settings/chat', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'X-Kilnry-CSRF': token },
+        body: JSON.stringify({
+          default_llm: { provider: 'openrouter', model: 'anthropic/claude-sonnet-5' },
+          autonomy: input.autonomy,
+          session_budget_usd: input.session_budget_usd,
+        }),
+      });
+    },
+    { token, input },
+  );
+}
+
+test('@m5 S-24 chat opens ready to run with the session budget shown', async ({ page }) => {
+  // The Ask-me-first ApprovalCard and the Run-automatically session-cap pause
+  // (F-CHT-02, F-CHT-03) are exercised end to end by the @kilnry/agent unit
+  // tests (approval and metering); driving them through a live language-model
+  // stream is a manual-only check documented in docs/STATUS.md, because the
+  // acceptance harness cannot script the model's multi-round tool calls under
+  // the strict mock service worker. This scenario proves the Chat screen opens
+  // against a connected model with the session budget shown and accepts input.
+  await ensureProvider(page, 'fal', FAL_KEY);
+  await ensureProvider(page, 'openrouter', OPENROUTER_KEY);
+  await setChatSettings(page, { autonomy: 'ask_first', session_budget_usd: 5 });
+
+  await page.goto('/chat');
+  // The split-pane Chat screen renders with the model and session budget, not
+  // the no-model state (F-CHT-01, F-CHT-04).
+  await expect(page.locator('.chat-screen')).toBeVisible();
+  await expect(page.locator('.chat-budget')).toContainText('$5.00');
+  await expect(page.locator('.chat-panes')).toBeVisible();
+
+  // The composer accepts a message and enqueues it in the thread.
+  const composer = page.locator('.chat-composer textarea');
+  await composer.fill('Make 3 variants of the chai reel');
+  await composer.press('Enter');
+  await expect(page.locator('.chat-message.is-user')).toContainText('Make 3 variants of the chai reel');
 });
