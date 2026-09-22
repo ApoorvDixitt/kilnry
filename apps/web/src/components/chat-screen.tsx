@@ -282,7 +282,12 @@ export function ChatScreen({
   const dragging = useRef(false);
 
   const transport = useMemo(
-    () => new DefaultChatTransport({ api: '/api/chat', body: { session_id: sessionId } }),
+    () =>
+      new DefaultChatTransport({
+        api: '/api/chat',
+        body: { session_id: sessionId },
+        fetch: apiFetch,
+      }),
     [sessionId],
   );
   const { messages, sendMessage, status, error, addToolApprovalResponse, regenerate } = useChat({
