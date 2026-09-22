@@ -3,6 +3,10 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
+import { execFileSync } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 
@@ -18,14 +22,49 @@ const mp4 = Buffer.from(
 // A single HTTPS location the fal video fixture points at; the engine downloads
 // the bytes from here after the queue job completes.
 const FAL_VIDEO_URL = 'https://v3.fal.media/files/test/kilnry-fixture.mp4';
+const FAL_AUDIO_URL = 'https://v3.fal.media/files/test/kilnry-fixture.mp3';
 // Where a completed fal LoRA training points at its safetensors file (F-CHR-07).
 const FAL_LORA_URL = 'https://v3.fal.media/files/test/kilnry-lora.safetensors';
 
-// A tiny valid MP3 frame the speech and voice fixtures return as bytes.
-const mp3 = Buffer.from(
+// The bytes the speech and voice fixtures return. A real one-second MP3 is built
+// once with ffmpeg so the finalizer can probe its duration the way it would for a
+// provider's own file; if ffmpeg is unavailable a single silent frame stands in.
+const SILENT_MP3_FRAME = Buffer.from(
   'SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjYyLjMuMTAwAAAAAAAAAAAAAAD/+xDEAAPAAAGkAAAAIAAANIAAAAT/',
   'base64',
 );
+
+function fixtureMp3(): Buffer {
+  const path = join(tmpdir(), 'kilnry-fixture-speech-1s.mp3');
+  try {
+    if (!existsSync(path)) {
+      execFileSync(
+        process.env.KILNRY_FFMPEG ?? 'ffmpeg',
+        [
+          '-hide_banner',
+          '-loglevel',
+          'error',
+          '-f',
+          'lavfi',
+          '-i',
+          'sine=frequency=440:duration=1',
+          '-c:a',
+          'libmp3lame',
+          '-b:a',
+          '32k',
+          '-y',
+          path,
+        ],
+        { stdio: 'ignore' },
+      );
+    }
+    return readFileSync(path);
+  } catch {
+    return SILENT_MP3_FRAME;
+  }
+}
+
+const mp3 = fixtureMp3();
 // A tiny fixture safetensors payload (bytes only; the trainer verifies its hash).
 const safetensors = Buffer.from('safetensors-fixture-bytes');
 
@@ -264,6 +303,10 @@ export function startTestMsw(): void {
         return HttpResponse.json({ diffusers_lora_file: { url: FAL_LORA_URL } });
       }
       const isVideo = /video|kling|veo|seedance|lipsync|sync|latentsync/i.test(path);
+      // A speech or music model answers with one audio file (fal adapter §3.1's
+      // output table reads `audio.url`).
+      const isAudio = /speech|kokoro|tts|music|sound-effects|ace-step/i.test(path);
+      if (isAudio) return HttpResponse.json({ audio: { url: FAL_AUDIO_URL, content_type: 'audio/mpeg' } });
       return isVideo
         ? HttpResponse.json({ video: { url: FAL_VIDEO_URL, content_type: 'video/mp4' } })
         : HttpResponse.json({
@@ -273,6 +316,11 @@ export function startTestMsw(): void {
     http.get(FAL_VIDEO_URL, () =>
       HttpResponse.arrayBuffer(mp4.buffer.slice(mp4.byteOffset, mp4.byteOffset + mp4.byteLength), {
         headers: { 'Content-Type': 'video/mp4' },
+      }),
+    ),
+    http.get(FAL_AUDIO_URL, () =>
+      HttpResponse.arrayBuffer(mp3.buffer.slice(mp3.byteOffset, mp3.byteOffset + mp3.byteLength), {
+        headers: { 'Content-Type': 'audio/mpeg' },
       }),
     ),
     http.get(FAL_VIDEO_URL.replace('.mp4', '.png'), () =>

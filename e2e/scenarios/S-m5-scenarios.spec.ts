@@ -3,8 +3,9 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 
@@ -268,6 +269,49 @@ async function characterView(page: Page, handle: string): Promise<Record<string,
   }, handle);
 }
 
+// The newest file of a kind in a folder, ignoring any paths named as exclusions.
+// Used to find what a job just wrote without asking the database where it went.
+function newestFile(dir: string, extension: string, ...ignore: string[]): string {
+  if (!existsSync(dir)) return '';
+  const candidates = readdirSync(dir)
+    .filter((name) => name.endsWith(extension))
+    .map((name) => join(dir, name))
+    .filter((path) => !ignore.includes(path));
+  if (candidates.length === 0) return '';
+  return candidates.sort((left, right) => statSync(right).mtimeMs - statSync(left).mtimeMs)[0] ?? '';
+}
+
+// The Library's id for a file, by its path relative to the Library root.
+async function assetIdForPath(page: Page, relative: string): Promise<string> {
+  return page.evaluate(async (relative) => {
+    const response = await fetch('/api/library/assets?folder=inbox&sort=newest');
+    if (!response.ok) return '';
+    const body = (await response.json()) as { assets?: Array<{ id: string; path: string }> };
+    return body.assets?.find((asset) => asset.path === relative)?.id ?? '';
+  }, relative);
+}
+
+// Index a file that was placed in the Library folder directly, the way the doctor
+// reindex does after a file arrives outside the app (setup only).
+async function reindexLibrary(page: Page): Promise<void> {
+  const token = await csrf(page);
+  await page.evaluate(async (token) => {
+    await fetch('/api/library/reindex', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Kilnry-CSRF': token },
+      body: JSON.stringify({ folder: 'inbox' }),
+    });
+  }, token);
+}
+
+// Open the Library inspector for one asset by clicking its tile.
+async function openInspectorFor(page: Page, assetId: string): Promise<void> {
+  await page.locator(`.asset-tile-wrap:has(input.asset-select)`).first().waitFor();
+  const tile = page.locator(`[data-asset-id="${assetId}"], .asset-tile`).first();
+  await tile.click();
+  await page.locator('.inspector').waitFor();
+}
+
 // A real person with consent on record. S-15 creates @ines without consent and
 // then consents to it, so this only fills the gap when it runs on its own.
 async function ensureRealPersonWithConsent(page: Page, handle: string): Promise<void> {
@@ -523,6 +567,96 @@ test('@m5 S-16 voice clone with consent, bound to a Character, priced for speech
   });
   expect(ttsEstimate).not.toBeNull();
   expect(ttsEstimate).toBeLessThan(0.05);
+
+  // Audio mode speaks the line through MiniMax. The strip prices it at a fraction
+  // of a cent, and the MP3 that lands carries Kilnry's own tag.
+  await page.goto('/create');
+  await page.getByRole('tab', { name: 'Audio' }).click();
+  await page.locator('.model-chip').click();
+  // Two rows share this display name — one reached through fal, one direct — so
+  // the provider cell picks the direct MiniMax route PRD-21 names.
+  await page
+    .locator('.model-picker [role="option"]')
+    .filter({ hasText: 'MiniMax Speech Turbo' })
+    .filter({ has: page.locator('.model-row-provider', { hasText: /^MiniMax$/ }) })
+    .click();
+  await page
+    .locator('.composer textarea')
+    .first()
+    .fill("@maya_voice reads: 'Namaste! Aaj hum banayenge ek perfect cutting chai.'");
+  const audioStrip = page.locator('.cost-strip');
+  // The rolled figure animates, so the money fact is read from the strip's own
+  // summary; MiniMax answers with its own estimate, so Kilnry shows it exactly
+  // rather than with the approximation sign PRD-21 quotes.
+  await expect(audioStrip).toHaveAttribute('title', /\$0\.0/);
+  await expect(audioStrip).toContainText('72 chars');
+  const beforeAudio = await jobCount(page);
+  await page.locator('.composer').getByRole('button', { name: 'Generate' }).click();
+  await expect.poll(async () => jobCount(page), { timeout: 30_000 }).toBe(beforeAudio + 1);
+  await expect.poll(async () => (await latestJob(page))?.status, { timeout: 90_000 }).toBe('completed');
+
+  // The speech landed in the Library as an MP3 whose ID3 tags carry Kilnry's
+  // generation record (the TXXX frame ffmpeg writes for a custom key).
+  const speech = newestFile(join(library, 'inbox'), '.mp3');
+  expect(speech).not.toBe('');
+  const id3 = readFileSync(speech).subarray(0, 4096).toString('latin1');
+  expect(id3.includes('TXXX')).toBe(true);
+  expect(id3.toLowerCase().includes('kilnry')).toBe(true);
+  const speechAssetId = await assetIdForPath(page, speech.slice(library.length + 1));
+  expect(speechAssetId).not.toBe('');
+
+  // A twelve-second face video, made here so the clip length is exactly known,
+  // indexed into the Library the way a dropped file is.
+  const facePath = join(library, 'inbox', 'face-12s.mp4');
+  execFileSync(
+    process.env.KILNRY_FFMPEG ?? 'ffmpeg',
+    [
+      '-hide_banner',
+      '-nostdin',
+      '-y',
+      '-f',
+      'lavfi',
+      '-i',
+      'testsrc=size=256x256:rate=12:duration=12',
+      '-pix_fmt',
+      'yuv420p',
+      '-c:v',
+      'libx264',
+      '-preset',
+      'ultrafast',
+      facePath,
+    ],
+    { stdio: 'ignore' },
+  );
+  await reindexLibrary(page);
+  const faceAssetId = await assetIdForPath(page, join('inbox', 'face-12s.mp4'));
+  expect(faceAssetId).not.toBe('');
+
+  // Transforms › Lip-sync from the Library: the panel reads the clip length from
+  // the asset, bills it in five-second steps, and prices it at fal's rate.
+  await page.goto('/library');
+  await expect.poll(async () => page.locator('.asset-tile').count(), { timeout: 30_000 }).toBeGreaterThan(0);
+  await page.locator(`.asset-tile-wrap:has(input.asset-select)`).first().waitFor();
+  await openInspectorFor(page, faceAssetId);
+  await page.locator('.inspector-transform').click();
+  const panel = page.locator('.transforms-panel');
+  await panel.getByRole('tab', { name: 'Lip-sync' }).click();
+  await panel.locator('.transforms-audio').fill(speechAssetId);
+  await expect(panel.locator('.transforms-billed')).toHaveText('12 s → billed as 15 s');
+  await expect(panel.locator('.transforms-cost')).toContainText('$0.21');
+
+  // Running it creates one job whose output records both inputs as its lineage.
+  const beforeLipsync = await jobCount(page);
+  await panel.locator('.transforms-run').click();
+  await expect.poll(async () => jobCount(page), { timeout: 30_000 }).toBe(beforeLipsync + 1);
+  await expect.poll(async () => (await latestJob(page))?.status, { timeout: 90_000 }).toBe('completed');
+  expect((await latestJob(page))?.modelId).toBe('fal-ai/kling-video/lipsync/audio-to-video');
+  const lipsyncOutput = newestFile(join(library, 'inbox'), '.mp4', facePath);
+  expect(lipsyncOutput).not.toBe('');
+  const sidecar = JSON.parse(readFileSync(`${lipsyncOutput}.kilnry.json`, 'utf8')) as {
+    lineage?: { made_from?: string[] };
+  };
+  expect(sidecar.lineage?.made_from).toEqual([faceAssetId, speechAssetId]);
 });
 
 test('@m5 S-17 preset run with a required slot and its cost', async ({ page }) => {
