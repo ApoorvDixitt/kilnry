@@ -7,6 +7,7 @@ import type { ModelManifest, PriceSnapshot } from '../manifest.js';
 import { falSeed } from './fal.js';
 import { goldenSupportSeed } from './other-goldens.js';
 import { openrouterSeed } from './openrouter.js';
+import { remainingProvidersSeed } from './remaining-providers.js';
 
 const pollinationsSeed: ModelManifest = {
   provider: 'pollinations',
@@ -56,6 +57,7 @@ export const registrySeed: readonly ModelManifest[] = [
   ...openrouterSeed,
   pollinationsSeed,
   ...goldenSupportSeed,
+  ...remainingProvidersSeed,
 ];
 
 export function seedSnapshot(model: ModelManifest): PriceSnapshot {
