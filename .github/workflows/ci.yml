@@ -81,7 +81,7 @@ jobs:
       - name: Smoke acceptance tests
         run: pnpm e2e --grep @smoke
       - name: Acceptance and gate suites
-        run: pnpm e2e --grep "@m3|@m4|@gate"
+        run: pnpm e2e --grep "@m3|@m4|@m5|@gate"
       - name: Production build
         run: pnpm build
       - name: Audit production dependencies

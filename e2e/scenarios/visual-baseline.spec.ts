@@ -72,4 +72,27 @@ test('@visual capture Create light and dark and Library light at 1440x900', asyn
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   await page.waitForTimeout(400);
   await page.screenshot({ path: snap('characters-dark.png'), fullPage: false });
+
+  // The Chat and Presets screens (M5), captured light and dark as the baseline a
+  // reviewer compares against the wireframes and the style tile, since there is
+  // no glance for either screen.
+  await setTheme(page, 'light');
+  await ensureSignedIn(page, '/chat');
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: snap('chat-light.png'), fullPage: false });
+  await setTheme(page, 'dark');
+  await page.reload();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: snap('chat-dark.png'), fullPage: false });
+
+  await setTheme(page, 'light');
+  await ensureSignedIn(page, '/presets');
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: snap('presets-light.png'), fullPage: false });
+  await setTheme(page, 'dark');
+  await page.reload();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: snap('presets-dark.png'), fullPage: false });
 });
