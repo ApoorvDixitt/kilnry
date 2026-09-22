@@ -153,10 +153,14 @@ async function generateImageAsset(page: Page, prompt: string): Promise<string> {
   });
   await page.evaluate(
     async ({ token, prompt }) => {
+      // Pinned to fal: with a Higgsfield key connected the router now prefers the
+      // cheaper Soul 2 row for plain text-to-image, and these throwaway reference
+      // photos must come from the same fixture in every scenario.
+      const model = 'fal-ai/flux-2/klein/4b';
       const estimate = await fetch('/api/estimate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Kilnry-CSRF': token },
-        body: JSON.stringify({ kind: 'image', prompt, medias: [], count: 1 }),
+        body: JSON.stringify({ kind: 'image', prompt, medias: [], count: 1, model }),
       });
       const priced = (await estimate.json()) as { estimate_usd?: number };
       await fetch('/api/generate', {
@@ -167,6 +171,7 @@ async function generateImageAsset(page: Page, prompt: string): Promise<string> {
           prompt,
           medias: [],
           count: 1,
+          model,
           confirmed_cost_usd: priced.estimate_usd ?? 1,
         }),
       });
