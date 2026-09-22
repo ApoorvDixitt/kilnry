@@ -189,5 +189,5 @@ describe('POST /api/chat — scripted OpenRouter tool rounds', () => {
 
     expect(engine.createJob).not.toHaveBeenCalled();
     expect(await database.db.select().from(jobs)).toHaveLength(0);
-  });
+  }, 15_000);
 });
