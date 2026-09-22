@@ -3,8 +3,6 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
-import { existsSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 
 // The M4 acceptance scenarios from PRD-21, tagged @m4 and numbered by topic. They
@@ -15,8 +13,6 @@ import { expect, test, type APIRequestContext, type Page } from '@playwright/tes
 // Protocol scenarios drive the loopback /mcp endpoint with a bearer token.
 // Direct fetch is used only for setup and teardown.
 
-const root = process.cwd();
-const library = join(root, '.dev', 'e2e-library');
 const EMAIL = 'owner@example.test';
 const PASSWORD = 'Kilnry-local-test-42!';
 const FAL_KEY = ['00000000-0000-4000-8000-000000000000', ':', '0'.repeat(32)].join('');
@@ -126,11 +122,6 @@ async function mcpCall(
   return parsed.result ?? {};
 }
 
-function inboxFiles(extension: string): string[] {
-  const dir = join(library, 'inbox');
-  return existsSync(dir) ? readdirSync(dir).filter((file) => file.endsWith(extension)) : [];
-}
-
 test('@m4 S-03 @character in a video prompt resolves to references, not the literal handle', async ({
   page,
 }) => {
@@ -209,15 +200,25 @@ test('@m4 S-06 a read-only token cannot spend', async ({ page, request }) => {
   });
   expect(search.structuredContent).toBeDefined();
 
-  // But it cannot generate: the tool is refused before any job is created.
-  const before = inboxFiles('.png').length;
+  // But it cannot generate: the tool is refused before any job is created. The
+  // proof is that no job carries this prompt — counting files in the Library
+  // would also count a job an earlier scenario started and has yet to finish.
   const denied = await mcpCall(request, readOnly, 'tools/call', {
     name: 'kilnry_generate',
-    arguments: { requests: [{ kind: 'image', prompt: 'x' }], confirm_cost_usd: 1 },
+    arguments: {
+      requests: [{ kind: 'image', prompt: 'a read-only token must never spend' }],
+      confirm_cost_usd: 1,
+    },
   });
   const error = (denied.structuredContent as { error?: { code: string } })?.error;
   expect(error?.code).toBe('INVALID_INPUT');
-  expect(inboxFiles('.png').length).toBe(before);
+  const matching = await page.evaluate(async () => {
+    const response = await fetch('/api/jobs');
+    if (!response.ok) return -1;
+    const body = (await response.json()) as { jobs: Array<{ prompt?: string | null }> };
+    return body.jobs.filter((job) => job.prompt === 'a read-only token must never spend').length;
+  });
+  expect(matching).toBe(0);
 });
 
 test('@m4 S-10 offline queue shows the bar and resumes on reconnect', async ({ page, context }) => {

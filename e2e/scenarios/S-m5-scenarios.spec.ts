@@ -120,6 +120,26 @@ async function jobRow(page: Page, jobId: string): Promise<Record<string, unknown
   }, jobId);
 }
 
+// How many jobs exist right now, so a scenario can prove a click created none.
+async function jobCount(page: Page): Promise<number> {
+  return page.evaluate(async () => {
+    const response = await fetch('/api/jobs');
+    if (!response.ok) return 0;
+    const body = (await response.json()) as { jobs: Array<Record<string, unknown>> };
+    return body.jobs.length;
+  });
+}
+
+// The most recently created job, as the Jobs route reports it.
+async function latestJob(page: Page): Promise<Record<string, unknown> | undefined> {
+  return page.evaluate(async () => {
+    const response = await fetch('/api/jobs');
+    if (!response.ok) return undefined;
+    const body = (await response.json()) as { jobs: Array<Record<string, unknown>> };
+    return body.jobs[0];
+  });
+}
+
 async function ledgerRows(page: Page, jobId: string): Promise<number> {
   const token = await csrf(page);
   return page.evaluate(
@@ -248,7 +268,63 @@ async function characterView(page: Page, handle: string): Promise<Record<string,
   }, handle);
 }
 
+// A real person with consent on record. S-15 creates @ines without consent and
+// then consents to it, so this only fills the gap when it runs on its own.
+async function ensureRealPersonWithConsent(page: Page, handle: string): Promise<void> {
+  const existing = await characterView(page, handle);
+  if (!existing) await createRealPerson(page, handle, 1);
+  await setConsent(page, handle);
+}
+
 test.describe.configure({ mode: 'serial' });
+
+// The first half of S-23. It runs before every other scenario in this file because
+// it is the acknowledgement that the rest assume: S-15's Given is a Higgsfield
+// already connected with accepted_tos_at set, and once acknowledged the notice
+// never asks again.
+test('@m5 S-23 the Higgsfield notice gates the key and prices authoritatively', async ({ page }) => {
+  await ensureSignedIn(page, '/settings/providers');
+
+  // Picking Higgsfield shows the terms notice with the verbatim training clause
+  // and a full-terms link; the save button stays disabled until it is accepted.
+  await page.getByLabel('Add or replace a provider key').fill(HIGGSFIELD_KEY);
+  await page.getByLabel('Provider', { exact: true }).selectOption('higgsfield');
+  const notice = page.locator('.provider-notice');
+  await expect(notice).toContainText(
+    'may be used by Company to train, develop, enhance, evolve, and improve its AI models',
+  );
+  await expect(notice.locator('a')).toHaveAttribute('href', /higgsfield\.ai\/terms/);
+  const save = page.getByRole('button', { name: 'Test and save' });
+  await expect(save).toBeDisabled();
+
+  // Accepting the notice enables the save; Higgsfield then connects.
+  await notice.locator('input[type="checkbox"]').check();
+  await expect(save).toBeEnabled();
+  await save.click();
+  await expect.poll(() => providerConnected(page, 'higgsfield'), { timeout: 15_000 }).toBe(true);
+
+  // A Higgsfield generation is priced from the provider's own estimate endpoint,
+  // so the figure is authoritative ($0.094) rather than a formula guess.
+  const token = await csrf(page);
+  const authoritative = await page.evaluate(async (token) => {
+    const response = await fetch('/api/estimate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Kilnry-CSRF': token },
+      body: JSON.stringify({
+        kind: 'video',
+        prompt: 'a rooftop cafe at golden hour',
+        model: 'kling-video/v3.0/std/image-to-video',
+        medias: [],
+        count: 1,
+        params: { duration_s: 5, resolution: '720p' },
+      }),
+    });
+    if (!response.ok) return null;
+    const body = (await response.json()) as { authoritative_usd?: number | null };
+    return body.authoritative_usd ?? null;
+  }, token);
+  expect(authoritative).toBe(0.094);
+});
 
 test('@m5 S-11 an ambiguous timeout never double-spends and Check status resolves it', async ({ page }) => {
   await ensureProvider(page, 'fal', FAL_KEY);
@@ -582,54 +658,88 @@ test('@m5 S-18 export a bundle with sidecars and provenance labels', async ({ pa
   }
 });
 
-test('@m5 S-23 Higgsfield opt-in notice gates the key and prices authoritatively', async ({ page }) => {
-  await ensureSignedIn(page, '/settings/providers');
+// The second half of S-23, after the notice has been acknowledged and S-15 has left
+// a real person with consent on record: Create offers Soul 2, prices it from the
+// provider's own estimate, and asks before the likeness is sent.
+test('@m5 S-23 Create prices Soul 2 authoritatively and confirms a real likeness', async ({ page }) => {
+  await ensureProvider(page, 'fal', FAL_KEY);
+  await ensureProvider(page, 'higgsfield', HIGGSFIELD_KEY, true);
+  await ensureRealPersonWithConsent(page, 'ines');
 
-  // Picking Higgsfield shows the terms notice with the verbatim training clause
-  // and a full-terms link; the save button stays disabled until it is accepted.
-  await page.getByLabel('Add or replace a provider key').fill(HIGGSFIELD_KEY);
+  // Once acknowledged, the notice is one line with the date and a Show link that
+  // brings the full clause back. The date is read from what the provider row
+  // stores, never from the clock, and formatted the way the card formats it.
+  await page.goto('/settings/providers');
   await page.getByLabel('Provider', { exact: true }).selectOption('higgsfield');
-  const notice = page.locator('.provider-notice');
-  await expect(notice).toContainText(
+  const acknowledged = page.locator('.provider-notice-acknowledged');
+  await expect(acknowledged).toContainText('Training clause acknowledged');
+  const acceptedAt = await page.evaluate(async () => {
+    const response = await fetch('/api/providers');
+    if (!response.ok) return null;
+    const body = (await response.json()) as {
+      providers: Array<{ id: string; accepted_tos_at?: string }>;
+    };
+    return body.providers.find((item) => item.id === 'higgsfield')?.accepted_tos_at ?? null;
+  });
+  expect(acceptedAt).not.toBeNull();
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const stored = new Date(acceptedAt as string);
+  const shown = `${String(stored.getDate()).padStart(2, '0')} ${months[stored.getMonth()]} ${stored.getFullYear()}`;
+  await expect(acknowledged).toContainText(`Training clause acknowledged ${shown} · Show`);
+  await acknowledged.getByRole('button', { name: 'Show' }).click();
+  await expect(page.locator('.provider-notice').first()).toContainText(
     'may be used by Company to train, develop, enhance, evolve, and improve its AI models',
   );
-  await expect(notice.locator('a')).toHaveAttribute('href', /higgsfield\.ai\/terms/);
-  const save = page.getByRole('button', { name: 'Test and save' });
-  await expect(save).toBeDisabled();
 
-  // Accepting the notice enables the save; Higgsfield then connects.
-  await notice.locator('input[type="checkbox"]').check();
-  await expect(save).toBeEnabled();
-  await save.click();
-  await expect.poll(() => providerConnected(page, 'higgsfield'), { timeout: 15_000 }).toBe(true);
+  // Create offers Soul 2 now that Higgsfield is connected, and says on the row
+  // that the provider trains on what it is sent.
+  await page.goto('/create');
+  await page.locator('.model-chip').click();
+  const soulRow = page.locator('.model-picker [role="option"]').filter({ hasText: 'Soul 2 · Higgsfield' });
+  await expect(soulRow).toContainText('trains on inputs');
+  await soulRow.click();
 
-  // A Higgsfield generation is priced from the provider's own estimate endpoint,
-  // so the cost strip shows an authoritative figure ($0.094) rather than a guess.
-  const authoritative = await page.evaluate(async () => {
-    const csrfToken = decodeURIComponent(
-      document.cookie
-        .split(';')
-        .map((part) => part.trim())
-        .find((part) => part.startsWith('kilnry_csrf='))
-        ?.slice('kilnry_csrf='.length) ?? '',
-    );
-    const response = await fetch('/api/estimate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Kilnry-CSRF': csrfToken },
-      body: JSON.stringify({
-        kind: 'video',
-        prompt: 'a rooftop cafe at golden hour',
-        model: 'kling-video/v3.0/std/image-to-video',
-        medias: [],
-        count: 1,
-        params: { duration_s: 5, resolution: '720p' },
-      }),
-    });
-    if (!response.ok) return null;
-    const body = (await response.json()) as { authoritative_usd?: number | null };
-    return body.authoritative_usd ?? null;
-  });
-  expect(authoritative).toBe(0.094);
+  // The cost strip prices from Higgsfield's own estimate, so the figure is exact
+  // and carries no "≈".
+  await page.locator('.composer textarea').first().fill('@ines in a rooftop cafe at golden hour');
+  const strip = page.locator('.cost-strip');
+  await expect(strip).toContainText('$0.094');
+  await expect(strip).not.toContainText('≈');
+
+  // Submitting asks for the real-person likeness confirmation first, and no job
+  // exists until Continue is pressed.
+  const jobsBefore = await jobCount(page);
+  // The composer's live resolver preview is what tells it @ines is a real person
+  // with consent, so wait for it before pressing Generate.
+  await expect(page.locator('.composer-resolve')).toBeVisible();
+  await page.locator('.composer').getByRole('button', { name: 'Generate' }).click();
+  const confirm = page.locator('.likeness-confirm');
+  await expect(confirm).toContainText(
+    "This sends a real person's likeness to Higgsfield, which may train on it. Continue?",
+  );
+  await expect(confirm).toContainText('@ines');
+  expect(await jobCount(page)).toBe(jobsBefore);
+
+  // Cancel closes the confirmation and still creates nothing.
+  await confirm.getByRole('button', { name: 'Cancel' }).click();
+  await expect(confirm).toHaveCount(0);
+  expect(await jobCount(page)).toBe(jobsBefore);
+
+  // After Continue one job is created, and it stores both the formula estimate
+  // and the authoritative figure Higgsfield returned.
+  await page.locator('.composer').getByRole('button', { name: 'Generate' }).click();
+  await confirm.getByRole('button', { name: 'Continue' }).click();
+  await expect
+    .poll(async () => Number((await latestJob(page))?.authoritativeUsd ?? 0), { timeout: 30_000 })
+    .toBeCloseTo(0.094, 3);
+  expect(await jobCount(page)).toBe(jobsBefore + 1);
+  const job = await latestJob(page);
+  expect(Number(job?.estimateUsd ?? 0)).toBeGreaterThan(0);
+  expect(job?.modelId).toBe('higgsfield-ai/soul/v2/standard');
+
+  // The job is visible to the user on the Jobs screen, not only in the database.
+  await page.goto('/jobs');
+  await expect(page.locator('.jobs-table')).toContainText('higgsfield-ai/soul/v2/standard');
 });
 
 async function setChatSettings(

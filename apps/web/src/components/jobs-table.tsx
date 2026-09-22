@@ -15,6 +15,7 @@ export interface JobRow {
   status: string;
   prompt?: string | null;
   model?: string | null;
+  modelId?: string | null;
   provider?: string | null;
   providerId?: string | null;
   source?: string | null;
@@ -152,7 +153,7 @@ export function JobsTable({
                     </span>
                   ) : null}
                 </td>
-                <td className="jobs-model">{row.model ?? '—'}</td>
+                <td className="jobs-model">{row.model ?? row.modelId ?? '—'}</td>
                 <td className="jobs-cost" data-money="true">
                   {costCell(row)}
                 </td>
