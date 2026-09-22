@@ -254,7 +254,7 @@
       "audio": "Audio source (asset id or @voice + text)",
       "audioHint": "asset-id or @maya \"Hello world\"",
       "clipSeconds": "Clip length in seconds",
-      "billedAs": "Billed as {seconds} seconds (5 s steps)",
+      "billedAs": "{clip} s → billed as {seconds} s",
       "cost": "Estimate: {price}",
       "costUnknown": "Pricing…",
       "run": "Run · {price}",

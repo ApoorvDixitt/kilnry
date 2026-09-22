@@ -59,7 +59,10 @@ export function outputSize(
   switch (unit) {
     case 'second':
       return `${(params.duration_s ?? 0) * params.count} s`;
+    // Speech is billed by the thousand characters, so the size line counts the
+    // characters that will be spoken rather than a number of files.
     case 'character':
+    case '1k chars':
       return message('create.cost.chars').replace('{n}', String(promptChars));
     case 'minute':
       return `${params.count} min`;

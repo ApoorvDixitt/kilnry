@@ -14,6 +14,7 @@ import { AssetGrid } from './asset-grid';
 import { InspectorDrawer } from './inspector-drawer';
 import { SelectionBar } from './selection-bar';
 import { ExportBundleDialog } from './export-bundle-dialog';
+import { TransformsPanel } from './transforms-panel';
 import { DiskBanner } from './disk-banner';
 
 async function json<T>(response: Response): Promise<T> {
@@ -29,6 +30,7 @@ export function LibraryBrowser(): React.ReactNode {
   const [sort, setSort] = useState<AssetSort>('newest');
   const [view, setView] = useState<'grid' | 'list'>('grid');
   const [detail, setDetail] = useState<AssetDetail | null>(null);
+  const [transformSource, setTransformSource] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [searchResults, setSearchResults] = useState<AssetListItem[] | null>(null);
   const [selection, setSelection] = useState<Set<string>>(new Set());
@@ -259,6 +261,14 @@ export function LibraryBrowser(): React.ReactNode {
           detail={detail}
           onPatch={(patch) => void patchAsset(detail.id, patch)}
           onClose={() => setDetail(null)}
+          onTransform={() => setTransformSource(detail.id)}
+        />
+      ) : null}
+      {transformSource !== null ? (
+        <TransformsPanel
+          source={transformSource}
+          onClose={() => setTransformSource(null)}
+          onRan={reloadAssets}
         />
       ) : null}
     </section>

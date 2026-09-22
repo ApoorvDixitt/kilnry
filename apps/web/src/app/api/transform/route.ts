@@ -46,6 +46,15 @@ const KIND_FOR: Record<string, 'image' | 'video' | 'audio'> = {
   transcribe: 'audio',
 };
 
+// The media role the source takes for each operation. A lip-sync or upscale reads
+// the source as a video, transcription reads it as audio, and the image
+// operations take it as the reference to work from.
+const SOURCE_ROLE: Record<string, 'video' | 'audio' | 'reference'> = {
+  upscale_video: 'video',
+  lipsync: 'video',
+  transcribe: 'audio',
+};
+
 // Run a provider-billed transform on one Library asset (F-CRE-11). It estimates
 // through the same engine the composer uses and only spends after a confirmed
 // cost; the output is written next to the source with its lineage.
@@ -58,12 +67,30 @@ export async function POST(request: Request): Promise<Response> {
       throw new KilnryError('NO_PROVIDER', 'Dubbing and voice change arrive in a later milestone.');
     }
     const engine = await ensureRuntimeEngine();
+    // The panel's own inputs — the audio to speak and how long the clip is — become
+    // a media input and a duration, which is what the estimator and the adapters
+    // read. Whatever else it sent travels as provider extras.
+    const supplied = { ...(body.params ?? {}) };
+    const audio = typeof supplied.audio === 'string' ? supplied.audio.trim() : '';
+    const clipSeconds = typeof supplied.clip_seconds === 'number' ? supplied.clip_seconds : undefined;
+    const aspectRatio = typeof supplied.aspect_ratio === 'string' ? supplied.aspect_ratio : undefined;
+    delete supplied.audio;
+    delete supplied.clip_seconds;
+    delete supplied.aspect_ratio;
+    const medias: Array<{ role: string; asset_id: string }> = [
+      { role: SOURCE_ROLE[body.op] ?? 'reference', asset_id: body.source },
+    ];
+    if (body.op === 'lipsync' && audio !== '') medias.push({ role: 'audio', asset_id: audio });
     const canonical = {
       kind: KIND_FOR[body.op] ?? 'image',
       capability,
       prompt: body.op,
-      params: body.params ?? {},
-      medias: [{ role: 'source', asset_id: body.source }],
+      params: {
+        ...(aspectRatio === undefined ? {} : { aspect_ratio: aspectRatio }),
+        ...(clipSeconds === undefined || clipSeconds <= 0 ? {} : { duration_s: clipSeconds }),
+        ...(Object.keys(supplied).length === 0 ? {} : { extra: supplied }),
+      },
+      medias,
       count: 1,
       injections: [],
       target_folder: 'inbox',

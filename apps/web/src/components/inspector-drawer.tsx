@@ -28,10 +28,14 @@ export function InspectorDrawer({
   detail,
   onPatch,
   onClose,
+  onTransform,
 }: {
   detail: AssetDetail;
   onPatch: (patch: MetadataPatch) => void;
   onClose?: () => void;
+  // Opening the transforms panel for this asset (F-CRE-11: "or from a Library
+  // asset menu").
+  onTransform?: (() => void) | undefined;
 }): React.ReactNode {
   const [tab, setTab] = useState<'info' | 'provenance' | 'activity'>('info');
   const [tagDraft, setTagDraft] = useState('');
@@ -75,6 +79,11 @@ export function InspectorDrawer({
             {message('library.inspector.tabActivity')}
           </button>
         </div>
+        {onTransform ? (
+          <button type="button" className="inspector-transform" onClick={onTransform}>
+            {message('create.transform.open')}
+          </button>
+        ) : null}
         {onClose ? (
           <button type="button" className="inspector-close" aria-label="Close" onClick={onClose}>
             <X aria-hidden size={16} strokeWidth={1.75} />

@@ -41,6 +41,29 @@ export function TransformsPanel({
   const tab = tabFor(op);
   const runnable = canRun({ op, source, params, running });
 
+  // Lip-sync is billed in five-second steps, so the panel needs to know how long
+  // the source clip is. It reads that from the asset rather than asking, and the
+  // number stays editable for a partial clip.
+  useEffect(() => {
+    if (op !== 'lipsync' || source.trim() === '') return;
+    let cancelled = false;
+    void fetch(`/api/library/asset/${encodeURIComponent(source)}`)
+      .then((response) => (response.ok ? response.json() : null))
+      .then((body: { asset?: { duration_s?: number | null } } | null) => {
+        const seconds = body?.asset?.duration_s;
+        if (cancelled || typeof seconds !== 'number' || seconds <= 0) return;
+        setParams((prior) =>
+          typeof prior.clip_seconds === 'number' && prior.clip_seconds > 0
+            ? prior
+            : { ...prior, clip_seconds: Math.round(seconds) },
+        );
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [op, source]);
+
   // Re-price whenever the op or its inputs change, on the same route Run uses.
   useEffect(() => {
     if (!tab.available || source.trim() === '') {
@@ -167,10 +190,9 @@ export function TransformsPanel({
               />
               {clipSeconds > 0 ? (
                 <span className="transforms-billed">
-                  {message('create.transform.billedAs').replace(
-                    '{seconds}',
-                    String(lipsyncBilledSeconds(clipSeconds)),
-                  )}
+                  {message('create.transform.billedAs')
+                    .replace('{clip}', String(clipSeconds))
+                    .replace('{seconds}', String(lipsyncBilledSeconds(clipSeconds)))}
                 </span>
               ) : null}
             </label>
