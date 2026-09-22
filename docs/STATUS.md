@@ -105,4 +105,22 @@ Notes and decisions:
 - F-CHR-13, F-ELM-03 and F-VOI-04 are surfaced in the composer and covered by the `@m4` scenarios.
 - MCP tokens are 32-byte secrets stored as a SHA-256 hash compared in constant time (high-entropy, not argon2id; default; adjustable).
 
+## M5 · Chat, Presets, providers, training · 2026-09-22
+
+Status: complete. GitHub [`ci` run 35699084555](https://github.com/ApoorvDixitt/kilnry/actions/runs/35699084555) passed (attempt 2; attempt 1 failed on the unreachable FFmpeg static-build host, re-run via `gh run rerun --failed`).
+
+Implemented F-CHT-01, 02, 03, 04, 05, 06, 07, 10; F-SET-05; F-SKL-01, 05; F-PRE-01, 02, 03, 04, 05, 06; F-CRE-11, 12; F-PRV-05, 06, 07, 08 and the Google, OpenAI, ElevenLabs, MiniMax, Higgsfield and Replicate-training adapters; F-CHR-07, 08, 10, 15; F-ELM-04; F-VOI-02; F-LIB-13, 14; F-MCP-03, 04, 08; F-JOB-04.
+
+Test counts by suite: core 292, agent 86, providers 56, presets 253, skills 3, media 27, launcher 16, mcp 5, db 1, web node 87; `test:browser` 184. Acceptance: `@m5` scenarios S-11, S-15, S-16, S-17, S-18, S-23, S-24; CI runs `@m3|@m4|@m5|@gate`. Axe (zero critical or serious), keyboard, reduced motion and the accent lint pass on every touched route; `e2e/__snapshots__/{chat,presets}-{light,dark}.png` are the Chat and Presets baselines. Base prompt ≤ 1,300 tokens and MCP instructions ≤ 1.5 KB are asserted.
+
+Decisions where the spec was silent (default; adjustable), with M6 follow-ups: word-ratio token estimate (a tokenizer later); no `yaml` dependency, hand-rolled skill frontmatter; `bundledSkillsRoot()`/`promptLibraryRoot()` resolvers; preset slot-type mapping; server-side preset resolve; capabilities injected into `ToolServices` (training, voice cloning, bundle export) rather than imported into core; freeze-at-submit versioning; product facts in the version `appearance`; transform availability (dubbing, voice_change, reframe_video unavailable → M6/M7); C2PA signing note only (real signing → M6); export zip via system `zip`; image metadata strip only (video strip → M6); cast age gate.
+
+Resolved conflicts: preset schema follows TRD-12 §12; the spending list wins over `readOnlyHint` so voice cloning always shows consent; saved presets use `<author>.<category>.<slug>`; base prompt at `packages/skills/prompts/base-system.md`.
+
+Seed correction: the forty presets were rewritten to those PRD-09 §5 lists.
+
+Recorded gaps and manual-only checks: seed preview WebPs need paid calls (manual); the real-fal-key training run is manual; S-23's Create Soul-2 picker, acknowledged card and Create real-person confirm are not built (no Soul-2 seed model); S-24's ApprovalCard and session-cap pause under a live model stream, and the chat single-image check, are manual-only (the strict mock cannot script the model's multi-round tool calls) — both are covered by the agent approval and metering unit tests.
+
+Not-available MCP operations by milestone: `kilnry_transform` dubbing, voice_change and reframe_video → M6/M7; `kilnry_workflows` → M6; `kilnry_publish` → M7; C2PA export signing → M6.
+
 <!-- Kilnry © 2026 Apoorv Dixit · Sustainable Use License 1.0 · See LICENSE.md. -->

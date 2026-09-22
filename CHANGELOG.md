@@ -4,6 +4,54 @@ All notable changes to Kilnry are documented here. The format follows Keep a Cha
 
 ## [Unreleased]
 
+### Added
+
+- Chat and Agent screen: bring your own language model (OpenRouter by default, Anthropic, OpenAI or Google direct, or a local Ollama model) with the per-million-token price shown (F-CHT-01).
+- Autonomy toggle — Ask me first or Run automatically — with a session budget cap that meters spend and stops the turn before it is crossed (F-CHT-02).
+- Tool calls render as collapsible ToolCallCards; a spending call renders an ApprovalCard with the planned cost before any charge (F-CHT-03).
+- A split-pane Chat screen: the thread on the left and a Workspace on the right with Preview, Steps and Cost-ledger tabs (F-CHT-04).
+- Attach Library assets and Characters to a message, including dragging an asset in from the Library (F-CHT-05).
+- Skills discover-then-load: the agent lists skills and loads one on demand (F-CHT-06).
+- The Kilnry base system prompt with the routing table, cost rules and language mirroring, assembled into the model instructions (F-CHT-07).
+- Media understanding: the agent can look at an attached image, video frame or audio through the vision-language route (F-CHT-10).
+- Chat settings: default model, autonomy, session cap and the Ollama URL (F-SET-05).
+- Skill format (`SKILL.md` plus `metadata.kilnry`) with a loader and validator, and real `kilnry_skills` list and load (F-SKL-01).
+- A system-prompt library: the base prompt, per-mode addenda and six per-model guides (F-SKL-05).
+- Preset catalogue with the eight category tabs and cards showing model, indicative cost and a needs-key badge (F-PRE-01).
+- Preset use drawer with a field per slot, a cost strip and Run through the engine (F-PRE-02).
+- Preset JSON format with slots, defaults, a prompt scaffold, negative prompt, params and a validator (F-PRE-03).
+- Import a preset from a dropped file or a pasted link (F-PRE-04).
+- Forty seed presets that run with only a fal key or only an OpenRouter key (F-PRE-05).
+- Camera and motion presets as image-to-video scaffolds that run on whichever key you have (F-PRE-06).
+- Save the current composer as a preset, choosing which fields become slots (F-CRE-12).
+- Transforms panel for upscale, background removal, reframe and outpaint, lip-sync and transcription (F-CRE-11).
+- Spend ledger grouped by provider, model, folder, character or day, with CSV export (F-PRV-05).
+- Opt-in Higgsfield with its terms-of-use notice shown verbatim and gated before the key is saved (F-PRV-06).
+- Price staleness guard that refuses to price with data older than thirty days unless overridden, with the override recorded in the audit log (F-PRV-07).
+- Ollama detection on localhost with its model list, without counting as egress when off (F-PRV-08).
+- Provider adapters for Google Gemini, OpenAI, ElevenLabs, MiniMax, Higgsfield and the training subset of Replicate (F-PRV-01).
+- Train an identity behind the consent gate — fal FLUX LoRA, Replicate fast-flux or Higgsfield Soul ID — with the cost, provider terms and time shown and the artefact copied to disk (F-CHR-07).
+- Bind a voice to a Character: pick a preset or clone one (F-CHR-08).
+- Character versioning: editing references or the descriptor forks a new version, jobs pin the version they used, and `@handle@v1` resolves (F-CHR-10).
+- Cast builder that generates an anchor plus three alternates from a few traits (F-CHR-15).
+- Build a product Element from a URL through the guarded fetch, keeping only the claims you tick (F-ELM-04).
+- Clone a voice with a consent checkbox showing the provider text, a price and a name (F-VOI-02).
+- Disk-space banner at ninety percent with a Clear cache action (F-LIB-13).
+- Export a bundle with metadata options: keep or strip embedded metadata and add the IPTC "trained algorithmic media" provenance label (F-LIB-14).
+- MCP resources for assets, characters, skills and runs (F-MCP-03).
+- MCP prompt starters: brief, UGC ad, character sheet and review (F-MCP-04).
+- MCP legacy-client compatibility so 2025-era clients work on the same endpoint (F-MCP-08).
+- Check the status of a timed-out job without resubmitting, so an ambiguous timeout never bills twice (F-JOB-04).
+
+### Fixed
+
+- The Model Context Protocol client matrix now reports only what it actually ran, and its transcripts no longer claim PASS for clients that were never executed (F-MCP-02).
+- Every workspace package version is aligned with the released version so `kilnry --version` and the launcher size check report it (release plumbing).
+- The forty seed presets were corrected to the ones the specification lists, replacing an earlier invented set (F-PRE-05).
+- Preset media and character slots are filled through the attachment tray and the `@` picker (F-PRE-02).
+- Summarised voice-clone consent lines are labelled "(provider policy, summarised)" with a link to the provider's policy (F-VOI-02).
+- `kilnry_generate` derives the request capability from its kind so the router matches a model instead of returning NO_PROVIDER on the Model Context Protocol path (F-MCP-02).
+
 ## [0.2.0] - 2026-09-21
 
 ### Added
