@@ -4,7 +4,7 @@
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { http, HttpResponse } from 'msw';
@@ -89,11 +89,13 @@ const minimaxPolls = mmState.__kilnryMinimaxPolls;
 type TestGlobal = typeof globalThis & {
   __kilnryTestMswStarted?: boolean;
   __kilnryTestMswServer?: ReturnType<typeof setupServer>;
+  __kilnryFalSubmitCount?: number;
 };
 
 export function startTestMsw(): void {
   const global = globalThis as TestGlobal;
   if (global.__kilnryTestMswStarted) return;
+  global.__kilnryFalSubmitCount = 0;
   const server = setupServer(
     http.get('https://openrouter.ai/api/v1/key', () =>
       HttpResponse.json({ data: { label: 'Kilnry test', limit_remaining: 10 } }),
@@ -133,7 +135,7 @@ export function startTestMsw(): void {
           },
           {
             endpoint_id: 'fal-ai/kling-video/v3/standard/text-to-video',
-            unit_price: 0.05,
+            unit_price: 0.084,
             unit: 'second',
             currency: 'USD',
           },
@@ -150,6 +152,11 @@ export function startTestMsw(): void {
     // with detail[].type "content_policy_violation" and X-Fal-Retryable: false,
     // so the job is moderated and never billed.
     http.post('https://queue.fal.run/*', async ({ request }) => {
+      global.__kilnryFalSubmitCount = (global.__kilnryFalSubmitCount ?? 0) + 1;
+      const dataDir = process.env.KILNRY_DATA_DIR;
+      if (dataDir) {
+        writeFileSync(join(dataDir, 'msw-fal-submit-count'), String(global.__kilnryFalSubmitCount));
+      }
       const body = (await request
         .clone()
         .json()

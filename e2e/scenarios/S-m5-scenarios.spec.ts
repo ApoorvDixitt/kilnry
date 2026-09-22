@@ -141,6 +141,21 @@ async function latestJob(page: Page): Promise<Record<string, unknown> | undefine
   });
 }
 
+async function latestJobs(page: Page, count: number): Promise<Array<Record<string, unknown>>> {
+  return page.evaluate(async (count) => {
+    const response = await fetch('/api/jobs');
+    if (!response.ok) return [];
+    const body = (await response.json()) as { jobs: Array<Record<string, unknown>> };
+    return body.jobs.slice(0, count);
+  }, count);
+}
+
+function falSubmitCount(): number {
+  const path = join(dataDir, 'msw-fal-submit-count');
+  if (!existsSync(path)) return 0;
+  return Number(readFileSync(path, 'utf8')) || 0;
+}
+
 async function ledgerRows(page: Page, jobId: string): Promise<number> {
   const token = await csrf(page);
   return page.evaluate(
@@ -877,28 +892,113 @@ async function setChatSettings(
   );
 }
 
-test('@m5 S-24 chat opens ready to run with the session budget shown', async ({ page }) => {
-  // The Ask-me-first ApprovalCard and the Run-automatically session-cap pause
-  // (F-CHT-02, F-CHT-03) are exercised end to end by the @kilnry/agent unit
-  // tests (approval and metering); driving them through a live language-model
-  // stream is a manual-only check documented in docs/STATUS.md, because the
-  // acceptance harness cannot script the model's multi-round tool calls under
-  // the strict mock service worker. This scenario proves the Chat screen opens
-  // against a connected model with the session budget shown and accepts input.
+test('@m5 S-24 asks for the three-video spend, then pauses at the session cap', async ({ page }) => {
   await ensureProvider(page, 'fal', FAL_KEY);
   await ensureProvider(page, 'openrouter', OPENROUTER_KEY);
   await setChatSettings(page, { autonomy: 'ask_first', session_budget_usd: 5 });
 
   await page.goto('/chat');
-  // The split-pane Chat screen renders with the model and session budget, not
-  // the no-model state (F-CHT-01, F-CHT-04).
   await expect(page.locator('.chat-screen')).toBeVisible();
   await expect(page.locator('.chat-budget')).toContainText('$5.00');
   await expect(page.locator('.chat-panes')).toBeVisible();
 
-  // The composer accepts a message and enqueues it in the thread.
+  const jobsBefore = await jobCount(page);
   const composer = page.locator('.chat-composer textarea');
   await composer.fill('Make 3 variants of the chai reel');
   await composer.press('Enter');
   await expect(page.locator('.chat-message.is-user')).toContainText('Make 3 variants of the chai reel');
+
+  // The scripted model discovers and loads one skill, prices the plan, and only
+  // then asks to generate. Consecutive calls of the same tool are grouped ×2.
+  const skills = page.locator('.chat-tool-card').filter({ hasText: 'kilnry_skills' });
+  await expect(skills).toBeVisible({ timeout: 30_000 });
+  await expect(skills.locator('.chat-tool-count')).toHaveText('×2');
+  await expect(page.locator('.chat-tool-card').filter({ hasText: 'kilnry_estimate' })).toBeVisible();
+
+  const approval = page.locator('.chat-approval-card');
+  await expect(approval).toBeVisible({ timeout: 30_000 });
+  await expect(approval.locator('h3')).toHaveText('Agent wants to generate 3 videos');
+  await expect(approval.locator('.chat-approval-table tbody tr')).toHaveCount(3);
+  await expect(approval.locator('.chat-approval-table')).toContainText(
+    'fal-ai/kling-video/v3/standard/text-to-video',
+  );
+  await expect(approval.locator('.chat-approval-table')).toContainText('$0.42');
+  await expect(approval.locator('.chat-approval-total strong')).toHaveText('≈ $1.26');
+  const actions = approval.locator('.chat-approval-actions button');
+  await expect(actions.nth(0)).toContainText('Approve');
+  await expect(actions.nth(0)).toContainText('Enter');
+  await expect(actions.nth(1)).toHaveText('Edit plan');
+  await expect(actions.nth(2)).toContainText('Deny');
+  await expect(actions.nth(2)).toContainText('Esc');
+  await expect(approval.locator('.chat-approval-auto input')).toBeVisible();
+
+  // Nothing has been submitted before the user presses Enter on the card.
+  expect(await jobCount(page)).toBe(jobsBefore);
+  await page.keyboard.press('Enter');
+
+  // The approved batch creates exactly three user-approved Chat jobs.
+  await expect.poll(async () => jobCount(page), { timeout: 60_000 }).toBe(jobsBefore + 3);
+  const jobs = await latestJobs(page, 3);
+  expect(jobs.every((job) => job.confirmedBy === 'user')).toBe(true);
+  expect(jobs.every((job) => job.source === 'chat')).toBe(true);
+  await expect
+    .poll(async () => (await latestJobs(page, 3)).every((job) => job.status === 'completed'), {
+      timeout: 90_000,
+    })
+    .toBe(true);
+
+  // The Workspace Cost tab shows the plan total that was approved.
+  await page.getByRole('tab', { name: 'Cost' }).click();
+  await expect(page.locator('.chat-cost-ledger')).toContainText('$1.26');
+
+  // Switch this session to Run automatically and lower its cap through the Chat
+  // controls, then ask for the same three-request plan again.
+  await page.getByLabel('Session autonomy').selectOption('run_automatically');
+  await page.getByLabel('Session budget').fill('1');
+  await expect(page.locator('.chat-budget')).toContainText('$1.00');
+  const jobsAtCap = await jobCount(page);
+  const submitsAtCap = falSubmitCount();
+  await composer.fill('Do it again.');
+  await composer.press('Enter');
+
+  // The $1.26 call exceeds the $1.00 cap: it pauses instead of spending, creates
+  // no job and makes no provider request.
+  const reached = page.locator('.chat-budget-reached');
+  await expect(reached.locator('h3')).toHaveText('Budget reached', { timeout: 30_000 });
+  await expect(reached).toContainText('Session cap $1.00 reached');
+  await expect(reached.locator('button')).toHaveCount(0);
+  expect(await jobCount(page)).toBe(jobsAtCap);
+  await page.waitForTimeout(500);
+  expect(falSubmitCount()).toBe(submitsAtCap);
+});
+
+test('@m5 chat auto-runs one image below the threshold and lands it in the Library', async ({ page }) => {
+  await ensureProvider(page, 'fal', FAL_KEY);
+  await ensureProvider(page, 'openrouter', OPENROUTER_KEY);
+  await setChatSettings(page, { autonomy: 'ask_first', session_budget_usd: 5 });
+
+  const beforeJobs = await jobCount(page);
+  const beforeFiles = new Set(
+    existsSync(join(library, 'inbox'))
+      ? readdirSync(join(library, 'inbox')).filter((name) => name.endsWith('.png'))
+      : [],
+  );
+  await page.goto('/chat');
+  const composer = page.locator('.chat-composer textarea');
+  await composer.fill('Make one chai poster');
+  await composer.press('Enter');
+
+  // The image is below the $0.50 threshold, so no ApprovalCard appears.
+  await expect.poll(async () => jobCount(page), { timeout: 30_000 }).toBe(beforeJobs + 1);
+  await expect(page.locator('.chat-approval-card')).toHaveCount(0);
+  const job = await latestJob(page);
+  expect(job?.confirmedBy).toBe('user');
+  expect(job?.source).toBe('chat');
+  await expect.poll(async () => (await latestJob(page))?.status, { timeout: 60_000 }).toBe('completed');
+
+  const afterFiles = readdirSync(join(library, 'inbox')).filter((name) => name.endsWith('.png'));
+  const newImage = afterFiles.find((name) => !beforeFiles.has(name));
+  expect(newImage).toBeTruthy();
+  await page.goto('/library');
+  await expect(page.getByRole('button', { name: newImage })).toBeVisible();
 });
