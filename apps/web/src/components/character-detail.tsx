@@ -22,6 +22,7 @@ import {
 } from './character-detail-logic';
 import { VersionSwitcher } from './version-switcher';
 import { CloneVoiceDrawer } from './clone-voice';
+import { VoiceBindPicker } from './voice-bind-picker';
 
 type DetailTab = 'sheet' | 'identities' | 'voice' | 'usage' | 'settings';
 
@@ -461,6 +462,7 @@ export function CharacterDetail({ handle }: { handle: string }): React.ReactNode
           <button className="btn primary" type="button" onClick={() => setCloneOpen(true)}>
             {message('characters.detail.clone')}
           </button>
+          <VoiceBindPicker handle={item.handle} onBound={(bound) => setItem(bound as FullCharacterView)} />
           {cloneOpen ? (
             <CloneVoiceDrawer
               handle={item.handle}

@@ -5,7 +5,14 @@
 
 import { NextResponse } from 'next/server';
 import * as z from 'zod';
-import { KilnryError, bindVoice, unbindVoice, lookupHandle, loadFullCharacter } from '@kilnry/core';
+import {
+  KilnryError,
+  bindVoice,
+  bindPresetVoice,
+  unbindVoice,
+  lookupHandle,
+  loadFullCharacter,
+} from '@kilnry/core';
 import { assertMayMutate, errorResponse, requireSessionOrBearer } from '../../../../server/http';
 import { runtimeServices } from '../../../../server/runtime';
 import { voiceCloner } from '../../../../server/voices';
@@ -22,6 +29,10 @@ const Body = z.object({
   confirm_cost_usd: z.number().optional(),
   // Binding a preset or clone by its stored ulid.
   voice_ulid: z.string().optional(),
+  // Binding a provider-preset voice by its provider and voice id.
+  preset_provider: z.string().optional(),
+  preset_voice_id: z.string().optional(),
+  preset_name: z.string().optional(),
 });
 
 // Clone a voice (F-VOI-02) or bind/unbind one to a Character version (F-CHR-08).
@@ -64,9 +75,20 @@ export async function POST(request: Request): Promise<Response> {
     if (body.action === 'unbind') {
       await unbindVoice(db, head.id, head.current_version);
     } else {
-      // Binding a preset or a clone is free (PRD-07 §9).
-      if (!body.voice_ulid) throw new KilnryError('INVALID_INPUT', 'A voice is required to bind.');
-      await bindVoice(db, head.id, head.current_version, body.voice_ulid);
+      // Binding a preset or a clone is free (PRD-07 §9). A stored clone binds by
+      // its ulid; a provider-preset voice binds by its provider and voice id,
+      // which is persisted as a stored voice first.
+      if (body.preset_provider && body.preset_voice_id) {
+        await bindPresetVoice(db, head.id, head.current_version, {
+          provider: body.preset_provider,
+          voice_id: body.preset_voice_id,
+          ...(body.preset_name ? { name: body.preset_name } : {}),
+        });
+      } else if (body.voice_ulid) {
+        await bindVoice(db, head.id, head.current_version, body.voice_ulid);
+      } else {
+        throw new KilnryError('INVALID_INPUT', 'A voice is required to bind.');
+      }
     }
     const item = await loadFullCharacter(db, head.handle);
     return NextResponse.json({ item });

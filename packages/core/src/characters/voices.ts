@@ -5,6 +5,7 @@
 
 import { and, desc, eq } from 'drizzle-orm';
 import { voices as voicesTable, characterVoices, type DatabaseState } from '@kilnry/db';
+import { ulid } from '../ids.js';
 
 // A voice a user can preview, pin, and @mention (F-VOI-01). Presets ship with
 // Kilnry; clones are rows the user created (voice cloning itself is M5).
@@ -182,6 +183,38 @@ export async function bindVoice(
     return;
   }
   await db.db.insert(characterVoices).values({ characterId, version, voiceUlid });
+}
+
+// Bind a provider-preset voice by persisting it as a stored voice first, then
+// binding it to a Character version (F-CHR-08). A preset is not a clone, so it
+// carries is_clone false and no consent record; the (provider, voice_id) unique
+// index makes the persist idempotent so picking the same preset twice reuses the
+// same stored voice. Returns the stored voice's id.
+export async function bindPresetVoice(
+  db: DatabaseState,
+  characterId: string,
+  version: number,
+  preset: { provider: string; voice_id: string; name?: string; language?: string },
+): Promise<string> {
+  const existing = await db.db
+    .select({ id: voicesTable.id })
+    .from(voicesTable)
+    .where(and(eq(voicesTable.providerId, preset.provider), eq(voicesTable.voiceId, preset.voice_id)))
+    .limit(1);
+  let voiceUlid = existing[0]?.id;
+  if (!voiceUlid) {
+    voiceUlid = ulid();
+    await db.db.insert(voicesTable).values({
+      id: voiceUlid,
+      providerId: preset.provider,
+      voiceId: preset.voice_id,
+      name: preset.name ?? preset.voice_id,
+      language: preset.language ?? null,
+      isClone: false,
+    });
+  }
+  await bindVoice(db, characterId, version, voiceUlid);
+  return voiceUlid;
 }
 
 // Remove a Character version's binding. The voice row itself is left untouched

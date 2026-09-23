@@ -8,8 +8,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { closeDatabaseState, createDatabase, voices } from '@kilnry/db';
+import { eq } from 'drizzle-orm';
 import { ulid } from '../ids.js';
-import { filterVoices, listVoices, presetVoices } from './voices.js';
+import { createCharacter } from './store.js';
+import { bindPresetVoice, boundVoice, filterVoices, listVoices, presetVoices } from './voices.js';
 
 const disposers: Array<() => Promise<void>> = [];
 afterEach(async () => {
@@ -67,5 +69,32 @@ describe('listVoices', () => {
     expect(all.some((v) => v.provider === 'elevenlabs' && !v.is_clone)).toBe(true);
     const clonesOnly = await listVoices(state, { type: 'clone' });
     expect(clonesOnly).toHaveLength(1);
+  });
+});
+
+describe('bindPresetVoice (F-CHR-08)', () => {
+  it('persists a provider-preset voice and binds it, reusing the row when picked again', async () => {
+    const state = await db();
+    const head = await createCharacter(state, { handle: 'maya', kind: 'character', display_name: 'Maya' });
+    const firstId = await bindPresetVoice(state, head.id, head.current_version, {
+      provider: 'elevenlabs',
+      voice_id: 'rachel',
+      name: 'Rachel',
+    });
+    // The preset is stored as a non-clone voice and bound to the current version.
+    const stored = await state.db.select().from(voices).where(eq(voices.id, firstId));
+    expect(stored[0]?.isClone).toBe(false);
+    const bound = await boundVoice(state, head.id, head.current_version);
+    expect(bound?.provider).toBe('elevenlabs');
+    expect(bound?.voice_id).toBe('rachel');
+    // Picking the same preset again reuses the same stored row (provider+voice id
+    // is unique), so no duplicate voice is created.
+    const secondId = await bindPresetVoice(state, head.id, head.current_version, {
+      provider: 'elevenlabs',
+      voice_id: 'rachel',
+    });
+    expect(secondId).toBe(firstId);
+    const allRachel = await state.db.select().from(voices).where(eq(voices.voiceId, 'rachel'));
+    expect(allRachel).toHaveLength(1);
   });
 });
