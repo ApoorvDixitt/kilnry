@@ -16,6 +16,9 @@ export default defineConfig({
   timeout: 120_000,
   workers: 1,
   reporter: [['list'], ['html', { open: 'never' }]],
+  // The @visual regression baselines (toHaveScreenshot) live in e2e/__snapshots__
+  // under their plain screenshot name, so they sit beside the earlier captures.
+  snapshotPathTemplate: '{testDir}/../__snapshots__/{arg}{ext}',
   use: {
     baseURL: 'http://127.0.0.1:3123',
     trace: 'retain-on-failure',

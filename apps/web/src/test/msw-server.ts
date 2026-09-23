@@ -220,11 +220,11 @@ export function startTestMsw(): void {
       HttpResponse.json({ data: [{ b64_json: png.toString('base64'), media_type: 'image/png' }] }),
     ),
     // --- MiniMax (M5): video with a togglable hang, speech, and voice cloning ---
-    // Video submit returns a task id. The status endpoint reports Processing until
-    // KILNRY_TEST_TIMEOUT_S seconds have elapsed since the task was first seen,
-    // then Success with a video URL. This lets the ambiguous-timeout scenario
-    // (S-11) reach the poll timeout, and a later "Check status" find the finished
-    // task on the same stored task id — no second submit is ever needed.
+    // Video submit returns a task id. The status endpoint reports Processing for
+    // the first few polls, then Success with a video URL. This lets the
+    // ambiguous-timeout scenario (S-11) reach the shrunk poll window, and a later
+    // "Check status" find the finished task on the same stored task id — no second
+    // submit is ever needed.
     http.post('https://api.minimax.io/v2/video_generation', () => {
       const taskId = String(mmState.__kilnryMinimaxTaskCounter!++);
       return HttpResponse.json({ task_id: taskId, base_resp: { status_code: 0, status_msg: 'success' } });

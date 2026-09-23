@@ -182,10 +182,6 @@ export async function ensureRuntimeEngine(): Promise<JobEngine> {
     });
     global.__kilnryRuntimeStatus = { stage: 'starting_workers' };
     // Under the acceptance harness (mock service worker on) the provider poll
-    // timeout is shrunk so the ambiguous-timeout scenario (S-11) can reach it in
-    // about a second; production keeps the engine's two-hour default. The value
-    // may be overridden with KILNRY_TEST_TIMEOUT_S (seconds).
-    // Under the acceptance harness (mock service worker on) the provider poll
     // window is shrunk to a second so the ambiguous-timeout scenario (S-11) can
     // reach it quickly; production keeps the engine's two-hour default.
     const testPollTimeoutMs = process.env.KILNRY_TEST_MSW === '1' ? 1000 : undefined;

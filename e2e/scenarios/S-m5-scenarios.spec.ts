@@ -412,9 +412,9 @@ test('@m5 S-11 an ambiguous timeout never double-spends and Check status resolve
   await ensureProvider(page, 'minimax', MINIMAX_KEY);
   await ensureSignedIn(page, '/jobs');
 
-  // Generate a MiniMax H3 video. The fixture status endpoint hangs past the test
-  // poll timeout (KILNRY_TEST_TIMEOUT_S), so the job fails with an ambiguous
-  // timeout rather than resubmitting.
+  // Generate a MiniMax H3 video. The fixture status endpoint holds Processing
+  // past the shrunk poll window, so the job fails with an ambiguous timeout
+  // rather than resubmitting.
   const jobId = await generateVideoJob(page, 'a 6 second cutting chai reel', 'MiniMax-H3');
   expect(jobId).not.toBe('');
 

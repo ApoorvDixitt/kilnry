@@ -3,20 +3,21 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
-import { join } from 'node:path';
-import { expect, test, type Page } from '@playwright/test';
+// The visual regression check (@visual). It renders the real Create, Library,
+// Characters, Chat and Presets screens in light and dark at 1440x900 and
+// COMPARES each against a committed baseline with toHaveScreenshot, so a layout,
+// spacing, colour or typography change fails the check instead of silently
+// overwriting the picture. Dynamic regions (asset thumbnails, ids, times) are
+// masked so only the chrome is compared. This check is tagged @visual and runs
+// locally only — it is not in the continuous-integration grep — because the
+// pixel baselines are platform-specific; regenerate them with
+// `pnpm e2e --grep @visual --update-snapshots`.
 
-// The visual regression baseline. The glance PNGs shipped in the design package
-// are hand-made mocks and the design target for inspection, not a pixel baseline.
-// This test renders the real Create (light and dark) and Library (light) screens
-// at 1440x900 and saves them under e2e/__snapshots__/ as the regression baseline
-// for future milestones. A reviewer compares these renders against the glances
-// for layout, spacing, colour usage and typography.
+import { expect, test, type Locator, type Page } from '@playwright/test';
 
-const root = process.cwd();
 const EMAIL = 'owner@example.test';
 const PASSWORD = 'Kilnry-local-test-42!';
-const snap = (name: string): string => join(root, 'e2e', '__snapshots__', name);
+const COMPARE = { maxDiffPixelRatio: 0.02, animations: 'disabled' as const };
 
 async function ensureSignedIn(page: Page, path: string): Promise<void> {
   await page.goto(path);
@@ -37,62 +38,37 @@ async function setTheme(page: Page, theme: 'light' | 'dark'): Promise<void> {
   }, theme);
 }
 
-test('@visual capture Create light and dark and Library light at 1440x900', async ({ page }) => {
+// The regions that legitimately vary between runs — asset thumbnails and any
+// monospaced ids or timestamps — are masked so the comparison sees only chrome.
+function masks(page: Page): Locator[] {
+  return [page.locator('.asset-tile-wrap'), page.locator('.mono')];
+}
+
+test('@visual Create, Library, Characters, Chat and Presets match the baseline', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
 
-  await ensureSignedIn(page, '/create');
-  await expect(page.getByRole('heading', { name: 'Create', exact: true })).toBeVisible();
-  await setTheme(page, 'light');
-  await page.reload();
-  await expect(page.getByRole('heading', { name: 'Create', exact: true })).toBeVisible();
-  await page.waitForTimeout(400);
-  await page.screenshot({ path: snap('create-light.png'), fullPage: false });
+  const screens: Array<{ path: string; heading?: string }> = [
+    { path: '/create', heading: 'Create' },
+    { path: '/library', heading: 'Library' },
+    { path: '/characters' },
+    { path: '/chat' },
+    { path: '/presets' },
+  ];
 
-  await setTheme(page, 'dark');
-  await page.reload();
-  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
-  await page.waitForTimeout(400);
-  await page.screenshot({ path: snap('create-dark.png'), fullPage: false });
-
-  await setTheme(page, 'light');
-  await ensureSignedIn(page, '/library');
-  await expect(page.getByRole('heading', { name: 'Library', exact: true })).toBeVisible();
-  await page.waitForTimeout(400);
-  await page.screenshot({ path: snap('library-light.png'), fullPage: false });
-
-  // The Characters screen light and dark, the baseline a reviewer compares
-  // against glance-characters.png and glance-characters-dark.png (M4).
-  await setTheme(page, 'light');
-  await ensureSignedIn(page, '/characters');
-  await page.waitForTimeout(400);
-  await page.screenshot({ path: snap('characters-light.png'), fullPage: false });
-
-  await setTheme(page, 'dark');
-  await page.reload();
-  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
-  await page.waitForTimeout(400);
-  await page.screenshot({ path: snap('characters-dark.png'), fullPage: false });
-
-  // The Chat and Presets screens (M5), captured light and dark as the baseline a
-  // reviewer compares against the wireframes and the style tile, since there is
-  // no glance for either screen.
-  await setTheme(page, 'light');
-  await ensureSignedIn(page, '/chat');
-  await page.waitForTimeout(400);
-  await page.screenshot({ path: snap('chat-light.png'), fullPage: false });
-  await setTheme(page, 'dark');
-  await page.reload();
-  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
-  await page.waitForTimeout(400);
-  await page.screenshot({ path: snap('chat-dark.png'), fullPage: false });
-
-  await setTheme(page, 'light');
-  await ensureSignedIn(page, '/presets');
-  await page.waitForTimeout(400);
-  await page.screenshot({ path: snap('presets-light.png'), fullPage: false });
-  await setTheme(page, 'dark');
-  await page.reload();
-  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
-  await page.waitForTimeout(400);
-  await page.screenshot({ path: snap('presets-dark.png'), fullPage: false });
+  for (const screen of screens) {
+    const slug = screen.path.replace('/', '');
+    for (const theme of ['light', 'dark'] as const) {
+      await ensureSignedIn(page, screen.path);
+      await setTheme(page, theme);
+      await page.reload();
+      if (screen.heading) {
+        await expect(page.getByRole('heading', { name: screen.heading, exact: true })).toBeVisible();
+      }
+      await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+      // A short settle lets fonts and any entrance motion finish before the pixel
+      // compare; the comparison itself is deterministic.
+      await page.waitForTimeout(400);
+      await expect(page).toHaveScreenshot(`${slug}-${theme}.png`, { ...COMPARE, mask: masks(page) });
+    }
+  }
 });
