@@ -611,6 +611,10 @@ test('@m5 S-16 voice clone with consent, bound to a Character, priced for speech
   const maya = await characterView(page, 'maya');
   expect(maya?.voice).toBeTruthy();
 
+  // The clone is charged exactly once through the spend ledger the user can see,
+  // at the MiniMax clone price, with no job id (F-VOI-02, F-PRV-05).
+  await expect.poll(() => ledgerRowsByKind(page, 'voice_clone'), { timeout: 10_000 }).toBe(1);
+
   // A short line of speech is priced through the same estimator the Audio strip
   // uses: MiniMax turbo speech costs a fraction of a cent for this line.
   const ttsEstimate = await page.evaluate(async () => {

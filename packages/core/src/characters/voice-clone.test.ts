@@ -7,11 +7,12 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { closeDatabaseState, createDatabase, characterVoices, voices } from '@kilnry/db';
+import { closeDatabaseState, createDatabase, characterVoices, spendLedger, voices } from '@kilnry/db';
 import { eq } from 'drizzle-orm';
 import { createCharacter } from './store.js';
 import { setConsent } from './consent.js';
 import { boundVoice } from './voices.js';
+import { seedRegistry } from '../registry/store.js';
 import { cloneVoice, sampleLongEnough, type CloneServices } from './voice-clone.js';
 
 const disposers: Array<() => Promise<void>> = [];
@@ -27,6 +28,7 @@ async function db(): Promise<Awaited<ReturnType<typeof createDatabase>>> {
     rmSync(root, { recursive: true, force: true });
   });
   await state.ready;
+  await seedRegistry(state);
   return state;
 }
 
@@ -114,6 +116,32 @@ describe('voice cloning (F-VOI-02) and binding (F-CHR-08)', () => {
       .from(characterVoices)
       .where(eq(characterVoices.characterId, head.id));
     expect(binding[0]?.voiceUlid).toBe(result.voice_ulid);
+    // The clone is charged exactly once through the spend ledger, at the MiniMax
+    // clone price ($1.50), with no job id.
+    const ledger = await state.db.select().from(spendLedger);
+    expect(ledger).toHaveLength(1);
+    expect(ledger[0]?.kind).toBe('voice_clone');
+    expect(ledger[0]?.providerId).toBe('minimax');
+    expect(Number(ledger[0]?.actualUsd)).toBeCloseTo(1.5, 4);
+  });
+
+  it('refuses to clone when the confirmed price is below the registry price', async () => {
+    const state = await db();
+    await createCharacter(state, { handle: 'maya', kind: 'character', display_name: 'Maya' });
+    await expect(
+      cloneVoice(services(state, minimaxFetch()), {
+        name: 'Riya',
+        provider: 'minimax',
+        sample_url: 'https://media.test/sample.mp3',
+        sample_seconds: 45,
+        consent_confirmed: true,
+        confirmed_cost_usd: 0.5,
+      }),
+    ).rejects.toMatchObject({ code: 'CONFIRMATION_REQUIRED' });
+    const ledger = await state.db.select().from(spendLedger);
+    expect(ledger).toHaveLength(0);
+    const cloneRows = await state.db.select().from(voices).where(eq(voices.isClone, true));
+    expect(cloneRows).toHaveLength(0);
   });
 
   it('refuses to bind to a real person until consent is recorded', async () => {
