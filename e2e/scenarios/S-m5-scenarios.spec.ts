@@ -156,19 +156,6 @@ function falSubmitCount(): number {
   return Number(readFileSync(path, 'utf8')) || 0;
 }
 
-// The provider-submit count once it stops rising: two identical samples a second
-// apart. Used before an assertion that no further provider request is made.
-async function settledFalSubmits(page: Page): Promise<number> {
-  let previous = falSubmitCount();
-  for (let attempt = 0; attempt < 40; attempt += 1) {
-    await page.waitForTimeout(1000);
-    const current = falSubmitCount();
-    if (current === previous) return current;
-    previous = current;
-  }
-  return previous;
-}
-
 async function ledgerRows(page: Page, jobId: string): Promise<number> {
   const token = await csrf(page);
   return page.evaluate(
@@ -1011,6 +998,19 @@ test('@m5 S-24 asks for the three-video spend, then pauses at the session cap', 
   const jobs = await latestJobs(page, 3);
   expect(jobs.every((job) => job.confirmedBy === 'user')).toBe(true);
   expect(jobs.every((job) => job.source === 'chat')).toBe(true);
+  // The three approved renders run to completion within the test budget, so the
+  // batch is genuinely finished before the cap section reads the submit count.
+  const approvedIds = jobs.map((job) => job.id as string);
+  await expect
+    .poll(
+      async () => {
+        const rows = await latestJobs(page, 10);
+        const mine = rows.filter((job) => approvedIds.includes(job.id as string));
+        return mine.length === 3 && mine.every((job) => job.status === 'completed');
+      },
+      { timeout: 150_000 },
+    )
+    .toBe(true);
 
   // The Workspace Cost tab shows the plan total that was approved.
   await page.getByRole('tab', { name: 'Cost' }).click();
@@ -1022,9 +1022,9 @@ test('@m5 S-24 asks for the three-video spend, then pauses at the session cap', 
   await page.getByLabel('Session budget').fill('1');
   await expect(page.locator('.chat-budget')).toContainText('$1.00');
   const jobsAtCap = await jobCount(page);
-  // Wait until the approved batch has stopped reaching the provider, so the count
-  // taken here cannot be raised by a submit that was already in flight.
-  const submitsAtCap = await settledFalSubmits(page);
+  // The approved batch has already run to completion above, so the provider is
+  // quiet: the submit count is settled and cannot be raised by an in-flight call.
+  const submitsAtCap = falSubmitCount();
   await composer.fill('Do it again.');
   await composer.press('Enter');
 
@@ -1035,8 +1035,9 @@ test('@m5 S-24 asks for the three-video spend, then pauses at the session cap', 
   await expect(reached).toContainText('Session cap $1.00 reached');
   await expect(reached.locator('button')).toHaveCount(0);
   expect(await jobCount(page)).toBe(jobsAtCap);
-  await page.waitForTimeout(500);
-  expect(falSubmitCount()).toBe(submitsAtCap);
+  // No provider request follows: the submit count stays at the settled value.
+  await expect.poll(() => falSubmitCount(), { timeout: 5_000 }).toBe(submitsAtCap);
+  expect(await jobCount(page)).toBe(jobsAtCap);
 });
 
 test('@m5 chat auto-runs one image below the threshold and lands it in the Library', async ({ page }) => {
