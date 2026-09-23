@@ -288,6 +288,11 @@ export function startTestMsw(): void {
       }),
     ),
     http.put('https://storage.fal.test/upload/kilnry-input', () => new HttpResponse(null, { status: 200 })),
+    // Ollama detection (F-PRV-08) probes the loopback runtime on every Providers
+    // and Chat visit. No Ollama runs in the harness, so the probe is refused the
+    // way an absent local server refuses it (the adapter reports not detected).
+    http.get('http://127.0.0.1:11434/api/tags', () => HttpResponse.error()),
+    http.get('http://localhost:11434/api/tags', () => HttpResponse.error()),
     // --- Higgsfield (M5): free estimate, and Soul ID custom references ---
     http.post('https://api.higgsfield.ai/estimate/*', () =>
       HttpResponse.json({ credits: '1.500', usd: '0.094' }),

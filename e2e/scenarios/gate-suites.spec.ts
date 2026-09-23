@@ -19,6 +19,9 @@ const outDir = join(root, 'e2e', 'output');
 const EMAIL = 'owner@example.test';
 const PASSWORD = 'Kilnry-local-test-42!';
 const OPENROUTER_KEY = ['sk-or-v1-', '0'.repeat(64)].join('');
+const FAL_KEY = ['00000000-0000-4000-8000-000000000000', ':', '0'.repeat(32)].join('');
+// The fixture Characters the gate needs on screen: the grid, and one detail page.
+const GATE_CHARACTERS = ['maya', 'rohan', 'priya'] as const;
 
 const TOUCHED_ROUTES = [
   '/create',
@@ -30,6 +33,7 @@ const TOUCHED_ROUTES = [
   '/characters?tab=elements',
   '/characters?tab=voices',
   '/characters/new',
+  '/characters/maya',
   '/settings/mcp',
   '/settings/chat',
   '/settings/providers',
@@ -85,6 +89,130 @@ async function firstAssetId(page: Page): Promise<string | null> {
     const body = (await response.json()) as { assets: Array<{ id: string }> };
     return body.assets[0]?.id ?? null;
   });
+}
+
+async function csrf(page: Page): Promise<string> {
+  return page.evaluate(() =>
+    decodeURIComponent(
+      document.cookie
+        .split(';')
+        .map((part) => part.trim())
+        .find((part) => part.startsWith('kilnry_csrf='))
+        ?.slice('kilnry_csrf='.length) ?? '',
+    ),
+  );
+}
+
+async function ensureFal(page: Page): Promise<void> {
+  await ensureSignedIn(page, '/settings/providers');
+  const token = await csrf(page);
+  await page.evaluate(
+    async ({ token, key }) => {
+      const response = await fetch('/api/providers');
+      if (response.ok) {
+        const body = (await response.json()) as { providers: Array<{ id: string; connected: boolean }> };
+        if (body.providers.some((provider) => provider.id === 'fal' && provider.connected)) return;
+      }
+      await fetch('/api/providers/fal/key', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'X-Kilnry-CSRF': token },
+        body: JSON.stringify({ key }),
+      });
+    },
+    { token, key: FAL_KEY },
+  );
+}
+
+// One image through the fal fixture, returned as its Library asset id.
+async function anchorImage(page: Page, prompt: string): Promise<string> {
+  const token = await csrf(page);
+  const before = await page.evaluate(async () => {
+    const response = await fetch('/api/library/assets?folder=inbox&sort=newest');
+    if (!response.ok) return [] as string[];
+    const body = (await response.json()) as { assets?: Array<{ id: string }> };
+    return (body.assets ?? []).map((asset) => asset.id);
+  });
+  await page.evaluate(
+    async ({ token, prompt }) => {
+      const model = 'fal-ai/flux-2/klein/4b';
+      const estimate = await fetch('/api/estimate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Kilnry-CSRF': token },
+        body: JSON.stringify({ kind: 'image', prompt, medias: [], count: 1, model }),
+      });
+      const priced = (await estimate.json()) as { estimate_usd?: number };
+      await fetch('/api/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Kilnry-CSRF': token },
+        body: JSON.stringify({
+          kind: 'image',
+          prompt,
+          medias: [],
+          count: 1,
+          model,
+          confirmed_cost_usd: priced.estimate_usd ?? 1,
+        }),
+      });
+    },
+    { token, prompt },
+  );
+  return page.evaluate(async (before) => {
+    const known = new Set(before);
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      const response = await fetch('/api/library/assets?folder=inbox&sort=newest');
+      if (response.ok) {
+        const body = (await response.json()) as { assets?: Array<{ id: string }> };
+        const fresh = (body.assets ?? []).find((asset) => !known.has(asset.id));
+        if (fresh) return fresh.id;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    return '';
+  }, before);
+}
+
+/**
+ * The fixture Characters the Characters screen and the detail route need. Each is
+ * created with an anchor reference generated through the fal fixture, so the card
+ * grid and the reference sheet show a real thumbnail rather than an empty tile.
+ */
+async function ensureGateCharacters(page: Page): Promise<void> {
+  await ensureFal(page);
+  await ensureSignedIn(page, '/characters');
+  for (const handle of GATE_CHARACTERS) {
+    const exists = await page.evaluate(async (handle) => {
+      const response = await fetch(`/api/characters/${encodeURIComponent(handle)}`);
+      if (!response.ok) return false;
+      const body = (await response.json()) as { item?: { references?: unknown[] } };
+      return (body.item?.references?.length ?? 0) > 0;
+    }, handle);
+    if (exists) continue;
+    const assetId = await anchorImage(page, `anchor portrait of ${handle}`);
+    const token = await csrf(page);
+    await page.evaluate(
+      async ({ token, handle, assetId }) => {
+        const detail = await fetch(`/api/characters/${encodeURIComponent(handle)}`);
+        const action = detail.ok ? 'add_references' : 'create';
+        await fetch('/api/characters/manage', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Kilnry-CSRF': token },
+          body: JSON.stringify(
+            action === 'create'
+              ? {
+                  action: 'create',
+                  kind: 'character',
+                  handle,
+                  display_name: handle.charAt(0).toUpperCase() + handle.slice(1),
+                  is_real_person: false,
+                  ...(assetId ? { references: [{ asset_id: assetId, role: 'anchor' }] } : {}),
+                }
+              : { action: 'add_references', handle, references: [{ asset_id: assetId, role: 'anchor' }] },
+          ),
+        });
+      },
+      { token, handle, assetId },
+    );
+  }
 }
 
 test('@gate keyboard shortcuts from the design contract §2.12', async ({ page }) => {
@@ -145,6 +273,7 @@ test('@gate keyboard shortcuts from the design contract §2.12', async ({ page }
 
 test('@gate accessibility has zero critical or serious issues on touched routes', async ({ page }) => {
   await ensureOpenRouter(page);
+  await ensureGateCharacters(page);
   const violations: Record<string, number> = {};
   for (const route of TOUCHED_ROUTES) {
     await ensureSignedIn(page, route);
@@ -196,6 +325,7 @@ test('@gate save light and dark screenshots of every touched route', async ({ pa
   mkdirSync(outDir, { recursive: true });
   await page.setViewportSize({ width: 1440, height: 900 });
   await ensureOpenRouter(page);
+  await ensureGateCharacters(page);
   for (const theme of ['light', 'dark'] as const) {
     for (const route of TOUCHED_ROUTES) {
       await ensureSignedIn(page, route);
