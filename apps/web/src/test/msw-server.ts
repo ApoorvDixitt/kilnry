@@ -280,6 +280,17 @@ export function startTestMsw(): void {
         headers: { 'Content-Type': 'audio/mpeg' },
       }),
     ),
+    // Dubbing and voice change return the converted audio inline (F-CRE-11).
+    http.post('https://api.elevenlabs.io/v1/dubbing', () =>
+      HttpResponse.arrayBuffer(mp3.buffer.slice(mp3.byteOffset, mp3.byteOffset + mp3.byteLength), {
+        headers: { 'Content-Type': 'audio/mpeg' },
+      }),
+    ),
+    http.post('https://api.elevenlabs.io/v1/speech-to-speech/:voiceId', () =>
+      HttpResponse.arrayBuffer(mp3.buffer.slice(mp3.byteOffset, mp3.byteOffset + mp3.byteLength), {
+        headers: { 'Content-Type': 'audio/mpeg' },
+      }),
+    ),
     // fal's own storage for media inputs (TRD-06 §3.1): initiate, then the PUT.
     http.post('https://rest.alpha.fal.ai/storage/upload/initiate', () =>
       HttpResponse.json({

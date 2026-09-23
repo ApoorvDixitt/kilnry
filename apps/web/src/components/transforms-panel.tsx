@@ -7,8 +7,9 @@
 
 // The transforms panel (F-CRE-11, PRD-05 §11). A right drawer with one tab per
 // provider-billed operation — upscale, remove background, reframe, outpaint,
-// lip-sync and transcribe today; dubbing and voice change show a not-available
-// notice. Each tab takes a source asset and the operation's inputs, prices
+// lip-sync and transcribe today; dubbing and voice change run through the same
+// transform path against their tagged ElevenLabs models. Each tab takes a source
+// asset and the operation's inputs, prices
 // through the transform route (the same engine the composer uses) and runs only
 // after a confirmed cost. Nothing is reimplemented: Run posts to /api/transform.
 
@@ -176,6 +177,30 @@ export function TransformsPanel({
                 value={(params.audio as string) ?? ''}
                 placeholder={message('create.transform.audioHint')}
                 onChange={(event) => setParam('audio', event.target.value)}
+              />
+            </label>
+          ) : null}
+          {tab.requires.includes('language') ? (
+            <label className="transforms-field">
+              {message('create.transform.language')}
+              <input
+                type="text"
+                className="transforms-language"
+                value={(params.language as string) ?? ''}
+                placeholder={message('create.transform.languageHint')}
+                onChange={(event) => setParam('language', event.target.value)}
+              />
+            </label>
+          ) : null}
+          {tab.requires.includes('voice') ? (
+            <label className="transforms-field">
+              {message('create.transform.voice')}
+              <input
+                type="text"
+                className="transforms-voice"
+                value={(params.voice as string) ?? ''}
+                placeholder={message('create.transform.voiceHint')}
+                onChange={(event) => setParam('voice', event.target.value)}
               />
             </label>
           ) : null}

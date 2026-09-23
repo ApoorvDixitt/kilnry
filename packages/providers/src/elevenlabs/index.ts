@@ -18,6 +18,7 @@ import {
   type ModelManifest,
   type ProviderAdapter,
   type ProviderResult,
+  type SubmitHandle,
 } from '@kilnry/core';
 import { providerHttpError } from '../errors.js';
 import { requestBytes, requestJson } from '../http.js';
@@ -54,6 +55,96 @@ export async function synthesizeSpeech(options: {
   });
 }
 
+// Dub a source audio or video into another language (TRD-06 §3.5, F-CRE-11). The
+// source arrives as a URL and the target language as a provider extra; the dubbed
+// audio is returned inline.
+async function dubbing(
+  request: CanonicalRequest,
+  context: { key: string; fetch: typeof fetch; signal: AbortSignal },
+  model: string,
+): Promise<SubmitHandle> {
+  const source = request.medias.find((media) => media.url)?.url;
+  if (!source)
+    throw new KilnryError('INVALID_INPUT', 'Dubbing needs a source audio or video.', {
+      provider: 'elevenlabs',
+    });
+  const targetLang =
+    typeof request.params.extra?.target_language === 'string'
+      ? request.params.extra.target_language
+      : typeof request.params.extra?.language === 'string'
+        ? request.params.extra.language
+        : 'en';
+  const audio = await requestBytes({
+    provider: 'elevenlabs',
+    fetch: context.fetch,
+    signal: context.signal,
+    url: `${BASE_URL}/v1/dubbing`,
+    init: {
+      method: 'POST',
+      headers: { 'xi-api-key': context.key, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source_url: source, target_lang: targetLang, model_id: model }),
+    },
+    timeoutMs: 300_000,
+  });
+  const result: ProviderResult = {
+    outputs: [{ kind: request.kind === 'video' ? 'video' : 'audio', bytes: audio.bytes, mime: audio.mime }],
+    billing: { usage: {}, source: 'formula:post' },
+  };
+  return {
+    provider: 'elevenlabs',
+    model_id: model,
+    provider_request_id: `elevenlabs-${crypto.randomUUID()}`,
+    submitted_at: new Date().toISOString(),
+    inline_result: result,
+    payload_redacted: redact({ model_id: model, target_lang: targetLang, source }),
+  };
+}
+
+// Change the voice of a source recording to a chosen voice (TRD-06 §3.5,
+// F-CRE-11). The source arrives as a URL and the target voice as a provider
+// extra; the converted audio is returned inline.
+async function voiceChange(
+  request: CanonicalRequest,
+  context: { key: string; fetch: typeof fetch; signal: AbortSignal },
+): Promise<SubmitHandle> {
+  const source = request.medias.find((media) => media.url)?.url;
+  if (!source)
+    throw new KilnryError('INVALID_INPUT', 'Voice change needs a source recording.', {
+      provider: 'elevenlabs',
+    });
+  const voiceId =
+    request.params.voice?.voice_id ??
+    (typeof request.params.extra?.voice === 'string' ? request.params.extra.voice : undefined);
+  if (typeof voiceId !== 'string' || !voiceId)
+    throw new KilnryError('INVALID_INPUT', 'Voice change needs a target voice.', {
+      provider: 'elevenlabs',
+    });
+  const audio = await requestBytes({
+    provider: 'elevenlabs',
+    fetch: context.fetch,
+    signal: context.signal,
+    url: `${BASE_URL}/v1/speech-to-speech/${encodeURIComponent(voiceId)}`,
+    init: {
+      method: 'POST',
+      headers: { 'xi-api-key': context.key, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ audio_url: source, model_id: 'voice_changer' }),
+    },
+    timeoutMs: 120_000,
+  });
+  const result: ProviderResult = {
+    outputs: [{ kind: 'audio', bytes: audio.bytes, mime: audio.mime }],
+    billing: { usage: {}, source: 'formula:post' },
+  };
+  return {
+    provider: 'elevenlabs',
+    model_id: 'voice_changer',
+    provider_request_id: `elevenlabs-${crypto.randomUUID()}`,
+    submitted_at: new Date().toISOString(),
+    inline_result: result,
+    payload_redacted: redact({ model_id: 'voice_changer', voice_id: voiceId, source }),
+  };
+}
+
 export const elevenlabsAdapter: ProviderAdapter = {
   id: 'elevenlabs',
   display_name: 'ElevenLabs',
@@ -88,6 +179,16 @@ export const elevenlabsAdapter: ProviderAdapter = {
     return Promise.resolve(registrySeed.filter((model) => model.provider === 'elevenlabs'));
   },
   async submit(request: CanonicalRequest, context) {
+    const requestedModel = request.params.extra?.model;
+    // Dubbing and voice change are text-to-speech-capability requests tagged in
+    // the registry; they are recognised by the model id the transform pins and
+    // run against their own endpoints (TRD-06 §3.5, TRD-07 §1, F-CRE-11).
+    if (requestedModel === 'dubbing_v1' || requestedModel === 'dubbing_v2') {
+      return dubbing(request, context, requestedModel);
+    }
+    if (requestedModel === 'voice_changer') {
+      return voiceChange(request, context);
+    }
     if (request.capability !== 'tts')
       throw new KilnryError(
         'NO_PROVIDER',

@@ -184,8 +184,11 @@ describe('generation tools (F-MCP-02 §3.2, §3.6)', () => {
       { db: state, scope: 'full' },
     );
     const err = unsupported.structuredContent.error as { code: string; message: string };
+    // Dubbing is now a routable transform (a tagged text-to-speech model), so it
+    // no longer reports that it arrives in a later milestone; without an engine it
+    // reports the engine message, exactly like every other routable op.
     expect(err.code).toBe('NO_PROVIDER');
-    expect(err.message).toContain('Dubbing');
+    expect(err.message).toContain('engine');
 
     // lipsync IS routable now, but without an engine it still returns NO_PROVIDER.
     const lipsync = await transformTool.execute({ op: 'lipsync', source: 'x' }, { db: state, scope: 'full' });

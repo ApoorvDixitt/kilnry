@@ -90,4 +90,66 @@ describe('ElevenLabs adapter (F-PRV-01, F-VOI-01)', () => {
     });
     await expect(elevenlabsAdapter.submit(request, context())).rejects.toMatchObject({ code: 'NO_PROVIDER' });
   });
+
+  it('dubs a source video through the dubbing endpoint into audio bytes', async () => {
+    server.use(
+      http.post(`${BASE}/v1/dubbing`, () =>
+        HttpResponse.arrayBuffer(AUDIO.buffer, { headers: { 'Content-Type': 'audio/mpeg' } }),
+      ),
+    );
+    const request = CanonicalRequestSchema.parse({
+      kind: 'audio',
+      capability: 'tts',
+      prompt: 'dubbing',
+      params: { extra: { model: 'dubbing_v2', target_language: 'es' } },
+      medias: [{ role: 'audio', url: 'https://media.test/clip.mp4' }],
+      injections: [],
+      count: 1,
+      target_folder: 'inbox',
+      source: 'ui',
+    });
+    const handle = await elevenlabsAdapter.submit(request, context());
+    expect(handle.model_id).toBe('dubbing_v2');
+    expect(handle.inline_result?.outputs[0]?.kind).toBe('audio');
+    expect(handle.inline_result?.outputs[0]?.bytes).toBeInstanceOf(Uint8Array);
+  });
+
+  it('changes a source recording to a chosen voice through the speech-to-speech endpoint', async () => {
+    server.use(
+      http.post(`${BASE}/v1/speech-to-speech/rachel`, () =>
+        HttpResponse.arrayBuffer(AUDIO.buffer, { headers: { 'Content-Type': 'audio/mpeg' } }),
+      ),
+    );
+    const request = CanonicalRequestSchema.parse({
+      kind: 'audio',
+      capability: 'tts',
+      prompt: 'voice_change',
+      params: { voice: { provider: 'elevenlabs', voice_id: 'rachel' }, extra: { model: 'voice_changer' } },
+      medias: [{ role: 'audio', url: 'https://media.test/take.wav' }],
+      injections: [],
+      count: 1,
+      target_folder: 'inbox',
+      source: 'ui',
+    });
+    const handle = await elevenlabsAdapter.submit(request, context());
+    expect(handle.model_id).toBe('voice_changer');
+    expect(handle.inline_result?.outputs[0]?.kind).toBe('audio');
+  });
+
+  it('refuses dubbing without a source', async () => {
+    const request = CanonicalRequestSchema.parse({
+      kind: 'audio',
+      capability: 'tts',
+      prompt: 'dubbing',
+      params: { extra: { model: 'dubbing_v2', target_language: 'es' } },
+      medias: [],
+      injections: [],
+      count: 1,
+      target_folder: 'inbox',
+      source: 'ui',
+    });
+    await expect(elevenlabsAdapter.submit(request, context())).rejects.toMatchObject({
+      code: 'INVALID_INPUT',
+    });
+  });
 });

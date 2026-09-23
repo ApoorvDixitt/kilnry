@@ -27,8 +27,8 @@ export interface TransformTab {
   requires: string[];
 }
 
-// The tabs in order (PRD-05 §11). Dubbing and voice change have no capability in
-// the registry yet, so they render a not-available notice.
+// The tabs in order (PRD-05 §11). All seven transform operations route to a
+// seeded, connected provider capability.
 export const TRANSFORM_TABS: TransformTab[] = [
   { op: 'upscale_image', labelKey: 'create.transform.upscaleImage', available: true, requires: [] },
   { op: 'upscale_video', labelKey: 'create.transform.upscaleVideo', available: true, requires: [] },
@@ -36,8 +36,8 @@ export const TRANSFORM_TABS: TransformTab[] = [
   { op: 'reframe', labelKey: 'create.transform.reframe', available: true, requires: ['aspect_ratio'] },
   { op: 'outpaint', labelKey: 'create.transform.outpaint', available: true, requires: ['aspect_ratio'] },
   { op: 'lipsync', labelKey: 'create.transform.lipsync', available: true, requires: ['audio'] },
-  { op: 'dubbing', labelKey: 'create.transform.dubbing', available: false, requires: ['language'] },
-  { op: 'voice_change', labelKey: 'create.transform.voiceChange', available: false, requires: ['voice'] },
+  { op: 'dubbing', labelKey: 'create.transform.dubbing', available: true, requires: ['language'] },
+  { op: 'voice_change', labelKey: 'create.transform.voiceChange', available: true, requires: ['voice'] },
   { op: 'transcribe', labelKey: 'create.transform.transcribe', available: true, requires: [] },
 ];
 

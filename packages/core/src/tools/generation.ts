@@ -215,8 +215,8 @@ export const transformTool: KilnryTool = {
     const source = typeof input.source === 'string' ? input.source : '';
     if (!source) return toolError('INVALID_INPUT', 'A source is required.');
 
-    // The operations backed by a routable, seeded capability run now; dubbing and
-    // voice-change have no capability in the registry yet and stay unavailable.
+    // Every transform operation routes to a seeded capability. Dubbing and voice
+    // change route to text-to-speech models the registry tags (TRD-07 §1).
     const CAPABILITY_FOR: Record<string, Capability> = {
       upscale_image: 'upscale_image',
       upscale_video: 'upscale_video',
@@ -224,14 +224,18 @@ export const transformTool: KilnryTool = {
       reframe: 'reframe_image',
       outpaint: 'outpaint',
       lipsync: 'lipsync',
+      dubbing: 'tts',
+      voice_change: 'tts',
       transcribe: 'stt',
+    };
+    const TRANSFORM_TAG: Record<string, string> = { dubbing: 'dubbing', voice_change: 'voice_change' };
+    const TRANSFORM_MODEL: Record<string, string> = {
+      dubbing: 'dubbing_v2',
+      voice_change: 'voice_changer',
     };
     const capability = CAPABILITY_FOR[op];
     if (!capability) {
-      return toolError(
-        'NO_PROVIDER',
-        `The ${op || 'requested'} operation is not available yet. Dubbing and voice change arrive in a later milestone.`,
-      );
+      return toolError('NO_PROVIDER', `The ${op || 'requested'} operation is not a known transform.`);
     }
     if (!services.engine) {
       return toolError('NO_PROVIDER', 'Transforms are unavailable because the engine is not running.');
@@ -242,22 +246,34 @@ export const transformTool: KilnryTool = {
       loadRegistry(services.db),
       providerRouteStates(services.db),
     ]);
+    const tag = TRANSFORM_TAG[op];
     const connected = registry.models.some(
       (model) =>
         (model.capabilities as readonly string[]).includes(capability) &&
+        (tag === undefined || model.tags.includes(tag)) &&
         providers[model.provider]?.connected,
     );
     if (!connected) {
       return toolError('NO_PROVIDER', `No connected provider offers ${op}. Add a key that supports it.`);
     }
 
-    const params = (input.params as Record<string, unknown> | undefined) ?? {};
+    const params = { ...((input.params as Record<string, unknown> | undefined) ?? {}) };
+    // Dubbing and voice change pin the tagged text-to-speech model so the adapter
+    // runs the right endpoint (F-CRE-11).
+    const pinnedModel = TRANSFORM_MODEL[op];
+    if (pinnedModel) {
+      const extra = { ...((params.extra as Record<string, unknown> | undefined) ?? {}), model: pinnedModel };
+      params.extra = extra;
+    }
+    const constraints = tag ? { tags: [tag] } : {};
     const confirm = typeof input.confirm_cost_usd === 'number' ? input.confirm_cost_usd : undefined;
     // The output kind follows the operation: video for lip-sync and video
-    // upscale, text for transcription, image otherwise.
+    // upscale, audio for transcription, dubbing and voice change, image otherwise.
     const KIND_FOR: Record<string, string> = {
       upscale_video: 'video',
       lipsync: 'video',
+      dubbing: 'audio',
+      voice_change: 'audio',
       transcribe: 'audio',
     };
     const request = {
@@ -270,7 +286,7 @@ export const transformTool: KilnryTool = {
       injections: [],
     };
     try {
-      const priced = await services.engine.estimate(request as never, {});
+      const priced = await services.engine.estimate(request as never, constraints as never);
       const usd = priced.estimate.authoritative_usd ?? priced.estimate.estimate_usd;
       const decision = confirmationDecision({
         estimateUsd: usd,
@@ -294,6 +310,7 @@ export const transformTool: KilnryTool = {
       }
       const job = await services.engine.createJob({
         request: request as never,
+        constraints: constraints as never,
         confirmed_cost_usd: priced.estimate.estimate_usd,
         confirmed_by: resolveConfirmer(services, transformTool.name, input),
       });

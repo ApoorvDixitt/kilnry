@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { TRANSFORM_TABS, canRun, lipsyncBilledSeconds, tabFor } from './transforms-panel-logic';
 
 describe('transforms panel logic (F-CRE-11)', () => {
-  it('offers every operation in order and marks dubbing/voice-change unavailable', () => {
+  it('offers every operation in order and marks them all available', () => {
     expect(TRANSFORM_TABS.map((tab) => tab.op)).toEqual([
       'upscale_image',
       'upscale_video',
@@ -19,8 +19,8 @@ describe('transforms panel logic (F-CRE-11)', () => {
       'voice_change',
       'transcribe',
     ]);
-    expect(tabFor('dubbing').available).toBe(false);
-    expect(tabFor('voice_change').available).toBe(false);
+    expect(tabFor('dubbing').available).toBe(true);
+    expect(tabFor('voice_change').available).toBe(true);
     expect(tabFor('lipsync').available).toBe(true);
   });
 
@@ -36,8 +36,13 @@ describe('transforms panel logic (F-CRE-11)', () => {
     // Lip-sync needs audio.
     expect(canRun({ op: 'lipsync', source: 'a1', params: {}, running: false })).toBe(false);
     expect(canRun({ op: 'lipsync', source: 'a1', params: { audio: '@maya hi' }, running: false })).toBe(true);
-    // An unavailable op never runs.
-    expect(canRun({ op: 'dubbing', source: 'a1', params: { language: 'es' }, running: false })).toBe(false);
+    // Dubbing needs a language; voice change needs a voice.
+    expect(canRun({ op: 'dubbing', source: 'a1', params: {}, running: false })).toBe(false);
+    expect(canRun({ op: 'dubbing', source: 'a1', params: { language: 'es' }, running: false })).toBe(true);
+    expect(canRun({ op: 'voice_change', source: 'a1', params: {}, running: false })).toBe(false);
+    expect(canRun({ op: 'voice_change', source: 'a1', params: { voice: '@maya' }, running: false })).toBe(
+      true,
+    );
     // Running blocks Run.
     expect(canRun({ op: 'upscale_image', source: 'a1', params: {}, running: true })).toBe(false);
   });

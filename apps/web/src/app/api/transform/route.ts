@@ -29,7 +29,8 @@ const Body = z.object({
 });
 
 // The transform operations backed by a routable, seeded capability. Dubbing and
-// voice change have no capability in the registry yet (F-CRE-11, TRD-10 §3.2).
+// voice change route to text-to-speech-capability models the registry tags, so
+// they carry the tts capability and a tag constraint (F-CRE-11, TRD-07 §1).
 const CAPABILITY_FOR: Partial<Record<string, Capability>> = {
   upscale_image: 'upscale_image',
   upscale_video: 'upscale_video',
@@ -37,21 +38,38 @@ const CAPABILITY_FOR: Partial<Record<string, Capability>> = {
   reframe: 'reframe_image',
   outpaint: 'outpaint',
   lipsync: 'lipsync',
+  dubbing: 'tts',
+  voice_change: 'tts',
   transcribe: 'stt',
+};
+
+// Dubbing and voice change are tts models distinguished by a registry tag; the
+// route pins the specific model and passes the tag so the router picks it.
+const TRANSFORM_TAG: Record<string, string> = {
+  dubbing: 'dubbing',
+  voice_change: 'voice_change',
+};
+const TRANSFORM_MODEL: Record<string, string> = {
+  dubbing: 'dubbing_v2',
+  voice_change: 'voice_changer',
 };
 
 const KIND_FOR: Record<string, 'image' | 'video' | 'audio'> = {
   upscale_video: 'video',
   lipsync: 'video',
+  dubbing: 'audio',
+  voice_change: 'audio',
   transcribe: 'audio',
 };
 
 // The media role the source takes for each operation. A lip-sync or upscale reads
-// the source as a video, transcription reads it as audio, and the image
-// operations take it as the reference to work from.
+// the source as a video, transcription, dubbing and voice change read it as
+// audio, and the image operations take it as the reference to work from.
 const SOURCE_ROLE: Record<string, 'video' | 'audio' | 'reference'> = {
   upscale_video: 'video',
   lipsync: 'video',
+  dubbing: 'audio',
+  voice_change: 'audio',
   transcribe: 'audio',
 };
 
@@ -64,7 +82,7 @@ export async function POST(request: Request): Promise<Response> {
     const body = Body.parse(await request.json());
     const capability = CAPABILITY_FOR[body.op];
     if (!capability) {
-      throw new KilnryError('NO_PROVIDER', 'Dubbing and voice change arrive in a later milestone.');
+      throw new KilnryError('NO_PROVIDER', `The ${body.op} operation has no routable capability.`);
     }
     const engine = await ensureRuntimeEngine();
     // The panel's own inputs — the audio to speak and how long the clip is — become
@@ -77,6 +95,12 @@ export async function POST(request: Request): Promise<Response> {
     delete supplied.audio;
     delete supplied.clip_seconds;
     delete supplied.aspect_ratio;
+    // Dubbing and voice change pin the tagged text-to-speech model so the adapter
+    // runs the right endpoint (F-CRE-11).
+    const pinnedModel = TRANSFORM_MODEL[body.op];
+    if (pinnedModel) supplied.model = pinnedModel;
+    const tag = TRANSFORM_TAG[body.op];
+    const constraints = tag ? { tags: [tag] } : {};
     const medias: Array<{ role: string; asset_id: string }> = [
       { role: SOURCE_ROLE[body.op] ?? 'reference', asset_id: body.source },
     ];
@@ -96,13 +120,14 @@ export async function POST(request: Request): Promise<Response> {
       target_folder: 'inbox',
       source: 'ui',
     };
-    const priced = await engine.estimate(canonical as never, {});
+    const priced = await engine.estimate(canonical as never, constraints as never);
     const usd = priced.estimate.authoritative_usd ?? priced.estimate.estimate_usd;
     if (body.estimate_only) {
       return NextResponse.json({ estimate: priced.estimate, estimate_usd: usd });
     }
     const result = await engine.createJob({
       request: canonical as never,
+      constraints: constraints as never,
       ...(body.confirm_cost_usd === undefined ? {} : { confirmed_cost_usd: body.confirm_cost_usd }),
       confirmed_by: 'user',
       ...(body.client_request_id === undefined ? {} : { client_request_id: body.client_request_id }),
