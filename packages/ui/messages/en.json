@@ -516,7 +516,22 @@
       "saveFailed": "Kilnry could not save the budget caps.",
       "spent": "{spent} of {cap} used",
       "staleTitle": "Stale price guard",
-      "staleBody": "Kilnry refuses to price a job with data older than 30 days. Refresh a provider's prices in Settings › Providers, or acknowledge the estimate to override once; every override is recorded in the security audit log."
+      "staleBody": "Kilnry refuses to price a job with data older than 30 days. Refresh a provider's prices in Settings › Providers, or acknowledge the estimate to override once; every override is recorded in the security audit log.",
+      "ledgerTitle": "Spend ledger",
+      "ledgerSubtitle": "Where the money went this month, grouped and heaviest first.",
+      "ledgerGroupBy": "Group by",
+      "ledgerGroupProvider": "Provider",
+      "ledgerGroupModel": "Model",
+      "ledgerGroupFolder": "Folder",
+      "ledgerGroupCharacter": "Character",
+      "ledgerGroupDay": "Day",
+      "ledgerColKey": "Group",
+      "ledgerColJobs": "Jobs",
+      "ledgerColActual": "Spent",
+      "ledgerEmpty": "No spend recorded for this period yet.",
+      "ledgerExport": "Export CSV",
+      "ledgerExported": "Exported {rows} row(s) to {path}.",
+      "ledgerExportFailed": "Kilnry could not export the spend ledger."
     },
     "chat": {
       "eyebrow": "Chat and the agent",

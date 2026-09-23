@@ -63,4 +63,43 @@ describe('BudgetSettings', () => {
     expect(requests.some((r) => (r.body as { scope: string }).scope === 'monthly')).toBe(true);
     expect(host.querySelector('.budget-status')?.textContent).toContain('saved');
   });
+
+  it('shows the grouped spend ledger and exports it through the export route', async () => {
+    let exported = false;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes('/api/budget/ledger/export')) {
+          exported = true;
+          return Promise.resolve(Response.json({ path: '/lib/.kilnry/exports/spend.csv', rows: 2 }));
+        }
+        if (url.includes('/api/budget/ledger')) {
+          return Promise.resolve(
+            Response.json({
+              group_by: 'provider',
+              groups: [{ key: 'fal', jobs: 2, estimate_usd: 4, actual_usd: 4.2, delta_usd: 0.2 }],
+            }),
+          );
+        }
+        return Promise.resolve(Response.json({ budgets: [] }));
+      }),
+    );
+    const host = await render();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    // The grouped ledger row is shown with its group key and spent total.
+    const row = host.querySelector('.budget-ledger-row[data-key="fal"]');
+    expect(row?.textContent).toContain('fal');
+    expect(row?.textContent).toContain('$4.20');
+
+    // The Export CSV button posts to the export route and reports where it landed.
+    await act(async () => {
+      (host.querySelector('.budget-ledger-export') as HTMLButtonElement).click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(exported).toBe(true);
+    expect(host.querySelector('.budget-ledger-status')?.textContent).toContain('spend.csv');
+  });
 });

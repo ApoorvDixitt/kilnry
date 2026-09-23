@@ -783,6 +783,13 @@ test('@m5 S-17 preset run with a required slot and its cost', async ({ page }) =
   await expect.poll(async () => (await latestJob(page))?.status, { timeout: 60_000 }).toBe('completed');
   await page.goto('/jobs');
   await expect(page.locator('.jobs-table')).toContainText(previewed.slice(0, 30));
+
+  // The spend the run made shows in the Budget spend-ledger view the user can
+  // see, grouped by provider (F-PRV-05). The fal row appears with a dollar total.
+  await page.goto('/settings/budget');
+  const falRow = page.locator('.budget-ledger-row[data-key="fal"]');
+  await expect(falRow).toBeVisible({ timeout: 20_000 });
+  await expect(falRow).toContainText('$');
 });
 
 test('@m5 S-18 export a bundle with sidecars and provenance labels', async ({ page }) => {
