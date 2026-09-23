@@ -124,7 +124,7 @@
     "generate": "Generate",
     "generateDisabled": "Connect a provider before generating.",
     "plan": "Plan",
-    "workflowLater": "Workflows arrive in a later milestone.",
+    "workflowLater": "Workflows arrive in a future milestone.",
     "generateDisabledReason": {
       "noKey": "Add a provider key or start the demo.",
       "empty": "Type a prompt first.",
@@ -264,7 +264,7 @@
       "run": "Run · {price}",
       "running": "Running…",
       "failed": "The transform could not be run. Try again.",
-      "unavailable": "This operation arrives in a later milestone."
+      "unavailable": "This operation is not available on this connection."
     },
     "tile": {
       "queued": "Queued at {provider}",
@@ -288,8 +288,6 @@
       "jobFailed": "The generation did not complete. Open Jobs for details.",
       "waitTimeout": "The job is still running. Open Jobs to keep watching it.",
       "requestFailed": "Kilnry could not complete that request. Check the details and try again.",
-      "m3Later": "The full Image, Video, Audio, and Workflow Composer arrives in M3.",
-      "scopeNote": "M2 engine proof · the full Composer arrives in M3",
       "status": {
         "queued": "Queued",
         "running": "Running",
@@ -390,7 +388,7 @@
       "higgsfieldHelp": "Cinematic image and video, opt-in. Trains on inputs and outputs.",
       "higgsfieldNoticeTitle": "Before you connect Higgsfield",
       "higgsfieldNoticeBody": "Higgsfield's Terms of Use (effective 2026-07-26; 2026-08-27 for older accounts) state in §4.4 that your inputs and outputs \"may be used by Company to train, develop, enhance, evolve, and improve its AI models\". The only opt-out is deleting content or your account; Enterprise Agreement customers are excluded from training. You keep rights to outputs and may use them commercially.",
-      "higgsfieldNoticeRouting": "Kilnry marks Higgsfield as training-on-inputs and excludes it from Auto routing while \"Avoid providers that train on inputs\" is on. You can still pick Higgsfield models by name.",
+      "higgsfieldNoticeRouting": "Kilnry marks Higgsfield as training_on_inputs and excludes it from Auto routing while \"Avoid providers that train on inputs\" is on. You can still pick Higgsfield models by name.",
       "higgsfieldNoticeRetention": "Higgsfield keeps outputs for at least 7 days. Kilnry downloads every result to your Library immediately.",
       "higgsfieldNoticeCheckbox": "I have read this and want to connect Higgsfield.",
       "higgsfieldNoticeSource": "https://higgsfield.ai/terms-of-use-agreement",
@@ -563,8 +561,8 @@
       "saved": "Chat settings saved.",
       "saveFailed": "Kilnry could not save the chat settings.",
       "laterTitle": "Arrives later",
-      "laterReasoning": "Choosing how much of the model's thinking is shown arrives with visible thinking in a later milestone.",
-      "laterMemory": "Reading project notes from the current folder arrives with project memory in a later milestone."
+      "laterReasoning": "Choosing how much of the model's thinking is shown arrives with visible thinking.",
+      "laterMemory": "Reading project notes from the current folder arrives with project memory."
     }
   },
   "placeholder": {
@@ -591,7 +589,7 @@
     "planProgress": "Plan {done} of {total}",
     "emptyThread": "Ask for something, or describe what you want to make.",
     "noKeyTitle": "Chat and Agent need a language model.",
-    "noKeyBody": "Paste an Anthropic, OpenAI, OpenRouter or Gemini key, or run Ollama locally and Kilnry will detect it.",
+    "noKeyBody": "Paste an Anthropic, OpenAI, OpenRouter or Gemini key, or run Ollama locally (we'll detect it).",
     "noKeyProviders": "Open Providers",
     "noKeyOllama": "Get Ollama",
     "ollamaFree": "Ollama available, free",
@@ -936,7 +934,6 @@
       "fromText": "From text",
       "fromUrl": "From URL",
       "castBuilder": "Cast builder",
-      "castDisabled": "The cast builder arrives in a later release.",
       "displayName": "Display name",
       "displayNameHint": "Give them a name people will recognise in the grid.",
       "handle": "Handle",
@@ -981,16 +978,15 @@
       "versionLabel": "Version",
       "versionFrozen": "This version is frozen because a job has used it. Editing its references or descriptor creates a new version.",
       "train": "Train",
-      "trainDisabled": "Training a face arrives in a later release.",
       "trainerFal": "fal · FLUX LoRA",
       "trainerReplicate": "Replicate · fast-flux",
       "trainerHiggsfield": "Higgsfield · Soul ID",
       "trainWithPrice": "Train · {price}",
       "trainConsentTooltip": "Set consent for this real person first.",
-      "trainDialogTitle": "Train an identity",
-      "trainEstimateFal": "≈ $2.00 · 1,000 steps · about 20 min",
-      "trainEstimateReplicate": "≈ $1.46 · fast-flux · about 15 min",
-      "trainEstimateHiggsfield": "≈ $2.50 · Soul ID · about 10 min",
+      "trainDialogTitle": "Train identity on {provider}",
+      "trainEstimateFal": "≈ $2.00 · 1,000 steps · 5–10 min",
+      "trainEstimateReplicate": "≈ $1.46 · fast-flux · < 2 min",
+      "trainEstimateHiggsfield": "≈ $2.50 · Soul ID · a few minutes",
       "trainTermsFal": "fal trains a low-rank adaptation (LoRA) from your reference images and returns a weights file you keep. You are billed once when training starts.",
       "trainTermsReplicate": "Replicate trains a fast-flux low-rank adaptation (LoRA) from your reference images and returns a weights file you keep. You are billed once when training starts.",
       "trainRealPersonConfirm": "This sends a real person's likeness to Higgsfield, which may train on it. Continue?",
@@ -1001,7 +997,6 @@
       "trainedBadge": "trained",
       "trainFailed": "The training could not start. Try again.",
       "clone": "Clone voice",
-      "cloneDisabled": "Voice cloning arrives in a later release.",
       "unbind": "Unbind voice",
       "voiceNone": "No voice bound yet.",
       "bindPreset": "Bind an existing voice",
@@ -1065,7 +1060,7 @@
       "failed": "That page could not be read. Paste the image and title instead."
     },
     "voices": {
-      "previewText": "Hello from Kilnry. This is a short preview of how I sound.",
+      "previewText": "Hi, I'm {name}. This is how I sound in Kilnry.",
       "play": "Play preview",
       "colName": "Name",
       "colHandle": "Handle",
@@ -1081,8 +1076,7 @@
       "filterLanguage": "Language",
       "allProviders": "All providers",
       "empty": "No voices match.",
-      "previewUnavailable": "Voice previews arrive with the text-to-speech adapters.",
-      "cloneDisabled": "Voice cloning arrives in a later release."
+      "previewUnavailable": "Voice previews arrive with the text-to-speech adapters."
     },
     "consent": {
       "title": "Is this a real person?",

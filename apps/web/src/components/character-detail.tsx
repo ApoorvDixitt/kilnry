@@ -398,10 +398,26 @@ export function CharacterDetail({ handle }: { handle: string }): React.ReactNode
               <div
                 className="character-train-dialog"
                 role="dialog"
-                aria-label={message('characters.detail.trainDialogTitle')}
+                aria-label={message('characters.detail.trainDialogTitle').replace(
+                  '{provider}',
+                  trainDialog.trainer === 'fal'
+                    ? 'fal'
+                    : trainDialog.trainer === 'replicate'
+                      ? 'Replicate'
+                      : 'Higgsfield',
+                )}
               >
                 <div className="character-train-card">
-                  <h4>{message('characters.detail.trainDialogTitle')}</h4>
+                  <h4>
+                    {message('characters.detail.trainDialogTitle').replace(
+                      '{provider}',
+                      trainDialog.trainer === 'fal'
+                        ? 'fal'
+                        : trainDialog.trainer === 'replicate'
+                          ? 'Replicate'
+                          : 'Higgsfield',
+                    )}
+                  </h4>
                   <p className="character-train-estimate">
                     {message(
                       trainDialog.trainer === 'fal'

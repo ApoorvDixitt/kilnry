@@ -480,7 +480,7 @@ test('@m5 S-15 character training stays behind the consent gate', async ({ page 
   await page.reload();
   await page.getByRole('tab', { name: 'Identities' }).click();
   await page.locator('.character-trainer-card').filter({ hasText: 'fal' }).getByRole('button').click();
-  await expect(page.locator('.character-train-dialog')).toContainText('≈ $2.00 · 1,000 steps · about 20 min');
+  await expect(page.locator('.character-train-dialog')).toContainText('≈ $2.00 · 1,000 steps · 5–10 min');
   await expect(page.locator('.character-train-terms')).toContainText('low-rank adaptation');
   await page.locator('.character-train-dialog').getByRole('button', { name: 'Confirm' }).click();
 

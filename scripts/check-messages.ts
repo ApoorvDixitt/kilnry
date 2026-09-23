@@ -50,6 +50,32 @@ if (missing.length > 0) {
 }
 
 const unused = [...available].filter((key) => !referenced.has(key)).sort();
+
+// No user-visible string may promise a capability "in a later milestone/release"
+// or "in M<n>": such copy reads as stale the moment the capability ships. The
+// guard fails the check so the string is reworded when its feature lands.
+const staleGuard = /later (release|milestone)|arrives in M\d/;
+const stale: string[] = [];
+function collectStale(value: Record<string, unknown>, prefix = ''): void {
+  for (const [key, child] of Object.entries(value)) {
+    const path = prefix ? `${prefix}.${key}` : key;
+    if (typeof child === 'string') {
+      if (staleGuard.test(child)) stale.push(`${path}: ${child}`);
+    } else if (typeof child === 'object' && child !== null && !Array.isArray(child)) {
+      collectStale(child as Record<string, unknown>, path);
+    }
+  }
+}
+collectStale(catalogue);
+if (stale.length > 0) {
+  process.stderr.write(
+    `Message catalogue check failed; reword these strings so they do not promise a capability "in a later milestone/release" or "in M<n>":\n${stale
+      .map((entry) => `- ${entry}`)
+      .join('\n')}\n`,
+  );
+  process.exit(1);
+}
+
 process.stdout.write(
   `Message catalogue verified: ${referenced.size} referenced, ${unused.length} reserved for later screens.\n`,
 );
