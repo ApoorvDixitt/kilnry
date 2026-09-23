@@ -107,16 +107,19 @@ async function csrf(page: Page): Promise<string> {
   );
 }
 
-async function mintToken(page: Page): Promise<string> {
+async function mintToken(page: Page, scope: 'full' | 'read_only' = 'full'): Promise<string> {
   const token = await csrf(page);
-  return page.evaluate(async (token) => {
-    const response = await fetch('/api/mcp/tokens', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Kilnry-CSRF': token },
-      body: JSON.stringify({ name: 'matrix', scope: 'full' }),
-    });
-    return ((await response.json()) as { token: string }).token;
-  }, token);
+  return page.evaluate(
+    async ({ token, scope }) => {
+      const response = await fetch('/api/mcp/tokens', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Kilnry-CSRF': token },
+        body: JSON.stringify({ name: `matrix-${scope}`, scope }),
+      });
+      return ((await response.json()) as { token: string }).token;
+    },
+    { token, scope },
+  );
 }
 
 // Load current OpenRouter prices so image models carry a price snapshot; without
@@ -442,6 +445,34 @@ test('@matrix MCP client matrix reports only what it ran', async ({ page, reques
   // resource templates from F-MCP-03; this records whatever it answers.
   const resourcesList = await rpc(request, bearer, 'resources/list', {}, 5);
 
+  // A read-only token may list voices but must be refused when it asks to clone
+  // one, because cloning changes state and spends (TRD-10 §7, F-MCP-05). This is
+  // asserted end to end over the transport with a separate read-only token.
+  const readOnlyBearer = await mintToken(page, 'read_only');
+  const readOnlyList = await rpc(
+    request,
+    readOnlyBearer,
+    'tools/call',
+    { name: 'kilnry_voices', arguments: { action: 'list' } },
+    6,
+  );
+  const readOnlyListError = (
+    readOnlyList.parsed.result as { structuredContent?: { error?: { code?: string } } }
+  )?.structuredContent?.error?.code;
+  expect(readOnlyListError).toBeUndefined();
+  const readOnlyClone = await rpc(
+    request,
+    readOnlyBearer,
+    'tools/call',
+    { name: 'kilnry_voices', arguments: { action: 'clone', name: 'x', sample_url: 'https://m.test/x.wav' } },
+    7,
+  );
+  const readOnlyCloneStructured = (
+    readOnlyClone.parsed.result as { structuredContent?: { error?: { code?: string } } }
+  )?.structuredContent;
+  const readOnlyCloneRefused = readOnlyCloneStructured?.error?.code === 'INVALID_INPUT';
+  expect(readOnlyCloneRefused).toBe(true);
+
   rmSync(outDir, { recursive: true, force: true });
   mkdirSync(outDir, { recursive: true });
 
@@ -461,6 +492,8 @@ test('@matrix MCP client matrix reports only what it ran', async ({ page, reques
         generate_tools_call_structured_envelope: hasStructuredEnvelope,
         generate_money_round_trip: moneyRoundTrip,
         generate_started_job_after_confirm: typeof startedJob === 'string',
+        read_only_token_lists_voices: readOnlyListError === undefined,
+        read_only_token_clone_refused: readOnlyCloneRefused,
         resources_list_response: resourcesList.parsed,
       },
       null,

@@ -211,10 +211,12 @@ export const voicesTool: KilnryTool = {
     voice: z.record(z.string(), z.unknown()).optional(),
     error: z.record(z.string(), z.unknown()).optional(),
   },
-  // The spending list wins over the read-only hint for cloning: a clone must go
-  // through the consent-and-cost gate, so kilnry_voices is treated as a spending
-  // tool by the approval policy even though listing is read-only.
-  annotations: { readOnlyHint: true, openWorldHint: true },
+  // Cloning and deletion change state, so the tool is not read-only overall
+  // (TRD-10 §3.4). Listing and previewing do not change state, so they are
+  // declared read-only actions: a read-only token may list and preview voices
+  // but is refused when it asks to clone or delete one.
+  annotations: { readOnlyHint: false, openWorldHint: true },
+  readOnlyActions: ['list', 'preview'],
   async execute(input, services: ToolServices): Promise<ToolResult> {
     const action = typeof input.action === 'string' ? input.action : 'list';
     if (action === 'clone') {

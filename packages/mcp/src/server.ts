@@ -59,8 +59,9 @@ export function createKilnryMcpServer(options: {
         annotations: tool.annotations,
       },
       async (input: Record<string, unknown>) => {
-        // A read-only token cannot run a mutating tool (TRD-10 §7).
-        if (!toolAllowedForScope(tool, scope)) {
+        // A read-only token cannot run a mutating tool or a mutating action of a
+        // mixed tool (TRD-10 §7).
+        if (!toolAllowedForScope(tool, scope, input)) {
           const denied = {
             error: {
               code: 'INVALID_INPUT',

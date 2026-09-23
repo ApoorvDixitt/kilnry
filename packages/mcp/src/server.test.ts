@@ -32,6 +32,18 @@ function spendingTool(name: string): KilnryTool {
   };
 }
 
+function mixedTool(name: string): KilnryTool {
+  return {
+    name,
+    description: 'A tool with read-only and state-changing actions.',
+    inputSchema: { action: z.string() },
+    outputSchema: { ok: z.boolean() },
+    annotations: { readOnlyHint: false, openWorldHint: true },
+    readOnlyActions: ['list', 'preview'],
+    execute: async () => ({ text: 'ok', structuredContent: { ok: true } }),
+  };
+}
+
 describe('MCP server core (F-MCP-01)', () => {
   it('ships the verbatim instructions under the 1.5 KB limit', () => {
     expect(MCP_INSTRUCTIONS.startsWith('Kilnry is a local AI media studio.')).toBe(true);
@@ -46,6 +58,20 @@ describe('MCP server core (F-MCP-01)', () => {
     expect(toolAllowedForScope(readOnlyTool('kilnry_models'), 'read_only')).toBe(true);
     expect(toolAllowedForScope(spendingTool('kilnry_generate'), 'read_only')).toBe(false);
     expect(toolAllowedForScope(spendingTool('kilnry_generate'), 'full')).toBe(true);
+  });
+
+  it('lets a read-only token run a mixed tool only for its read-only actions', () => {
+    const tool = mixedTool('kilnry_voices');
+    // Listing and previewing do not change state and stay available read-only.
+    expect(toolAllowedForScope(tool, 'read_only', { action: 'list' })).toBe(true);
+    expect(toolAllowedForScope(tool, 'read_only', { action: 'preview' })).toBe(true);
+    // The default action when none is given is list, which is read-only.
+    expect(toolAllowedForScope(tool, 'read_only', {})).toBe(true);
+    // Cloning and deleting change state and are refused to a read-only token.
+    expect(toolAllowedForScope(tool, 'read_only', { action: 'clone' })).toBe(false);
+    expect(toolAllowedForScope(tool, 'read_only', { action: 'delete' })).toBe(false);
+    // A full token may run any action.
+    expect(toolAllowedForScope(tool, 'full', { action: 'clone' })).toBe(true);
   });
 
   it('builds a server with the given tools without throwing', () => {

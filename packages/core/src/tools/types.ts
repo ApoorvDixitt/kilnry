@@ -178,16 +178,30 @@ export interface KilnryTool {
   inputSchema: Record<string, ZodTypeAny>;
   outputSchema: Record<string, ZodTypeAny>;
   annotations: ToolAnnotations;
+  // When a tool is not read-only overall (readOnlyHint: false) but some of its
+  // actions do not change state, they are listed here so a read-only token may
+  // still call those actions (TRD-10 §7). The action is read from input.action.
+  readOnlyActions?: readonly string[];
   execute: (input: Record<string, unknown>, services: ToolServices) => Promise<ToolResult>;
 }
 
-// A read-only token may call only tools whose readOnlyHint is true (TRD-10 §7).
+// Whether a token of the given scope may run this tool for this call (TRD-10 §7).
+// A full token may run anything. A read-only token may run a tool whose
+// readOnlyHint is true, or — for a mixed tool — a call whose action is one of the
+// tool's declared read-only actions, so listing and previewing stay available
+// while a state-changing action such as clone or delete is refused.
 export function toolAllowedForScope(
-  tool: Pick<KilnryTool, 'annotations'>,
+  tool: Pick<KilnryTool, 'annotations' | 'readOnlyActions'>,
   scope: 'full' | 'read_only',
+  input?: Record<string, unknown>,
 ): boolean {
   if (scope === 'full') return true;
-  return tool.annotations.readOnlyHint === true;
+  if (tool.annotations.readOnlyHint === true) return true;
+  if (tool.readOnlyActions && input) {
+    const action = typeof input.action === 'string' ? input.action : 'list';
+    return tool.readOnlyActions.includes(action);
+  }
+  return false;
 }
 
 // A structured error result (TRD-10 §2.8): tools never throw; they return an

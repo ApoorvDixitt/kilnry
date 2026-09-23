@@ -39,10 +39,18 @@ describe('read tools (F-MCP-02 §3.3, §3.4)', () => {
     ]);
   });
 
-  it('keeps descriptions under 300 tokens and marks every tool read-only', () => {
+  it('keeps descriptions under 300 tokens and marks read tools read-only', () => {
     for (const tool of READ_TOOLS) {
       expect(tokenEstimate(tool.description)).toBeLessThanOrEqual(300);
-      expect(tool.annotations.readOnlyHint).toBe(true);
+      // kilnry_voices can clone and delete, so it is not read-only overall; its
+      // list and preview actions are declared read-only so a read-only token can
+      // still call them (TRD-10 §3.4, §7). Every other read tool is read-only.
+      if (tool.name === 'kilnry_voices') {
+        expect(tool.annotations.readOnlyHint).toBe(false);
+        expect(tool.readOnlyActions).toEqual(['list', 'preview']);
+      } else {
+        expect(tool.annotations.readOnlyHint).toBe(true);
+      }
     }
   });
 
