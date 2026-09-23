@@ -25,6 +25,15 @@ import { toolError, type KilnryTool, type ToolResult, type ToolServices } from '
 
 const MediaRef = z.string();
 
+// Who confirmed this spend (TRD-04's confirmed_by). A surface may supply a fixed
+// value, such as a Model Context Protocol client's "mcp:<token_id>", or resolve
+// it per call, as Chat does to tell an approved call from an automatic one.
+function resolveConfirmer(services: ToolServices, name: string, input: Record<string, unknown>): string {
+  const supplied = services.confirmedBy;
+  if (typeof supplied === 'function') return supplied(name, input);
+  return supplied ?? 'mcp';
+}
+
 const Request = z.object({
   kind: z.enum(['image', 'video', 'audio', '3d', 'image_edit', 'video_edit']),
   prompt: z.string().min(1),
@@ -128,6 +137,7 @@ export const generateTool: KilnryTool = {
 
     // Confirmed or auto-approved: create a job per request. A budget cap that
     // would be exceeded surfaces as a structured BUDGET_EXCEEDED error.
+    const confirmedBy = resolveConfirmer(services, generateTool.name, input);
     const created: Array<Record<string, unknown>> = [];
     for (const entry of priced) {
       const request = entry.request;
@@ -148,7 +158,7 @@ export const generateTool: KilnryTool = {
             ? {}
             : { constraints: { pinned_model: String(request.model) } }),
           confirmed_cost_usd: entry.estimate_usd,
-          confirmed_by: services.confirmedBy ?? 'mcp',
+          confirmed_by: confirmedBy,
           ...(typeof input.client_request_id === 'string'
             ? { client_request_id: `${input.client_request_id}:${entry.index}` }
             : {}),
@@ -158,6 +168,7 @@ export const generateTool: KilnryTool = {
           job_id: job.job_id,
           status: job.status,
           estimate_usd: entry.estimate_usd,
+          confirmed_by: confirmedBy,
         });
       } catch (error) {
         const code =
@@ -284,7 +295,7 @@ export const transformTool: KilnryTool = {
       const job = await services.engine.createJob({
         request: request as never,
         confirmed_cost_usd: priced.estimate.estimate_usd,
-        confirmed_by: 'mcp',
+        confirmed_by: resolveConfirmer(services, transformTool.name, input),
       });
       return {
         text: `Started ${op} for about $${usd.toFixed(2)}.`,

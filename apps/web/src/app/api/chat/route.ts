@@ -21,6 +21,7 @@ import {
   resolveModel,
   streamChatTurn,
   toFileParts,
+  trackApprovals,
   type LlmProvider,
   type LlmRef,
   type LlmRegistryRow,
@@ -96,27 +97,6 @@ export async function POST(request: Request): Promise<Response> {
       },
     });
 
-    const tools = registerChatTools({
-      services: {
-        db: services.database,
-        scope: 'full',
-        adapters,
-        // Chat's approval policy has already stopped any call that needs the
-        // user's answer. Once the SDK executes it, the shared tool must not ask
-        // for a second confirmation of the same price.
-        autoApproveBelowUsd: Number.POSITIVE_INFINITY,
-        jobSource: 'chat',
-        confirmedBy: 'user',
-        assetUrl: (assetId: string) => `http://127.0.0.1:${config.port}/api/media/${assetId}`,
-        ...(engine ? { engine } : {}),
-        ...(config.library_root ? { libraryRoot: config.library_root } : {}),
-        ...(openrouterKey ? { openrouterKey } : {}),
-        skillsRoots: { bundled: bundledSkillsRoot() },
-        presets: await presetServices(),
-      },
-      chatSessionId: session.id,
-    });
-
     // The approval policy prices a pending call with the same engine estimate the
     // tool will use, so the number on the card is the number that gets confirmed.
     const estimatePending = engine
@@ -142,6 +122,30 @@ export async function POST(request: Request): Promise<Response> {
           : {}),
       },
       preEstimate,
+    });
+    // Remember which calls the card answered and which the policy let through,
+    // so each job records who confirmed it (TRD-04's confirmed_by).
+    const approvals = trackApprovals(toolApproval);
+
+    const tools = registerChatTools({
+      services: {
+        db: services.database,
+        scope: 'full',
+        adapters,
+        // Chat's approval policy has already stopped any call that needs the
+        // user's answer. Once the SDK executes it, the shared tool must not ask
+        // for a second confirmation of the same price.
+        autoApproveBelowUsd: Number.POSITIVE_INFINITY,
+        jobSource: 'chat',
+        confirmedBy: (name, value) => approvals.confirmerFor(name, value),
+        assetUrl: (assetId: string) => `http://127.0.0.1:${config.port}/api/media/${assetId}`,
+        ...(engine ? { engine } : {}),
+        ...(config.library_root ? { libraryRoot: config.library_root } : {}),
+        ...(openrouterKey ? { openrouterKey } : {}),
+        skillsRoots: { bundled: bundledSkillsRoot() },
+        presets: await presetServices(),
+      },
+      chatSessionId: session.id,
     });
 
     // Attachments arrive as ids; the agent reads them through the Library and,
@@ -173,7 +177,7 @@ export async function POST(request: Request): Promise<Response> {
       llm,
       promptsRoot: promptLibraryRoot(),
       tools,
-      toolApproval,
+      toolApproval: approvals.policy,
       approvalDescriptor: (name, value) => planned.get(planKey(name, value)),
       ...(attached.parts.length > 0 ? { attachmentParts: attached.parts } : {}),
       generateMessageId: () => randomUUID(),

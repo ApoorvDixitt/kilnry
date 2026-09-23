@@ -12,6 +12,7 @@ import {
   cachedPreEstimate,
   deniedResult,
   isSpendingAction,
+  trackApprovals,
   withConfirmedCost,
   type ApprovalSession,
   type ApprovalVerdict,
@@ -124,6 +125,37 @@ describe('approval policy (F-CHT-02, TRD-11 §5)', () => {
   it('names the consent-bearing calls through alwaysAsk', () => {
     expect(alwaysAsk('kilnry_voices', { action: 'clone' })).toBe(true);
     expect(alwaysAsk('kilnry_voices', { action: 'list' })).toBe(false);
+  });
+
+  it('records who confirmed each call: the card above the threshold, the policy below it', async () => {
+    const above = trackApprovals(policyFor(askFirst, 0.75));
+    expect(await above.policy['kilnry_generate']?.({ prompt: 'a' })).toBe('user-approval');
+    expect(above.confirmerFor('kilnry_generate', { prompt: 'a' })).toBe('user');
+    // The runtime injects the confirmed cost before running an approved call; it
+    // is still the same call that was judged.
+    expect(above.confirmerFor('kilnry_generate', { prompt: 'a', confirm_cost_usd: 0.75 })).toBe('user');
+
+    const below = trackApprovals(policyFor(askFirst, 0.04));
+    expect(await below.policy['kilnry_generate']?.({ prompt: 'a' })).toBeUndefined();
+    expect(below.confirmerFor('kilnry_generate', { prompt: 'a' })).toBe('auto');
+  });
+
+  it('records Run automatically inside the budget as automatic, and its cap pause as the user', async () => {
+    const inside = trackApprovals(policyFor(automatic, 2));
+    expect(await inside.policy['kilnry_generate']?.({ prompt: 'a' })).toBeUndefined();
+    expect(inside.confirmerFor('kilnry_generate', { prompt: 'a' })).toBe('auto');
+
+    const overCap = trackApprovals(policyFor({ ...automatic, spent_usd: 4.5 }, 1));
+    expect(await overCap.policy['kilnry_generate']?.({ prompt: 'a' })).toEqual({
+      type: 'user-approval',
+      reason: 'session-budget:5.00',
+    });
+    expect(overCap.confirmerFor('kilnry_generate', { prompt: 'a' })).toBe('user');
+  });
+
+  it('treats a call the policy never judged as the policy’s own decision', () => {
+    const tracked = trackApprovals(policyFor(askFirst, 1));
+    expect(tracked.confirmerFor('kilnry_generate', { prompt: 'unjudged' })).toBe('auto');
   });
 
   it('injects the confirmed cost and reports a denial the model can read', () => {

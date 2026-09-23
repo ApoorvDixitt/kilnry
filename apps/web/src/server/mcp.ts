@@ -42,12 +42,13 @@ export function bearerFrom(request: Request): string | null {
   return match ? match[1]!.trim() : null;
 }
 
-// Authenticate a request against the MCP token store. Returns the scope on a
-// match, or null when the token is missing, unknown, or revoked.
-export async function authenticateMcp(request: Request): Promise<{ scope: McpScope } | null> {
+// Authenticate a request against the MCP token store. Returns the token's id and
+// scope on a match, or null when the token is missing, unknown, or revoked. The
+// id is what a spend it starts is stamped with (TRD-04's "mcp:<token_id>").
+export async function authenticateMcp(request: Request): Promise<{ id: string; scope: McpScope } | null> {
   const secret = bearerFrom(request);
   if (!secret) return null;
   const services = await runtimeServices();
   const token = await verifyMcpToken(services.database, secret);
-  return token ? { scope: token.scope } : null;
+  return token ? { id: token.id, scope: token.scope } : null;
 }

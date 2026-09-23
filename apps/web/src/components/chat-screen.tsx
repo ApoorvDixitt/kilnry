@@ -20,6 +20,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { message } from '../lib/messages';
 import { apiFetch } from '../lib/api-client';
 import { attachmentKey, ChatAttachmentTray, type ChatAttachment } from './chat-attachment-tray';
+import { confirmerLabel } from './jobs-table';
 import {
   ApprovalCard,
   BudgetReachedCard,
@@ -233,10 +234,15 @@ export interface ChatScreenProps {
 type WorkspaceTab = 'preview' | 'steps' | 'cost';
 
 // The Cost tab reports provider media spend from completed Chat generation calls.
-// Each tool output carries the total that was approved, so no price is recomputed
-// in the browser.
-export function chatGenerationCost(messages: Array<{ parts?: unknown[] }>): number {
-  let total = 0;
+// Each tool output carries the total that was approved and who confirmed it, so
+// no price is recomputed and no confirmer is guessed in the browser.
+export interface ChatCostEntry {
+  total_usd: number;
+  confirmed_by: string;
+}
+
+export function chatGenerationEntries(messages: Array<{ parts?: unknown[] }>): ChatCostEntry[] {
+  const entries: ChatCostEntry[] = [];
   for (const entry of messages) {
     for (const raw of entry.parts ?? []) {
       const part = raw as { type?: string; state?: string; output?: unknown };
@@ -248,10 +254,23 @@ export function chatGenerationCost(messages: Array<{ parts?: unknown[] }>): numb
       ) {
         continue;
       }
-      const value = (part.output as { total_estimate_usd?: unknown }).total_estimate_usd;
-      if (typeof value === 'number') total += value;
+      const output = part.output as {
+        total_estimate_usd?: unknown;
+        jobs?: Array<{ confirmed_by?: unknown }>;
+      };
+      if (typeof output.total_estimate_usd !== 'number') continue;
+      const confirmer = output.jobs?.find((job) => typeof job.confirmed_by === 'string')?.confirmed_by;
+      entries.push({
+        total_usd: output.total_estimate_usd,
+        confirmed_by: typeof confirmer === 'string' ? confirmer : 'auto',
+      });
     }
   }
+  return entries;
+}
+
+export function chatGenerationCost(messages: Array<{ parts?: unknown[] }>): number {
+  const total = chatGenerationEntries(messages).reduce((sum, entry) => sum + entry.total_usd, 0);
   return Math.round(total * 100) / 100;
 }
 
@@ -295,6 +314,7 @@ export function ChatScreen({
     transport,
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
   });
+  const costEntries = chatGenerationEntries(messages);
   const generationCost = chatGenerationCost(messages);
 
   // Remember where the user put the divider.
@@ -549,10 +569,18 @@ export function ChatScreen({
           </div>
           <div className="chat-workspace-body" role="tabpanel">
             {tab === 'cost' && generationCost > 0 ? (
-              <div className="chat-cost-ledger">
-                <span>{message('chat.approvalTotal')}</span>
-                <strong>${generationCost.toFixed(2)}</strong>
-              </div>
+              <>
+                {costEntries.map((entry, index) => (
+                  <div className="chat-cost-row" key={`${entry.confirmed_by}-${index}`}>
+                    <span>{confirmerLabel(entry.confirmed_by)}</span>
+                    <span data-money="true">${entry.total_usd.toFixed(2)}</span>
+                  </div>
+                ))}
+                <div className="chat-cost-ledger">
+                  <span>{message('chat.approvalTotal')}</span>
+                  <strong>${generationCost.toFixed(2)}</strong>
+                </div>
+              </>
             ) : (
               <p className="chat-workspace-empty">
                 {message(

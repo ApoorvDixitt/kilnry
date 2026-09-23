@@ -131,7 +131,7 @@ describe('generation tools (F-MCP-02 §3.2, §3.6)', () => {
         engine: engine as never,
         autoApproveBelowUsd: Number.POSITIVE_INFINITY,
         jobSource: 'chat',
-        confirmedBy: 'user',
+        confirmedBy: (name) => (name === 'kilnry_generate' ? 'user' : 'auto'),
       },
     );
     expect(result.structuredContent.jobs).toHaveLength(1);
@@ -140,6 +140,35 @@ describe('generation tools (F-MCP-02 §3.2, §3.6)', () => {
       confirmed_by: 'user',
       constraints: { pinned_model: 'fal-ai/kling-video/v3/standard/text-to-video' },
     });
+    expect(result.structuredContent.jobs).toEqual([expect.objectContaining({ confirmed_by: 'user' })]);
+  });
+
+  it('stamps a connected client spend with the token that authorised it', async () => {
+    const state = await db();
+    const created: Array<Record<string, unknown>> = [];
+    const engine = {
+      estimate(request: Record<string, unknown>) {
+        return Promise.resolve({
+          request,
+          estimate: { estimate_usd: 0.02, route: { provider: 'fal', model: 'fal-ai/flux-2/klein/4b' } },
+        });
+      },
+      createJob(input: Record<string, unknown>) {
+        created.push(input);
+        return Promise.resolve({ job_id: 'client-job', status: 'queued' });
+      },
+    };
+    await generateTool.execute(
+      { requests: [{ kind: 'image', prompt: 'a teacup' }], confirm_cost_usd: 0.02 },
+      {
+        db: state,
+        scope: 'full',
+        engine: engine as never,
+        jobSource: 'mcp',
+        confirmedBy: 'mcp:01JTOKEN',
+      },
+    );
+    expect(created[0]).toMatchObject({ confirmed_by: 'mcp:01JTOKEN', request: { source: 'mcp' } });
   });
 
   it('reports NO_PROVIDER for transform until a provider arrives', async () => {

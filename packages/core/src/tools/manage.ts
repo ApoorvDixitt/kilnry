@@ -458,7 +458,10 @@ export const presetsTool: KilnryTool = {
       const job = await services.engine.createJob({
         request: request as never,
         confirmed_cost_usd: estimateUsd,
-        confirmed_by: 'mcp',
+        confirmed_by:
+          typeof services.confirmedBy === 'function'
+            ? services.confirmedBy('kilnry_presets', input)
+            : (services.confirmedBy ?? 'mcp'),
         preset_id: presetId,
       });
       return {

@@ -991,8 +991,10 @@ test('@m5 chat auto-runs one image below the threshold and lands it in the Libra
   // The image is below the $0.50 threshold, so no ApprovalCard appears.
   await expect.poll(async () => jobCount(page), { timeout: 30_000 }).toBe(beforeJobs + 1);
   await expect(page.locator('.chat-approval-card')).toHaveCount(0);
+  // The policy let this one through, so the job records the automatic decision
+  // rather than a user answer (TRD-04's confirmed_by).
   const job = await latestJob(page);
-  expect(job?.confirmedBy).toBe('user');
+  expect(job?.confirmedBy).toBe('auto');
   expect(job?.source).toBe('chat');
   await expect.poll(async () => (await latestJob(page))?.status, { timeout: 60_000 }).toBe('completed');
 

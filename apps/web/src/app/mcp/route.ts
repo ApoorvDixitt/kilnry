@@ -59,6 +59,10 @@ async function handle(request: Request): Promise<Response> {
       db: services.database,
       scope: auth.scope,
       adapters,
+      // A spend a client starts is attributable to the token that authorised it
+      // (TRD-04's confirmed_by "mcp:<token_id>").
+      jobSource: 'mcp',
+      confirmedBy: `mcp:${auth.id}`,
       assetUrl: (assetId: string) => `http://127.0.0.1:${config.port}/api/media/${assetId}`,
       ...(engine ? { engine } : {}),
       ...(config.library_root ? { libraryRoot: config.library_root } : {}),

@@ -176,11 +176,52 @@ export function approvalPolicy(
   return policy;
 }
 
+/** What stamped a spend: the card the user answered, or the policy itself. */
+export type Confirmer = 'user' | 'auto';
+
+/** One tool's approval decision, as the model call invokes it. */
+export type ApprovalDecider = (input: Record<string, unknown>) => Promise<ApprovalVerdict>;
+
+// The key a decision is remembered under. The confirmed cost the runtime injects
+// after an approval is ignored, so the call that executes is recognised as the
+// call that was judged.
+function decisionKey(name: string, input: Record<string, unknown>): string {
+  const rest = { ...input };
+  delete rest['confirm_cost_usd'];
+  return `${name}:${JSON.stringify(rest)}`;
+}
+
+/**
+ * Remember which path each spending call took, so the job it creates can record
+ * who confirmed it (TRD-04's confirmed_by: user for a call the ApprovalCard
+ * answered, auto for one the policy let through). The returned policy behaves
+ * exactly like the one passed in; only the bookkeeping is added.
+ */
+export function trackApprovals(policy: Record<string, ApprovalDecider>): {
+  policy: Record<string, ApprovalDecider>;
+  confirmerFor: (name: string, input: Record<string, unknown>) => Confirmer;
+} {
+  const decisions = new Map<string, Confirmer>();
+  const tracked: Record<string, ApprovalDecider> = {};
+  for (const [name, decide] of Object.entries(policy)) {
+    tracked[name] = async (input) => {
+      const verdict = await decide(input);
+      decisions.set(decisionKey(name, input ?? {}), verdict === undefined ? 'auto' : 'user');
+      return verdict;
+    };
+  }
+  return {
+    policy: tracked,
+    // A call the policy never judged cannot have shown a card, so it is the
+    // policy's own decision.
+    confirmerFor: (name, input) => decisions.get(decisionKey(name, input ?? {})) ?? 'auto',
+  };
+}
+
 /**
  * Cache pre-estimates for a short while by tool and input, so asking the policy
  * and then running the tool does not price the same call twice (TRD-11 §5).
- */
-export function cachedPreEstimate(
+ */ export function cachedPreEstimate(
   estimate: (name: string, input: Record<string, unknown>) => Promise<PreEstimate>,
   ttlMs = 60_000,
   now: () => number = Date.now,

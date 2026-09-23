@@ -74,16 +74,16 @@ function chunksFrom(text: string): Chunk[] {
     });
 }
 
-function fakeEngine() {
-  const createJob = vi.fn(async () => ({
-    job_id: 'must-not-run-before-approval',
-    status: 'queued',
-    estimate: { estimate_usd: 0.42 },
-  }));
+function fakeEngine(perRequestUsd = 0.42) {
+  const createdJobs: Array<Record<string, unknown>> = [];
+  const createJob = vi.fn(async (input: Record<string, unknown>) => {
+    createdJobs.push(input);
+    return { job_id: 'job-fixture', status: 'queued', estimate: { estimate_usd: perRequestUsd } };
+  });
   const estimate = vi.fn(async (request: Record<string, unknown>) => {
     const count = typeof request.count === 'number' ? request.count : 1;
     const model = typeof request.model === 'string' ? request.model : CHAI_VIDEO_MODEL;
-    const usd = Number((0.42 * count).toFixed(4));
+    const usd = Number((perRequestUsd * count).toFixed(4));
     return {
       request,
       estimate: {
@@ -102,7 +102,7 @@ function fakeEngine() {
       },
     };
   });
-  return { estimate, createJob };
+  return { estimate, createJob, createdJobs };
 }
 
 describe('POST /api/chat — scripted OpenRouter tool rounds', () => {
@@ -189,5 +189,65 @@ describe('POST /api/chat — scripted OpenRouter tool rounds', () => {
 
     expect(engine.createJob).not.toHaveBeenCalled();
     expect(await database.db.select().from(jobs)).toHaveLength(0);
+  }, 15_000);
+
+  it('stamps an automatic confirmer on a call the policy let through below the threshold', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'kilnry-chat-auto-'));
+    const dataDir = join(root, 'data');
+    const libraryRoot = join(root, 'library');
+    mkdirSync(dataDir, { recursive: true, mode: 0o700 });
+    mkdirSync(libraryRoot, { recursive: true });
+    process.env.KILNRY_DATA_DIR = dataDir;
+    process.env.KILNRY_LIBRARY_ROOT = libraryRoot;
+
+    const database = createDatabase(dataDir, { memory: true });
+    await database.ready;
+    await seedRegistry(database);
+    await database.db.insert(chatSessions).values({
+      id: 'chai-auto-session',
+      llmProvider: 'openrouter',
+      llmModel: 'anthropic/claude-sonnet-5',
+      autonomy: 'ask_first',
+      budgetUsd: '5.000000',
+      spentUsd: '0',
+      autoApproveBelowUsd: '0.500000',
+    });
+
+    // One cheap image: below the session threshold, so no card is raised and the
+    // policy's own decision is what the job records.
+    const engine = fakeEngine(0.01);
+    routeHarness.engine = engine;
+    routeHarness.services = {
+      database,
+      keyStore: {
+        get: async (provider: string) => (provider === 'openrouter' ? 'sk-or-v1-fixture' : undefined),
+      },
+    };
+    disposers.push(async () => {
+      delete process.env.KILNRY_DATA_DIR;
+      delete process.env.KILNRY_LIBRARY_ROOT;
+      await closeDatabaseState(database);
+      rmSync(root, { recursive: true, force: true });
+    });
+
+    const response = await POST(
+      new Request('http://127.0.0.1:3123/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session_id: 'chai-auto-session',
+          messages: [{ id: 'user-1', role: 'user', parts: [{ type: 'text', text: 'Make one chai poster' }] }],
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    const chunks = chunksFrom(await response.text());
+    expect(chunks.some((chunk) => chunk.type === 'tool-approval-request')).toBe(false);
+    expect(engine.createJob).toHaveBeenCalledTimes(1);
+    expect(engine.createdJobs[0]).toMatchObject({
+      confirmed_by: 'auto',
+      request: { source: 'chat' },
+    });
   }, 15_000);
 });

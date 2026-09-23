@@ -64,6 +64,7 @@ export {
   alwaysAsk,
   isSpendingAction,
   cachedPreEstimate,
+  trackApprovals,
   withConfirmedCost,
   deniedResult,
   AUTO_APPROVE_BELOW_USD_DEFAULT,
@@ -71,6 +72,7 @@ export {
   type ApprovalSession,
   type ApprovalPolicyInput,
   type ApprovalVerdict,
+  type Confirmer,
   type PreEstimate,
 } from './approval.js';
 

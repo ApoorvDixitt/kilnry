@@ -19,6 +19,7 @@ export interface JobRow {
   request?: { prompt?: string | null } | null;
   model?: string | null;
   modelId?: string | null;
+  confirmedBy?: string | null;
   provider?: string | null;
   providerId?: string | null;
   source?: string | null;
@@ -113,6 +114,17 @@ function statusLabel(status: string): string {
   return known.includes(status as JobStatus) ? message(`jobs.status.${status}`) : status;
 }
 
+// Who confirmed the spend (TRD-04's confirmed_by): the user answering a card,
+// a policy or threshold letting it through, or a Model Context Protocol token.
+export function confirmerLabel(confirmedBy: string | null | undefined): string {
+  if (confirmedBy === 'user') return message('jobs.confirmedByUser');
+  if (confirmedBy === 'auto') return message('jobs.confirmedByAuto');
+  if (typeof confirmedBy === 'string' && confirmedBy.startsWith('mcp:')) {
+    return message('jobs.confirmedByClient');
+  }
+  return '—';
+}
+
 export function JobsTable({
   rows,
   onRetry,
@@ -136,6 +148,7 @@ export function JobsTable({
             <th>{message('jobs.colPrompt')}</th>
             <th>{message('jobs.colModel')}</th>
             <th>{message('jobs.colCost')}</th>
+            <th>{message('jobs.colConfirmedBy')}</th>
             <th aria-label="actions" />
           </tr>
         </thead>
@@ -160,6 +173,7 @@ export function JobsTable({
                 <td className="jobs-cost" data-money="true">
                   {costCell(row)}
                 </td>
+                <td className="jobs-confirmer">{confirmerLabel(row.confirmedBy)}</td>
                 <td className="jobs-actions">
                   {actions.canCancel ? (
                     <button

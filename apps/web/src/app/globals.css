@@ -6277,6 +6277,19 @@ html[data-motion='reduced'] *::after {
   padding: 10px 0;
 }
 
+.chat-cost-row {
+  align-items: center;
+  color: var(--text-muted);
+  display: flex;
+  font-size: 13px;
+  justify-content: space-between;
+  padding: 6px 0;
+}
+
+.chat-cost-row [data-money='true'] {
+  font-family: var(--font-mono);
+}
+
 .chat-cost-ledger strong {
   font-family: var(--font-mono);
 }
