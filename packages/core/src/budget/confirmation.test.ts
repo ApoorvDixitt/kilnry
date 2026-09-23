@@ -4,7 +4,7 @@
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
 import { describe, expect, it } from 'vitest';
-import { confirmationDecision } from './confirmation.js';
+import { confirmationDecision, normalizeConfirmedBy } from './confirmation.js';
 
 describe('confirmationDecision (F-MCP-06)', () => {
   it('lets a free request proceed', () => {
@@ -34,5 +34,19 @@ describe('confirmationDecision (F-MCP-06)', () => {
     });
     // Above the threshold still needs confirmation.
     expect(confirmationDecision({ estimateUsd: 0.5, autoApproveBelowUsd: 0.1 }).proceed).toBe(false);
+  });
+});
+
+describe('normalizeConfirmedBy (F-CHT-01, TRD-04)', () => {
+  it('accepts user, auto and mcp:<token_id>', () => {
+    expect(normalizeConfirmedBy('user')).toBe('user');
+    expect(normalizeConfirmedBy('auto')).toBe('auto');
+    expect(normalizeConfirmedBy('mcp:01HZX')).toBe('mcp:01HZX');
+  });
+
+  it('refuses any other value', () => {
+    for (const value of ['sheet', 'mcp:', 'mcp', 'admin', '']) {
+      expect(() => normalizeConfirmedBy(value)).toThrow(/confirmed_by/);
+    }
   });
 });

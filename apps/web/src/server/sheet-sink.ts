@@ -67,7 +67,8 @@ export async function sheetEngine(): Promise<SheetEngine> {
       const created = await engine.createJob({
         request: canonical.request,
         constraints: canonical.constraints,
-        confirmed_by: 'sheet',
+        // The user confirmed the sheet's cost when they started the run.
+        confirmed_by: 'user',
         ...(input.client_request_id ? { client_request_id: input.client_request_id } : {}),
       });
       return { job_id: created.job_id, status: created.status };

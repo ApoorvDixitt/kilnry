@@ -11,6 +11,8 @@
 // charge. A budget cap that would be exceeded is a separate, harder failure that
 // the engine raises as BUDGET_EXCEEDED when the job is created.
 
+import { KilnryError } from '../errors.js';
+
 export interface ConfirmationInput {
   // The total estimated cost in US dollars for the whole request set.
   estimateUsd: number;
@@ -40,4 +42,17 @@ export function confirmationDecision(input: ConfirmationInput): ConfirmationDeci
   if (threshold > 0 && estimate <= threshold) return { proceed: true, reason: 'auto_approved' };
 
   return { proceed: false, reason: 'needs_confirmation' };
+}
+
+// The only values a job's confirmed_by may hold (TRD-04): the user who confirmed
+// the cost, the automatic policy, or the Model Context Protocol token that
+// authorised it. The write boundary calls this so no other value ever reaches
+// the jobs table.
+export function normalizeConfirmedBy(value: string): string {
+  if (value === 'user' || value === 'auto') return value;
+  if (/^mcp:[A-Za-z0-9_-]+$/.test(value)) return value;
+  throw new KilnryError(
+    'INVALID_INPUT',
+    `confirmed_by must be "user", "auto" or "mcp:<token_id>", not ${JSON.stringify(value)}.`,
+  );
 }

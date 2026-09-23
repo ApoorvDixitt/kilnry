@@ -138,7 +138,9 @@ async function submitGenerate(
       count: 1,
       injections: [],
     },
-    confirmed_by: 'sheet',
+    // The user clicked Run and confirmed the sheet's cost, so the job is confirmed
+    // by the user (TRD-04's confirmed_by set is user | auto | mcp:<token_id>).
+    confirmed_by: 'user',
     client_request_id: `${runId}:${stepId}`,
   });
   await db.db

@@ -11,6 +11,7 @@ import type { DatabaseState } from '@kilnry/db';
 import { jobs, providers, spendLedger, characters, characterVersions } from '@kilnry/db';
 import { resolveMediaInputs } from './media-inputs.js';
 import { assertCostConfirmation, reserveBudget } from '../budget/enforcer.js';
+import { normalizeConfirmedBy } from '../budget/confirmation.js';
 import { KilnryError } from '../errors.js';
 import { eventHub, type EventHub } from '../events/hub.js';
 import { ulid } from '../ids.js';
@@ -450,7 +451,7 @@ export class JobEngine {
       ...(input.preset_id === undefined ? {} : { presetId: input.preset_id }),
       targetFolder: prepared.request.target_folder,
       confirmedCostUsd: input.confirmed_cost_usd?.toFixed(6) ?? '0.000000',
-      confirmedBy: input.confirmed_by,
+      confirmedBy: normalizeConfirmedBy(input.confirmed_by),
       createdAt: this.#options.now(),
       stepLabel: 'queued',
     };

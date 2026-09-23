@@ -30,6 +30,7 @@ import { loadConfig, loadRegistry } from '@kilnry/core';
 import { assets as assetsTable, chatSessions, settings, spendLedger } from '@kilnry/db';
 import { adapters, detectOllama } from '@kilnry/providers';
 import { bundledSkillsRoot, promptLibraryRoot } from '@kilnry/skills';
+import { validateUIMessages } from 'ai';
 import { eq, sql } from 'drizzle-orm';
 import { NextResponse } from 'next/server';
 import * as z from 'zod';
@@ -52,6 +53,10 @@ export async function POST(request: Request): Promise<Response> {
   try {
     await requireSession();
     const input = Input.parse(await request.json());
+    // Validate the chat transport payload against the AI SDK UI-message schema at
+    // the boundary, so a malformed or hostile message array is rejected before it
+    // reaches the agent rather than being cast through unchecked (F-CHT-01).
+    const messages = await validateUIMessages({ messages: input.messages });
     const services = await runtimeServices();
     const config = loadConfig();
     const engine = await ensureRuntimeEngine().catch(() => undefined);
@@ -173,7 +178,7 @@ export async function POST(request: Request): Promise<Response> {
 
     return streamChatTurn({
       session,
-      messages: input.messages as never,
+      messages,
       llm,
       promptsRoot: promptLibraryRoot(),
       tools,
