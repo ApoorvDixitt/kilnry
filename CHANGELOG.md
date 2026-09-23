@@ -4,6 +4,30 @@ All notable changes to Kilnry are documented here. The format follows Keep a Cha
 
 ## [Unreleased]
 
+### Added
+
+- The fifty seed registry rows for Google, OpenAI, ElevenLabs, MiniMax, Higgsfield and Replicate, so their models price and route without a manual entry (F-PRV-02).
+- The Create half of the Higgsfield scenario: Soul 2 appears in the model picker with its trains-on-inputs tag, the acknowledged-clause card, the real-person likeness confirm and the authoritative estimate (F-PRV-06).
+- The Check status action for an ambiguous timeout, which re-polls the stored provider request instead of resubmitting it (F-JOB-04).
+- The session-cap pause, which stops a Chat turn once the running spend would cross the session budget cap (F-CHT-02).
+- The confirmer distinction, showing who approved a spend — the user, the automatic policy, or a Model Context Protocol token — in the Jobs table and the Chat Cost tab (F-CHT-03).
+
+### Fixed
+
+- The cross-site request forgery token was omitted across the composer, the chat transport, the preset drawer, save-as-preset, preset import and the disk banner; every mutating request now sends it (F-CHT-03).
+- Six preset defects meant a preset run never finished in v0.3.0: resolve and save dropped the token, the resolve route did not return the engine's request-and-estimate pair, the drawer had no in-drawer Library picker for a media slot, a stale resolve answer could win over a newer one, a local media input was never uploaded, and "preset" was missing from the sidecar source enum (F-PRE-02).
+- Lip-sync never ran in v0.3.0 because the media role was invalid, the audio was never attached, and the panel fields were passed as generation parameters; lip-sync now runs from a Library asset (F-CRE-11).
+- Chat messages were rejected with a 403 because the streamed turn did not carry the cross-site request forgery token (F-CHT-01).
+- The approval callback used an obsolete signature, so approval streams arrived with no priced plan (F-CHT-03).
+- Explicit model pins were ignored, an approved job recorded the wrong source and approver, the Cost tab was inert and the session controls were absent, and the Jobs table left the Prompt and Model columns blank (F-CHT-03).
+- Every chat spend was stamped as approved by the user regardless of who actually approved it (F-CHT-03).
+- The summarised consent lines in the clone drawer are now labelled as the provider's summarised policy and linked to it (F-VOI-02).
+- `kilnry_generate` routed on an absent capability instead of the one derived from the request kind (F-MCP-02).
+
+### Changed
+
+- The preset-run and export-bundle scenarios now drive the drawer and the dialog through the interface instead of calling the application programming interface directly (F-PRE-02, F-LIB-14).
+
 ## [0.3.0] - 2026-09-22
 
 ### Added
