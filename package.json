@@ -1,6 +1,6 @@
 {
   "name": "kilnry-monorepo",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "description": "Local-first AI media studio",
   "author": "Apoorv Dixit (https://github.com/ApoorvDixitt)",

@@ -4,6 +4,8 @@ All notable changes to Kilnry are documented here. The format follows Keep a Cha
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-09-23
+
 ### Added
 
 - The fifty seed registry rows for Google, OpenAI, ElevenLabs, MiniMax, Higgsfield and Replicate, so their models price and route without a manual entry (F-PRV-02).

@@ -1,6 +1,6 @@
 {
   "name": "kilnry",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Kilnry npm launcher",
   "type": "module",
   "author": "Apoorv Dixit (https://github.com/ApoorvDixitt)",
