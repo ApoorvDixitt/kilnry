@@ -188,8 +188,9 @@ export const charactersTool: KilnryTool = {
   },
 };
 
-// kilnry_voices — presets, previews, cloning. Read paths only in M4; preview and
-// clone route to the providers, which arrive in a later milestone.
+// kilnry_voices — list presets and clones, preview a voice, clone a new one, or
+// delete a stored one. Listing and previewing are read-only; cloning and
+// deletion change state.
 export const voicesTool: KilnryTool = {
   name: 'kilnry_voices',
   description:
@@ -200,6 +201,9 @@ export const voicesTool: KilnryTool = {
     language: z.string().optional(),
     query: z.string().optional(),
     name: z.string().optional(),
+    voice_id: z.string().optional(),
+    text: z.string().optional(),
+    voice_ulid: z.string().optional(),
     sample_url: z.string().optional(),
     sample_seconds: z.number().optional(),
     consent: z.boolean().optional(),
@@ -209,6 +213,9 @@ export const voicesTool: KilnryTool = {
   outputSchema: {
     voices: z.array(z.record(z.string(), z.unknown())).optional(),
     voice: z.record(z.string(), z.unknown()).optional(),
+    audio_data_uri: z.string().optional(),
+    estimate_usd: z.number().optional(),
+    deleted: z.string().optional(),
     error: z.record(z.string(), z.unknown()).optional(),
   },
   // Cloning and deletion change state, so the tool is not read-only overall
@@ -259,8 +266,41 @@ export const voicesTool: KilnryTool = {
         return toolError(code, error instanceof Error ? error.message : 'The voice could not be cloned.');
       }
     }
-    if (action !== 'list') {
-      return toolError('NO_PROVIDER', 'Voice preview and deletion arrive in a later milestone.');
+    if (action === 'preview') {
+      if (!services.voicePreviewer) {
+        return toolError('NO_PROVIDER', 'Voice preview is not available on this connection.');
+      }
+      const voiceId = typeof input.voice_id === 'string' ? input.voice_id : '';
+      const provider = typeof input.provider === 'string' ? input.provider : '';
+      if (!voiceId || !provider) {
+        return toolError('INVALID_INPUT', 'Preview needs a provider and a voice_id.');
+      }
+      try {
+        const result = await services.voicePreviewer.preview({
+          provider,
+          voiceId,
+          ...(typeof input.text === 'string' ? { text: input.text } : {}),
+        });
+        const audioDataUri = `data:${result.mime};base64,${Buffer.from(result.bytes).toString('base64')}`;
+        return {
+          text: `Previewed ${voiceId} (≈ $${result.estimate_usd.toFixed(4)}).`,
+          structuredContent: { audio_data_uri: audioDataUri, estimate_usd: result.estimate_usd },
+        };
+      } catch (error) {
+        const code =
+          error && typeof error === 'object' && 'code' in error ? String(error.code) : 'PROVIDER_ERROR';
+        return toolError(code, error instanceof Error ? error.message : 'The voice could not be previewed.');
+      }
+    }
+    if (action === 'delete') {
+      if (!services.voiceDeleter) {
+        return toolError('NO_PROVIDER', 'Voice deletion is not available on this connection.');
+      }
+      const voiceUlid = typeof input.voice_ulid === 'string' ? input.voice_ulid : '';
+      if (!voiceUlid) return toolError('INVALID_INPUT', 'Deletion needs a voice_ulid.');
+      const removed = await services.voiceDeleter.delete(voiceUlid);
+      if (!removed) return toolError('NOT_FOUND', 'No such voice.');
+      return { text: `Deleted voice ${voiceUlid}.`, structuredContent: { deleted: voiceUlid } };
     }
     const filter: { provider?: string; language?: string; query?: string } = {};
     if (typeof input.provider === 'string') filter.provider = input.provider;

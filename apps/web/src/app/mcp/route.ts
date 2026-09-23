@@ -18,7 +18,7 @@ import { adapters } from '@kilnry/providers';
 import { authenticateMcp, isAllowedMcpHost } from '../../server/mcp';
 import { presetServices } from '../../server/presets';
 import { trainingRunner } from '../../server/training';
-import { voiceCloner } from '../../server/voices';
+import { voiceCloner, voiceDeleter, voicePreviewer } from '../../server/voices';
 import { bundleExporter } from '../../server/library-export';
 import { ensureRuntimeEngine, runtimeServices } from '../../server/runtime';
 
@@ -72,6 +72,8 @@ async function handle(request: Request): Promise<Response> {
       presets: await presetServices(),
       training: await trainingRunner(),
       voiceCloner: await voiceCloner(),
+      voicePreviewer: await voicePreviewer(),
+      voiceDeleter: await voiceDeleter(),
       ...(config.library_root ? { bundleExporter: await bundleExporter() } : {}),
     },
   });

@@ -66,6 +66,13 @@ export interface ToolServices {
   // caller because it needs provider keys; absent means cloning is not available
   // on this surface.
   voiceCloner?: VoiceCloner;
+  // Voice preview for the kilnry_voices.preview action (F-VOI-01). Supplied by
+  // the caller because it needs provider keys; absent means preview is not
+  // available on this surface.
+  voicePreviewer?: VoicePreviewer;
+  // Voice deletion for the kilnry_voices.delete action (F-VOI-01). Absent means
+  // deletion is not available on this surface.
+  voiceDeleter?: VoiceDeleter;
   // Export bundle builder for kilnry_library_manage.export_bundle (F-LIB-14).
   // Supplied by the caller because it needs the media package's strip and label
   // helpers; absent means export is not available on this surface.
@@ -103,6 +110,20 @@ export interface VoiceCloner {
     confirmed_cost_usd: number;
     bind_to?: string;
   }): Promise<{ voice_ulid: string; provider: string; voice_id: string; bound_to?: string }>;
+}
+
+/** What the preview action needs: a priced, budget-checked voice preview. */
+export interface VoicePreviewer {
+  preview(input: {
+    provider: string;
+    voiceId: string;
+    text?: string;
+  }): Promise<{ bytes: Uint8Array; mime: string; estimate_usd: number }>;
+}
+
+/** What the delete action needs: remove a stored voice and its bindings. */
+export interface VoiceDeleter {
+  delete(voiceUlid: string): Promise<boolean>;
 }
 
 /** What the train action needs: consent-gated identity training. */

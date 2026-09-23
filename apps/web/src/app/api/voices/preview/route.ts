@@ -5,10 +5,8 @@
 
 import { NextResponse } from 'next/server';
 import * as z from 'zod';
-import { KilnryError } from '@kilnry/core';
-import { synthesizeSpeech } from '@kilnry/providers';
 import { errorResponse, requireSession } from '../../../../server/http';
-import { runtimeServices } from '../../../../server/runtime';
+import { voicePreviewer } from '../../../../server/voices';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -19,34 +17,28 @@ const Body = z.object({
   text: z.string().max(200).optional(),
 });
 
-const SAMPLE = 'Hello from Kilnry. This is how this voice sounds.';
-
-// Preview a voice (F-VOI-01). When an ElevenLabs key is connected, the route
-// synthesises a short sample with the chosen voice and returns it inline as a
-// data URI the Voices tab can play. Other providers' previews arrive with their
-// own synthesis paths; until then the route says so plainly rather than
-// pretending. The sample text is short and fixed, so a preview costs a few
-// cents at most.
+// Preview a voice (F-VOI-01). The preview is priced through the estimator,
+// checked against the budget caps and recorded as one spend-ledger row before
+// the sample is synthesised, so even a few-cent preview shows up in the budget.
+// The audio is returned inline as a data URI the Voices tab can play. Previews
+// for providers without a wired synthesis path return a plain not-available
+// message rather than pretending.
 export async function POST(request: Request): Promise<Response> {
   try {
     await requireSession();
     const body = Body.parse(await request.json());
-    if (body.provider !== 'elevenlabs')
-      throw new KilnryError(
-        'NO_PROVIDER',
-        `Previews for ${body.provider} voices arrive with that provider's synthesis path. Connect an ElevenLabs key to preview ElevenLabs voices now.`,
-      );
-    const services = await runtimeServices();
-    const key = await services.keyStore.get('elevenlabs');
-    if (!key)
-      throw new KilnryError('NO_PROVIDER', 'Connect an ElevenLabs key in Settings › Providers to preview.');
-    const audio = await synthesizeSpeech({
-      key,
-      voice_id: body.voice_id,
-      text: body.text ?? SAMPLE,
+    const previewer = await voicePreviewer();
+    const result = await previewer.preview({
+      provider: body.provider,
+      voiceId: body.voice_id,
+      ...(body.text ? { text: body.text } : {}),
     });
-    const base64 = Buffer.from(audio.bytes).toString('base64');
-    return NextResponse.json({ mime: audio.mime, audio_data_uri: `data:${audio.mime};base64,${base64}` });
+    const base64 = Buffer.from(result.bytes).toString('base64');
+    return NextResponse.json({
+      mime: result.mime,
+      audio_data_uri: `data:${result.mime};base64,${base64}`,
+      estimate_usd: result.estimate_usd,
+    });
   } catch (error) {
     return errorResponse(error);
   }

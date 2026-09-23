@@ -68,9 +68,49 @@ describe('read tools (F-MCP-02 §3.3, §3.4)', () => {
     expect(voices.length).toBeGreaterThan(0);
   });
 
-  it('returns NO_PROVIDER for voice preview until a provider arrives', async () => {
+  it('returns NO_PROVIDER for voice preview when no previewer is wired', async () => {
     const state = await db();
     const result = await voicesTool.execute({ action: 'preview' }, { db: state, scope: 'full' });
     expect((result.structuredContent.error as { code: string }).code).toBe('NO_PROVIDER');
+  });
+
+  it('previews a voice through the injected previewer and returns audio', async () => {
+    const state = await db();
+    const result = await voicesTool.execute(
+      { action: 'preview', provider: 'elevenlabs', voice_id: 'v1' },
+      {
+        db: state,
+        scope: 'full',
+        voicePreviewer: {
+          preview: async () => ({
+            bytes: new Uint8Array([1, 2, 3]),
+            mime: 'audio/mpeg',
+            estimate_usd: 0.005,
+          }),
+        },
+      },
+    );
+    expect(String(result.structuredContent.audio_data_uri)).toMatch(/^data:audio\/mpeg;base64,/);
+    expect(result.structuredContent.estimate_usd).toBe(0.005);
+  });
+
+  it('deletes a stored voice through the injected deleter', async () => {
+    const state = await db();
+    const deleted: string[] = [];
+    const result = await voicesTool.execute(
+      { action: 'delete', voice_ulid: 'voice-1' },
+      {
+        db: state,
+        scope: 'full',
+        voiceDeleter: {
+          delete: async (id: string) => {
+            deleted.push(id);
+            return true;
+          },
+        },
+      },
+    );
+    expect(result.structuredContent.deleted).toBe('voice-1');
+    expect(deleted).toEqual(['voice-1']);
   });
 });
