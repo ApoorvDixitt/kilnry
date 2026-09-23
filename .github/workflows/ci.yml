@@ -84,5 +84,10 @@ jobs:
         run: pnpm e2e --grep "@m3|@m4|@m5|@gate"
       - name: Production build
         run: pnpm build
+        env:
+          # The production artefact must be built as a release: this makes the
+          # runtime and the request proxy refuse to run with the test mock
+          # service worker enabled (F-SET-08).
+          KILNRY_RELEASE_BUILD: '1'
       - name: Audit production dependencies
         run: pnpm audit --prod

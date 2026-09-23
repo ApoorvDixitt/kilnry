@@ -125,6 +125,17 @@ function principalKey(request: NextRequest): string {
 export function proxy(request: NextRequest): NextResponse {
   const nonce = randomBytes(16).toString('base64');
   const requestId = ulid();
+  // A release build must never run with the test mock service worker enabled, or
+  // the sign-in rate limit and other controls would be relaxed in production. If
+  // both are set, refuse to serve any request rather than boot in a weakened
+  // state (F-SET-08, TRD-15).
+  if (process.env.KILNRY_RELEASE_BUILD === '1' && process.env.KILNRY_TEST_MSW === '1') {
+    return addSecurityHeaders(
+      new NextResponse('KILNRY_TEST_MSW is forbidden in release builds.', { status: 503 }),
+      nonce,
+      requestId,
+    );
+  }
   const host = hostOnly(request.headers.get('host'));
   if (!allowedHost(host))
     return addSecurityHeaders(new NextResponse('Misdirected Request', { status: 421 }), nonce, requestId);
@@ -178,7 +189,8 @@ export function proxy(request: NextRequest): NextResponse {
       return addSecurityHeaders(new NextResponse('Origin required', { status: 403 }), nonce, requestId);
     const csrfExempt =
       request.nextUrl.pathname.startsWith('/api/auth/') ||
-      request.headers.get('x-kilnry-doctor') === 'reindex';
+      (request.nextUrl.pathname === '/api/library/reindex' &&
+        request.headers.get('x-kilnry-doctor') === 'reindex');
     if (
       !csrfExempt &&
       !sameSecret(request.cookies.get('kilnry_csrf')?.value, request.headers.get('x-kilnry-csrf'))
