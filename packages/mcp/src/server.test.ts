@@ -5,8 +5,8 @@
 
 import { describe, expect, it } from 'vitest';
 import * as z from 'zod';
-import { toolAllowedForScope, type KilnryTool, type ToolServices } from '@kilnry/core';
-import { MCP_INSTRUCTIONS, TOOLS_LIST_TTL_MS, createKilnryMcpServer } from './server.js';
+import { KILNRY_TOOLS, toolAllowedForScope, type KilnryTool, type ToolServices } from '@kilnry/core';
+import { MCP_INSTRUCTIONS, TOOLS_LIST_TTL_MS, createKilnryMcpServer, handleMcpRequest } from './server.js';
 
 const services = { db: {} as never, scope: 'full' } as ToolServices;
 
@@ -92,5 +92,40 @@ describe('MCP server core (F-MCP-01)', () => {
       tools: [readOnlyTool('kilnry_models')],
     });
     expect(server).toBeDefined();
+  });
+
+  it('serves a legacy 2025-11-25 client initialize and tools/list over the endpoint (F-MCP-08)', async () => {
+    // A legacy client speaks the 2025-11-25 protocol version. handleMcpRequest
+    // routes it to the legacy transport on the same endpoint; a full initialize
+    // then tools/list round-trip must return the twenty Kilnry tools.
+    const post = (id: number, method: string, params: Record<string, unknown>): Request =>
+      new Request('http://127.0.0.1/mcp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
+        body: JSON.stringify({ jsonrpc: '2.0', id, method, params }),
+      });
+    const parse = async (response: Response): Promise<Record<string, unknown>> => {
+      const text = await response.text();
+      const line = text.includes('data:') ? (text.split('data:').at(-1) ?? text) : text;
+      return JSON.parse(line.trim()) as Record<string, unknown>;
+    };
+    const options = { version: '0.3.2', services, tools: KILNRY_TOOLS };
+
+    const initResponse = await handleMcpRequest(
+      post(1, 'initialize', {
+        protocolVersion: '2025-11-25',
+        capabilities: {},
+        clientInfo: { name: 'kilnry-legacy-test', version: '0' },
+      }),
+      options,
+    );
+    const initBody = await parse(initResponse);
+    expect((initBody.result as { protocolVersion?: string })?.protocolVersion).toBe('2025-11-25');
+
+    const listResponse = await handleMcpRequest(post(2, 'tools/list', {}), options);
+    const listBody = await parse(listResponse);
+    const tools = (listBody.result as { tools?: Array<{ name: string }> })?.tools ?? [];
+    expect(tools).toHaveLength(20);
+    expect(tools.every((tool) => tool.name.startsWith('kilnry_'))).toBe(true);
   });
 });

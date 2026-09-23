@@ -473,6 +473,26 @@ test('@matrix MCP client matrix reports only what it ran', async ({ page, reques
   const readOnlyCloneRefused = readOnlyCloneStructured?.error?.code === 'INVALID_INPUT';
   expect(readOnlyCloneRefused).toBe(true);
 
+  // A legacy client (2025-11-25 protocol) initialises and lists tools over the
+  // same endpoint (F-MCP-08). It must negotiate the legacy version and return the
+  // twenty tools, proving the legacy transport is live, not just the modern one.
+  const legacyInit = await rpc(
+    request,
+    bearer,
+    'initialize',
+    {
+      protocolVersion: '2025-11-25',
+      capabilities: {},
+      clientInfo: { name: 'kilnry-matrix-legacy', version: '0' },
+    },
+    8,
+  );
+  const legacyProtocol = (legacyInit.parsed.result as { protocolVersion?: string })?.protocolVersion;
+  const legacyTools = await rpc(request, bearer, 'tools/list', {}, 9);
+  const legacyToolCount = toolsOf(legacyTools.parsed).length;
+  expect(legacyProtocol).toBe('2025-11-25');
+  expect(legacyToolCount).toBe(20);
+
   rmSync(outDir, { recursive: true, force: true });
   mkdirSync(outDir, { recursive: true });
 
@@ -494,6 +514,8 @@ test('@matrix MCP client matrix reports only what it ran', async ({ page, reques
         generate_started_job_after_confirm: typeof startedJob === 'string',
         read_only_token_lists_voices: readOnlyListError === undefined,
         read_only_token_clone_refused: readOnlyCloneRefused,
+        legacy_2025_11_25_protocol: legacyProtocol,
+        legacy_2025_11_25_tool_count: legacyToolCount,
         resources_list_response: resourcesList.parsed,
       },
       null,
