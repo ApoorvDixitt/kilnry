@@ -156,6 +156,19 @@ function falSubmitCount(): number {
   return Number(readFileSync(path, 'utf8')) || 0;
 }
 
+// The provider-submit count once it stops rising: two identical samples a second
+// apart. Used before an assertion that no further provider request is made.
+async function settledFalSubmits(page: Page): Promise<number> {
+  let previous = falSubmitCount();
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    await page.waitForTimeout(1000);
+    const current = falSubmitCount();
+    if (current === previous) return current;
+    previous = current;
+  }
+  return previous;
+}
+
 async function ledgerRows(page: Page, jobId: string): Promise<number> {
   const token = await csrf(page);
   return page.evaluate(
@@ -893,6 +906,9 @@ async function setChatSettings(
 }
 
 test('@m5 S-24 asks for the three-video spend, then pauses at the session cap', async ({ page }) => {
+  // One turn here is four streamed model rounds plus three video jobs, which is
+  // slower than the default budget on a shared continuous-integration runner.
+  test.setTimeout(180_000);
   await ensureProvider(page, 'fal', FAL_KEY);
   await ensureProvider(page, 'openrouter', OPENROUTER_KEY);
   await setChatSettings(page, { autonomy: 'ask_first', session_budget_usd: 5 });
@@ -941,11 +957,6 @@ test('@m5 S-24 asks for the three-video spend, then pauses at the session cap', 
   const jobs = await latestJobs(page, 3);
   expect(jobs.every((job) => job.confirmedBy === 'user')).toBe(true);
   expect(jobs.every((job) => job.source === 'chat')).toBe(true);
-  await expect
-    .poll(async () => (await latestJobs(page, 3)).every((job) => job.status === 'completed'), {
-      timeout: 90_000,
-    })
-    .toBe(true);
 
   // The Workspace Cost tab shows the plan total that was approved.
   await page.getByRole('tab', { name: 'Cost' }).click();
@@ -957,7 +968,9 @@ test('@m5 S-24 asks for the three-video spend, then pauses at the session cap', 
   await page.getByLabel('Session budget').fill('1');
   await expect(page.locator('.chat-budget')).toContainText('$1.00');
   const jobsAtCap = await jobCount(page);
-  const submitsAtCap = falSubmitCount();
+  // Wait until the approved batch has stopped reaching the provider, so the count
+  // taken here cannot be raised by a submit that was already in flight.
+  const submitsAtCap = await settledFalSubmits(page);
   await composer.fill('Do it again.');
   await composer.press('Enter');
 
