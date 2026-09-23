@@ -16,15 +16,28 @@ import { createHash } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { eq, and } from 'drizzle-orm';
-import { characterVersions, characters, trainedIdentities, type DatabaseState } from '@kilnry/db';
+import {
+  auditEvents,
+  characterVersions,
+  characters,
+  spendLedger,
+  trainedIdentities,
+  type DatabaseState,
+} from '@kilnry/db';
 import type { AdapterContext, ProviderAdapter, SubmitHandle } from '../providers/adapter.js';
 import { KilnryError } from '../errors.js';
 import { ulid } from '../ids.js';
+import { assertCostConfirmation, reserveBudget } from '../budget/enforcer.js';
+import { estimate as priceEstimate } from '../registry/estimator.js';
+import { loadRegistry } from '../registry/store.js';
+import type { CanonicalRequest, Estimate } from '../types.js';
 import { assertConsentForTraining } from './consent.js';
 import { loadVersion } from './store.js';
 
-// The trainers Kilnry offers and their list prices (PRD-07 §8; shown live from
-// the registry in the UI, these are the defaults the orchestrator prices with).
+// The trainers Kilnry offers (PRD-07 §8). The price is not on the card: each
+// trainer's cost is priced from its registry row through the estimator, so the
+// figure the user confirms is the figure the registry holds. `trainerModelId`
+// maps a trainer to the registry model that carries its price rule.
 export type TrainerId = 'fal' | 'replicate' | 'higgsfield';
 
 export interface TrainerCard {
@@ -66,6 +79,46 @@ export const TRAINERS: Record<TrainerId, TrainerCard> = {
   },
 };
 
+// The registry model whose price rule prices each trainer's run, and the
+// capability that model advertises (PRD-07 §8, TRD-07 §5). fal's FLUX LoRA is
+// billed per step; Replicate's fast-flux per compute second; a Higgsfield Soul
+// ID is a flat per-run charge.
+const TRAINER_PRICING: Record<TrainerId, { model_id: string; capability: CanonicalRequest['capability'] }> = {
+  fal: { model_id: 'fal-ai/flux-lora-fast-training', capability: 'train_lora' },
+  replicate: { model_id: 'replicate/fast-flux-trainer', capability: 'train_lora' },
+  higgsfield: { model_id: '/v1/custom-references', capability: 'train_identity' },
+};
+
+// Price a training run from the registry so the confirmed figure is the figure
+// the registry holds (F-CHR-07, F-PRV-05). The estimate carries the provider's
+// authoritative figure when one is available and the formula figure otherwise.
+export async function priceTraining(db: DatabaseState, trainer: TrainerId, steps: number): Promise<Estimate> {
+  const pricing = TRAINER_PRICING[trainer];
+  const registry = await loadRegistry(db);
+  const model = registry.models.find(
+    (candidate) => candidate.provider === trainer && candidate.model_id === pricing.model_id,
+  );
+  const snapshot = model ? registry.snapshots.get(`${trainer}:${pricing.model_id}`) : undefined;
+  if (!model || !snapshot) {
+    throw new KilnryError(
+      'NO_PROVIDER',
+      `No price is registered for ${trainer} training; refresh provider prices and try again.`,
+    );
+  }
+  const request: CanonicalRequest = {
+    kind: 'image',
+    capability: pricing.capability,
+    prompt: `train ${trainer}`,
+    params: {},
+    medias: [],
+    injections: [],
+    count: 1,
+    target_folder: 'inbox',
+    source: 'ui',
+  };
+  return priceEstimate({ model, snapshot, request, steps });
+}
+
 // The trigger word a LoRA is trained with (PRD-07 §8): the handle stripped to
 // letters and digits with a trailing "k", rejected if under four characters.
 export function triggerWordFor(handle: string): string {
@@ -83,7 +136,6 @@ export interface TrainingInput {
   steps?: number;
   trigger_word?: string;
   confirmed_cost_usd: number;
-  cost_usd?: number;
 }
 
 export interface TrainingServices {
@@ -165,6 +217,21 @@ export async function startTraining(
   const key = await services.keyFor(input.trainer);
   if (!key) throw new KilnryError('NO_PROVIDER', `${input.trainer} has no connected key.`);
 
+  // Price the run from the registry, refuse to start unless the confirmed figure
+  // matches the priced one, and reserve the estimate against the budget caps
+  // before any provider request is made (F-CHR-07, F-PRV-05). The estimate, the
+  // reservation and the ledger row all use this one figure.
+  const steps = input.steps ?? 1000;
+  const trainingEstimate = await priceTraining(services.db, input.trainer, steps);
+  assertCostConfirmation(trainingEstimate, input.confirmed_cost_usd);
+  await reserveBudget(services.db.db, {
+    estimate_usd: trainingEstimate.estimate_usd,
+    provider: input.trainer,
+    folder: 'inbox',
+    now: now(),
+  });
+  const chargedUsd = trainingEstimate.authoritative_usd ?? trainingEstimate.estimate_usd;
+
   const loaded = await loadVersion(services.db, characterId, version);
   const sources = loaded.references
     .filter((reference) => reference.role !== 'grid')
@@ -193,9 +260,19 @@ export async function startTraining(
       kind: 'soul_id',
       remoteId,
       status: 'ready',
-      costUsd: input.cost_usd,
+      costUsd: chargedUsd,
       trainedAt: now(),
       sourceAssetIds: sources.map((source) => source.asset_id),
+    });
+    await recordTrainingSpend(services.db, {
+      identityId,
+      trainer: 'higgsfield',
+      modelId: TRAINER_PRICING.higgsfield.model_id,
+      estimateUsd: trainingEstimate.estimate_usd,
+      actualUsd: chargedUsd,
+      characterId,
+      handle: input.handle,
+      now: now(),
     });
     return {
       identity_id: identityId,
@@ -213,7 +290,6 @@ export async function startTraining(
   if (!isValidTriggerWord(trigger)) {
     throw new KilnryError('INVALID_INPUT', 'A trigger word must be at least four letters or digits.');
   }
-  const steps = input.steps ?? 1000;
   const context = adapterContext(key, fetchImpl);
   const request = {
     kind: 'image' as const,
@@ -260,7 +336,7 @@ export async function startTraining(
       trained_at: trainedAt.toISOString(),
       expires_at: expiresAt.toISOString(),
       source_asset_ids: sources.map((source) => source.asset_id),
-      cost_usd: input.cost_usd ?? null,
+      cost_usd: chargedUsd,
       trainer_model_id: card.model_id,
       steps,
     };
@@ -278,10 +354,20 @@ export async function startTraining(
       localPath,
       artifactUrl: artefactUrl,
       sha256,
-      costUsd: input.cost_usd,
+      costUsd: chargedUsd,
       trainedAt,
       expiresAt,
       sourceAssetIds: sources.map((source) => source.asset_id),
+    });
+    await recordTrainingSpend(services.db, {
+      identityId,
+      trainer: input.trainer,
+      modelId: TRAINER_PRICING[input.trainer].model_id,
+      estimateUsd: trainingEstimate.estimate_usd,
+      actualUsd: chargedUsd,
+      characterId,
+      handle: input.handle,
+      now: trainedAt,
     });
     return {
       identity_id: identityId,
@@ -379,6 +465,44 @@ interface IdentityRow {
   expiresAt?: Date | undefined;
   sourceAssetIds?: string[] | undefined;
   error?: string | undefined;
+}
+
+// Record a completed training run as exactly one spend-ledger row and one audit
+// event (F-CHR-07, F-PRV-05, TRD-15). The ledger row has no job id because
+// training does not go through the job queue; it is keyed by the identity id so
+// a run is charged at most once.
+async function recordTrainingSpend(
+  db: DatabaseState,
+  input: {
+    identityId: string;
+    trainer: TrainerId;
+    modelId: string;
+    estimateUsd: number;
+    actualUsd: number;
+    characterId: string;
+    handle: string;
+    now: Date;
+  },
+): Promise<void> {
+  await db.db.insert(spendLedger).values({
+    id: input.identityId,
+    providerId: input.trainer,
+    modelId: input.modelId,
+    folder: 'inbox',
+    characterIds: [input.characterId],
+    kind: 'train',
+    estimateUsd: input.estimateUsd.toFixed(6),
+    actualUsd: input.actualUsd.toFixed(6),
+    currencyNote: 'training',
+    occurredAt: input.now,
+  });
+  await db.db.insert(auditEvents).values({
+    id: ulid(),
+    actor: 'user',
+    action: 'character.train',
+    target: input.handle.replace(/^@/, ''),
+    meta: { trainer: input.trainer, estimate_usd: input.estimateUsd, actual_usd: input.actualUsd },
+  });
 }
 
 // Upsert the trained_identities row for one (character, version, provider, kind).

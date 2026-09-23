@@ -323,7 +323,6 @@ export const charactersManageTool: KilnryTool = {
           handle,
           trainer,
           confirmed_cost_usd: confirmed,
-          cost_usd: confirmed,
           ...(typeof input.steps === 'number' ? { steps: input.steps } : {}),
           ...(typeof input.trigger_word === 'string' ? { trigger_word: input.trigger_word } : {}),
         });

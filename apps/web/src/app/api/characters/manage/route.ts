@@ -244,7 +244,6 @@ export async function POST(request: Request): Promise<Response> {
         handle: head.handle,
         trainer: body.trainer ?? 'fal',
         confirmed_cost_usd: body.confirm_cost_usd,
-        cost_usd: body.confirm_cost_usd,
         ...(body.steps !== undefined ? { steps: body.steps } : {}),
         ...(body.trigger_word !== undefined ? { trigger_word: body.trigger_word } : {}),
       });

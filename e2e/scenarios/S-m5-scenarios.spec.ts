@@ -189,6 +189,28 @@ async function ledgerRows(page: Page, jobId: string): Promise<number> {
     { token, jobId },
   );
 }
+// Count ledger rows whose kind column matches, from the CSV export. Training
+// spends have no job id, so they are counted by kind rather than by job id.
+async function ledgerRowsByKind(page: Page, kind: string): Promise<number> {
+  const token = await csrf(page);
+  return page.evaluate(
+    async ({ token, kind }) => {
+      const response = await fetch('/api/budget/ledger/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Kilnry-CSRF': token },
+        body: JSON.stringify({ from: '2000-01-01T00:00:00.000Z', to: '2100-01-01T00:00:00.000Z' }),
+      });
+      if (!response.ok) return -1;
+      const body = (await response.json()) as { csv?: string };
+      const lines = (body.csv ?? '')
+        .split('\n')
+        .slice(1)
+        .filter((line) => line.trim() !== '');
+      return lines.filter((line) => line.split(',')[5] === kind).length;
+    },
+    { token, kind },
+  );
+}
 // Generate one image through the engine and return the id of the asset it lands
 // in the Library inbox, so a Character can carry real reference bytes for
 // training. Uses the composer's estimate/generate path under the fal fixture.
@@ -491,6 +513,27 @@ test('@m5 S-15 character training stays behind the consent gate', async ({ page 
   };
   walk(identitiesDir);
   expect(loraFiles.length).toBeGreaterThanOrEqual(1);
+
+  // The training run is charged exactly once through the spend ledger the user
+  // can see, at the fal LoRA price ($2.00), with no job id (F-CHR-07, F-PRV-05).
+  await expect.poll(() => ledgerRowsByKind(page, 'train'), { timeout: 10_000 }).toBe(1);
+
+  // A confirmed price below the registry price is refused before any provider
+  // request, and no second training row is written.
+  const token = await csrf(page);
+  const refused = await page.evaluate(
+    async ({ token }) => {
+      const response = await fetch('/api/characters/manage', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Kilnry-CSRF': token },
+        body: JSON.stringify({ action: 'train', handle: 'ines', trainer: 'fal', confirm_cost_usd: 0.5 }),
+      });
+      return response.status;
+    },
+    { token },
+  );
+  expect(refused).toBe(409);
+  expect(await ledgerRowsByKind(page, 'train')).toBe(1);
 
   // The Higgsfield trainer first asks for the extra real-person confirmation.
   await page.locator('.character-trainer-card').filter({ hasText: 'Higgsfield' }).getByRole('button').click();

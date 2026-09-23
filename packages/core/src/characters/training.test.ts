@@ -8,9 +8,10 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { closeDatabaseState, createDatabase, trainedIdentities } from '@kilnry/db';
+import { closeDatabaseState, createDatabase, spendLedger, trainedIdentities } from '@kilnry/db';
 import { eq } from 'drizzle-orm';
 import type { ProviderAdapter, SubmitHandle } from '../providers/adapter.js';
+import { seedRegistry } from '../registry/store.js';
 import { addReferences, createCharacter } from './store.js';
 import { setConsent } from './consent.js';
 import { startTraining, triggerWordFor, isValidTriggerWord, type TrainingServices } from './training.js';
@@ -28,6 +29,7 @@ async function db(): Promise<Awaited<ReturnType<typeof createDatabase>>> {
     rmSync(root, { recursive: true, force: true });
   });
   await state.ready;
+  await seedRegistry(state);
   return state;
 }
 
@@ -122,7 +124,6 @@ describe('identity training (F-CHR-07)', () => {
       handle: 'maya',
       trainer: 'fal',
       confirmed_cost_usd: 2,
-      cost_usd: 2,
     });
     expect(result.status).toBe('ready');
     expect(result.kind).toBe('lora');
@@ -143,6 +144,35 @@ describe('identity training (F-CHR-07)', () => {
     expect(rows[0]?.status).toBe('ready');
     expect(rows[0]?.localPath).toBe(result.local_path);
     expect(rows[0]?.sha256).toBe(LORA_SHA);
+    // The run is charged exactly once, through the spend ledger, at the price the
+    // registry holds for the fal LoRA trainer (1,000 steps × $0.002 = $2.00).
+    const ledger = await state.db.select().from(spendLedger);
+    expect(ledger).toHaveLength(1);
+    expect(ledger[0]?.kind).toBe('train');
+    expect(ledger[0]?.providerId).toBe('fal');
+    expect(Number(ledger[0]?.actualUsd)).toBeCloseTo(2, 4);
+  });
+
+  it('refuses to train when the confirmed price is below the registry price', async () => {
+    const state = await db();
+    await characterWithRefs(state);
+    const fetchImpl = (async (url: string) => {
+      if (String(url).endsWith('lora.safetensors')) return new Response(LORA_BYTES, { status: 200 });
+      return new Response('{}', { status: 200 });
+    }) as unknown as typeof fetch;
+    // The fal LoRA run prices at $2.00; confirming $1.00 must be refused before
+    // any provider request, and nothing is charged.
+    await expect(
+      startTraining(trainingServices(state, fetchImpl), {
+        handle: 'maya',
+        trainer: 'fal',
+        confirmed_cost_usd: 1,
+      }),
+    ).rejects.toMatchObject({ code: 'CONFIRMATION_REQUIRED' });
+    const ledger = await state.db.select().from(spendLedger);
+    expect(ledger).toHaveLength(0);
+    const rows = await state.db.select().from(trainedIdentities);
+    expect(rows).toHaveLength(0);
   });
 
   it('creates a Soul ID that keeps only its remote id and no local artefact', async () => {
@@ -165,7 +195,6 @@ describe('identity training (F-CHR-07)', () => {
       handle: 'maya',
       trainer: 'higgsfield',
       confirmed_cost_usd: 2.5,
-      cost_usd: 2.5,
     });
     expect(result.status).toBe('ready');
     expect(result.kind).toBe('soul_id');
