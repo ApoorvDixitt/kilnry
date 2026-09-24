@@ -5,13 +5,16 @@
 
 // The Skill format (F-SKL-01, TRD-13 §2). A Skill is a folder with a SKILL.md
 // whose frontmatter follows the Agent Skills specification plus a Kilnry block
-// under metadata.kilnry. This module defines the frontmatter schema and a small
-// parser for the constrained YAML-1.2 block the format allows: scalars, one
-// level of nested maps (metadata, metadata.kilnry) and simple inline or block
-// arrays. The format forbids angle brackets in frontmatter values, so the parser
-// does not need to handle YAML flow-mapping or anchors; anything it cannot parse
-// fails closed and the validator reports it.
+// under metadata.kilnry. This module defines the frontmatter schema and parses
+// the frontmatter block with the pinned `yaml` package (a full YAML-1.2 parser),
+// replacing the earlier hand-rolled reader (M5 default revisited in M6): the
+// same real parser now backs both this format and the Workflow YAML DSL
+// (TRD-12 §1), so scalars, folded and literal blocks, nested maps and inline or
+// block arrays are all understood. Fail-closed behaviour is unchanged: a block
+// that does not parse, or that does not parse to a plain object, returns null so
+// the validator reports it (V1).
 
+import { parse as parseYaml } from 'yaml';
 import * as z from 'zod';
 import { CapabilitySchema } from '../types.js';
 
@@ -69,99 +72,21 @@ export function splitFrontmatter(source: string): { frontmatter: string; body: s
   return { frontmatter, body };
 }
 
-// Parse one YAML scalar value: strip surrounding single/double quotes, keep the
-// rest verbatim. Numbers stay strings; the schema coerces where needed.
-function scalar(raw: string): string {
-  const trimmed = raw.trim();
-  if (
-    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
-    (trimmed.startsWith("'") && trimmed.endsWith("'"))
-  ) {
-    return trimmed.slice(1, -1);
-  }
-  return trimmed;
-}
-
-// Parse an inline array like `[a, b, c]` or `["a", "b"]`.
-function inlineArray(raw: string): string[] {
-  const inner = raw.trim().slice(1, -1).trim();
-  if (inner.length === 0) return [];
-  return inner.split(',').map((entry) => scalar(entry));
-}
-
-// Parse the constrained frontmatter block into a plain object. Handles scalars,
-// folded scalars (`>`), two levels of indented maps, inline arrays and block
-// (`- item`) arrays. Returns null when a line cannot be understood.
+// Parse the frontmatter block with the pinned YAML-1.2 parser. Returns a plain
+// object, or null when the block is missing, does not parse, or does not parse
+// to a mapping — the same fail-closed contract the hand-rolled reader had, so
+// the validator still reports an unparseable block as a V1 error.
 export function parseSkillFrontmatter(source: string): Record<string, unknown> | null {
   const split = splitFrontmatter(source);
   if (!split) return null;
-  const lines = split.frontmatter.split('\n');
-  const root: Record<string, unknown> = {};
-  // A stack of (indent, container) so nested maps attach to the right parent.
-  const stack: Array<{ indent: number; map: Record<string, unknown> }> = [{ indent: -1, map: root }];
-  let pendingArray: { key: string; map: Record<string, unknown>; items: string[] } | null = null;
-  let folded: { key: string; map: Record<string, unknown>; parts: string[]; indent: number } | null = null;
-
-  const flushArray = (): void => {
-    if (pendingArray) {
-      if (pendingArray.items.length > 0) pendingArray.map[pendingArray.key] = pendingArray.items;
-      pendingArray = null;
-    }
-  };
-  const flushFolded = (): void => {
-    if (folded) {
-      folded.map[folded.key] = folded.parts.join(' ').trim();
-      folded = null;
-    }
-  };
-
-  for (const rawLine of lines) {
-    if (rawLine.trim().length === 0 || rawLine.trim().startsWith('#')) continue;
-    const indent = rawLine.length - rawLine.trimStart().length;
-    const line = rawLine.trim();
-
-    if (folded && indent > folded.indent) {
-      folded.parts.push(line);
-      continue;
-    }
-    flushFolded();
-
-    if (line.startsWith('- ')) {
-      if (!pendingArray) return null;
-      pendingArray.items.push(scalar(line.slice(2)));
-      continue;
-    }
-    flushArray();
-
-    const colon = line.indexOf(':');
-    if (colon === -1) return null;
-    const key = line.slice(0, colon).trim();
-    const value = line.slice(colon + 1).trim();
-
-    while (stack.length > 1 && indent <= stack[stack.length - 1]!.indent) stack.pop();
-    const parent = stack[stack.length - 1]!.map;
-
-    if (value === '') {
-      // Either a nested map or the header of a block array; decide on next line.
-      const child: Record<string, unknown> = {};
-      parent[key] = child;
-      stack.push({ indent, map: child });
-      pendingArray = { key, map: parent, items: [] };
-      // If the next non-empty line is a `- ` item, flushArray writes the array
-      // over the empty child; otherwise the child map stays.
-      continue;
-    }
-    if (value === '>' || value === '|') {
-      folded = { key, map: parent, parts: [], indent };
-      continue;
-    }
-    if (value.startsWith('[') && value.endsWith(']')) {
-      parent[key] = inlineArray(value);
-      continue;
-    }
-    parent[key] = scalar(value);
+  let parsed: unknown;
+  try {
+    // uniqueKeys guards against a duplicated frontmatter key; the default merge
+    // and anchor handling stay off-limits because the value must be plain data.
+    parsed = parseYaml(split.frontmatter, { uniqueKeys: true });
+  } catch {
+    return null;
   }
-  flushArray();
-  flushFolded();
-  return root;
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  return parsed as Record<string, unknown>;
 }
