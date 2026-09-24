@@ -12,8 +12,8 @@
 // server core and its transport.
 
 import { handleMcpRequest } from '@kilnry/mcp';
-import { join } from 'node:path';
-import { KILNRY_TOOLS, libraryMarker, loadConfig } from '@kilnry/core';
+import { KILNRY_TOOLS, libraryMarker, loadConfig, installedSkillsRoot } from '@kilnry/core';
+import { bundledSkillsRoot } from '@kilnry/skills';
 import { adapters } from '@kilnry/providers';
 import { authenticateMcp, isAllowedMcpHost } from '../../server/mcp';
 import { presetServices } from '../../server/presets';
@@ -68,7 +68,7 @@ async function handle(request: Request): Promise<Response> {
       ...(config.library_root ? { libraryRoot: config.library_root } : {}),
       ...(marker ? { libraryId: marker.library_id } : {}),
       ...(openrouterKey ? { openrouterKey } : {}),
-      skillsRoots: { bundled: join(config.data_dir, 'skills') },
+      skillsRoots: { bundled: bundledSkillsRoot(), installed: installedSkillsRoot(config.data_dir) },
       presets: await presetServices(),
       training: await trainingRunner(),
       voiceCloner: await voiceCloner(),

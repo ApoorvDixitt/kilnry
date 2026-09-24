@@ -26,7 +26,7 @@ import {
   type LlmRef,
   type LlmRegistryRow,
 } from '@kilnry/agent';
-import { loadConfig, loadRegistry } from '@kilnry/core';
+import { installedSkillsRoot, loadConfig, loadRegistry } from '@kilnry/core';
 import { assets as assetsTable, chatSessions, settings, spendLedger } from '@kilnry/db';
 import { adapters, detectOllama } from '@kilnry/providers';
 import { bundledSkillsRoot, promptLibraryRoot } from '@kilnry/skills';
@@ -147,7 +147,7 @@ export async function POST(request: Request): Promise<Response> {
         ...(engine ? { engine } : {}),
         ...(config.library_root ? { libraryRoot: config.library_root } : {}),
         ...(openrouterKey ? { openrouterKey } : {}),
-        skillsRoots: { bundled: bundledSkillsRoot() },
+        skillsRoots: { bundled: bundledSkillsRoot(), installed: installedSkillsRoot(config.data_dir) },
         presets: await presetServices(),
       },
       chatSessionId: session.id,
