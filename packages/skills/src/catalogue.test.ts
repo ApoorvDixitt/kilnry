@@ -20,10 +20,31 @@ const catalogueRoot = join(packageRoot, '..', 'workflows', 'catalogue');
 
 const FLAGSHIP_SKILLS = ['kilnry-ugc-ad', 'kilnry-character-sheet', 'kilnry-faceless-video'];
 
+const ALL_SKILLS = [
+  'kilnry-ugc-ad',
+  'kilnry-character-sheet',
+  'kilnry-faceless-video',
+  'kilnry-product-photoshoot',
+  'kilnry-thumbnail',
+  'kilnry-subtitles',
+  'kilnry-narrator',
+  'kilnry-motion-design',
+  'kilnry-localize',
+  'kilnry-ad-multiplier',
+  'kilnry-brand-kit',
+  'kilnry-video-edit',
+  'kilnry-prompting',
+  'kilnry-elements',
+  'kilnry-storyboard',
+  'kilnry-library-curation',
+];
+
 describe('shipped skills catalogue (F-SKL-02)', () => {
   it('loads every bundled skill enabled', async () => {
     const skills = await listSkills({ bundled: bundledSkillsRoot() });
-    expect(skills.length).toBeGreaterThanOrEqual(FLAGSHIP_SKILLS.length);
+    const names = new Set(skills.map((skill) => skill.name));
+    for (const name of ALL_SKILLS) expect(names.has(name), `${name} is present`).toBe(true);
+    expect(skills.length).toBe(ALL_SKILLS.length);
     for (const skill of skills) {
       expect(skill.enabled, `${skill.name}: ${skill.error ?? ''}`).toBe(true);
     }
