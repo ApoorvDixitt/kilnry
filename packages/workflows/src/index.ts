@@ -49,6 +49,7 @@ export { plan, renderStep, type Plan, type PlanStep, type PlanContext } from './
 export {
   execute,
   resetFrom,
+  expandRunState,
   type RunState,
   type RunStep,
   type RunStatus,

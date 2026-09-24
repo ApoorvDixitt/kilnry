@@ -154,6 +154,15 @@ function impliedDependencies(step: Step): string[] {
 // ── the run loop ───────────────────────────────────────────────────────────
 
 /**
+ * Build the initial run graph (every step expanded to pending) without running
+ * anything. The host uses this on resume to rebuild the node list, then overlays
+ * the persisted status and outputs from run_steps before calling execute with it.
+ */
+export function expandRunState(workflow: WorkflowFile, baseScope: Scope): RunState {
+  return { status: 'running', steps: expandRun(workflow.steps, baseScope, '', {}), spent_usd: 0 };
+}
+
+/**
  * Execute a plan's steps to a terminal or awaiting state. Returns the run state;
  * when a hard checkpoint is reached with no decision, the run pauses with status
  * awaiting_approval and the caller resumes it later by calling run again after

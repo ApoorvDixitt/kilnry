@@ -31,9 +31,11 @@ import { assets, runSteps, runs, type DatabaseState } from '@kilnry/db';
 import {
   buildManifest,
   execute,
+  expandRunState,
   parseWorkflow,
   plan,
   renderStep,
+  resetFrom,
   runFolder,
   validateWorkflowFile,
   type Effects,
@@ -347,6 +349,198 @@ export async function startRun(
     config.library_root,
   );
   return state;
+}
+
+// Rebuild the run's base scope from its persisted plan and folder.
+function buildBaseScope(runId: string, folder: string, workflow: WorkflowFile, persistedPlan: Plan): Scope {
+  return {
+    inputs: persistedPlan.inputs,
+    defaults: workflow.defaults,
+    vars: persistedPlan.vars,
+    run: { id: runId, folder, workflow: workflow.id },
+  };
+}
+
+// Rebuild the run's node graph and overlay the persisted status and outputs from
+// run_steps, so a resumed run never re-runs a completed step. A step with a live
+// job id keeps it (re-attached, not resubmitted).
+async function rebuildRunState(
+  db: DatabaseState,
+  runId: string,
+  workflow: WorkflowFile,
+  baseScope: Scope,
+): Promise<RunState> {
+  const state = expandRunState(workflow, baseScope);
+  const rows = await db.db.select().from(runSteps).where(eq(runSteps.runId, runId));
+  const byId = new Map(rows.map((row) => [row.stepId, row] as const));
+  let spent = 0;
+  for (const node of state.steps) {
+    const row = byId.get(node.step_id);
+    if (!row) continue;
+    node.status = (row.status ?? 'pending') as RunStep['status'];
+    if (row.outputs) node.outputs = row.outputs;
+    if (row.modelId) node.model = row.modelId;
+    if (row.provider) node.provider = row.provider;
+    if (row.actualUsd) node.actual_usd = Number(row.actualUsd);
+    if (Array.isArray(row.adjustments)) node.adjustments = row.adjustments as string[];
+    node.attempts = row.attempts ?? 0;
+    spent += Number(row.actualUsd ?? 0);
+  }
+  state.spent_usd = spent;
+  return state;
+}
+
+// Continue a run from its persisted state after a decision or a reset.
+async function driveResumed(
+  db: DatabaseState,
+  engine: JobEngine,
+  dataDir: string,
+  runId: string,
+  options: { automatic?: boolean; skipApprovals?: boolean } = {},
+): Promise<RunState> {
+  const [run] = await db.db.select().from(runs).where(eq(runs.id, runId)).limit(1);
+  if (!run) throw new KilnryError('NOT_FOUND', 'Run not found.');
+  const entry = getWorkflow(dataDir, run.workflowId);
+  if (!entry) throw new KilnryError('NOT_FOUND', `Workflow ${run.workflowId} is no longer installed.`);
+  const persistedPlan = run.plan as unknown as Plan;
+  const config = await loadConfig();
+  const folder = run.folder ?? runFolder(entry.workflow, {});
+  const startedAt = run.createdAt.toISOString();
+  const baseScope = buildBaseScope(runId, folder, entry.workflow, persistedPlan);
+  const existing = await rebuildRunState(db, runId, entry.workflow, baseScope);
+  const effects = runEffects(db, engine, {
+    runId,
+    plan: persistedPlan,
+    workflow: entry.workflow,
+    folder,
+    startedAt,
+    libraryRoot: config.library_root ?? '',
+  });
+  const state = await execute(entry.workflow, baseScope, effects, options, existing);
+  await persistRun(
+    db,
+    engine,
+    runId,
+    entry.workflow,
+    persistedPlan,
+    state,
+    folder,
+    startedAt,
+    config.library_root,
+  );
+  return state;
+}
+
+/** Approve the waiting checkpoint and continue the run (F-WFL-04). */
+export async function approveRun(
+  db: DatabaseState,
+  engine: JobEngine,
+  dataDir: string,
+  runId: string,
+): Promise<RunState> {
+  const waiting = await db.db
+    .select()
+    .from(runSteps)
+    .where(and(eq(runSteps.runId, runId), eq(runSteps.status, 'waiting')));
+  if (waiting.length === 0) throw new KilnryError('INVALID_INPUT', 'This run is not waiting for approval.');
+  for (const step of waiting) {
+    await db.db
+      .update(runSteps)
+      .set({
+        status: 'completed',
+        outputs: { choice: 'approve' },
+        approvedAt: new Date(),
+        decidedBy: 'owner',
+      })
+      .where(and(eq(runSteps.runId, runId), eq(runSteps.stepId, step.stepId)));
+  }
+  await db.db.update(runs).set({ status: 'running' }).where(eq(runs.id, runId));
+  return driveResumed(db, engine, dataDir, runId);
+}
+
+/** Deny the waiting checkpoint; the run stops, completed outputs stay (F-WFL-04). */
+export async function denyRun(db: DatabaseState, runId: string): Promise<RunState> {
+  const rows = await db.db.select().from(runSteps).where(eq(runSteps.runId, runId));
+  for (const step of rows) {
+    if (step.status === 'waiting') {
+      await db.db
+        .update(runSteps)
+        .set({ status: 'denied', outputs: { choice: 'deny' }, decidedBy: 'owner' })
+        .where(and(eq(runSteps.runId, runId), eq(runSteps.stepId, step.stepId)));
+    } else if (step.status === 'pending') {
+      await db.db
+        .update(runSteps)
+        .set({ status: 'cancelled' })
+        .where(and(eq(runSteps.runId, runId), eq(runSteps.stepId, step.stepId)));
+    }
+  }
+  await db.db.update(runs).set({ status: 'cancelled', finishedAt: new Date() }).where(eq(runs.id, runId));
+  const denied = await getRun(db, runId);
+  return { status: 'cancelled', steps: [], spent_usd: denied.spent_usd };
+}
+
+/** Cancel a run: cancel every live job best-effort, mark pending steps cancelled. */
+export async function cancelRun(db: DatabaseState, engine: JobEngine, runId: string): Promise<RunState> {
+  const rows = await db.db.select().from(runSteps).where(eq(runSteps.runId, runId));
+  for (const step of rows) {
+    if (step.jobId && (step.status === 'running' || step.status === 'pending')) {
+      try {
+        await engine.cancelJob(step.jobId);
+      } catch {
+        // best effort: fal only cancels while queued, Higgsfield while queued.
+      }
+    }
+    if (step.status === 'pending' || step.status === 'running' || step.status === 'waiting') {
+      await db.db
+        .update(runSteps)
+        .set({ status: 'cancelled' })
+        .where(and(eq(runSteps.runId, runId), eq(runSteps.stepId, step.stepId)));
+    }
+  }
+  await db.db.update(runs).set({ status: 'cancelled', finishedAt: new Date() }).where(eq(runs.id, runId));
+  const summary = await getRun(db, runId);
+  return { status: 'cancelled', steps: [], spent_usd: summary.spent_usd };
+}
+
+/**
+ * Retry a step (optionally swapping its model) and re-run from it (F-WFL-05):
+ * reset that step and its dependants to pending in the rebuilt state, persist the
+ * reset, and continue the run.
+ */
+export async function retryStep(
+  db: DatabaseState,
+  engine: JobEngine,
+  dataDir: string,
+  runId: string,
+  stepId: string,
+  modelOverride?: string,
+): Promise<RunState> {
+  const [runRow] = await db.db.select().from(runs).where(eq(runs.id, runId)).limit(1);
+  if (!runRow) throw new KilnryError('NOT_FOUND', 'Run not found.');
+  const entry = getWorkflow(dataDir, runRow.workflowId);
+  if (!entry) throw new KilnryError('NOT_FOUND', `Workflow ${runRow.workflowId} is no longer installed.`);
+  const persistedPlan = runRow.plan as unknown as Plan;
+  const folder = runRow.folder ?? runFolder(entry.workflow, {});
+  const baseScope = buildBaseScope(runId, folder, entry.workflow, persistedPlan);
+  const rebuilt = await rebuildRunState(db, runId, entry.workflow, baseScope);
+  resetFrom(rebuilt, stepId, modelOverride);
+  // Persist the reset so the resumed drive sees the re-pended steps.
+  for (const node of rebuilt.steps) {
+    if (node.status === 'pending') {
+      await db.db
+        .update(runSteps)
+        .set({
+          status: 'pending',
+          outputs: {},
+          error: null,
+          ...(node.model === undefined ? {} : { modelId: node.model }),
+          adjustments: node.adjustments,
+        })
+        .where(and(eq(runSteps.runId, runId), eq(runSteps.stepId, node.step_id)));
+    }
+  }
+  await db.db.update(runs).set({ status: 'running' }).where(eq(runs.id, runId));
+  return driveResumed(db, engine, dataDir, runId);
 }
 
 interface RunContext {

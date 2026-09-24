@@ -23,7 +23,10 @@ import {
   type Step,
   type StepResult,
 } from '@kilnry/workflows';
-import { buildSpendInput } from './workflows';
+import { buildSpendInput, importWorkflow } from './workflows';
+import { mkdtempSync, readFileSync, existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 const WF = `
 id: kilnry-money-demo
@@ -162,5 +165,54 @@ describe('workflow host runner money path (F-WFL-01/02/03)', () => {
     expect(input.client_request_id).toBe('run_9:boards[0].board');
     expect(input.request.prompt).toContain('board');
     expect(input.request.source).toBe('workflow');
+  });
+});
+
+describe('workflow import (F-WFL-06, same validator as the CLI)', () => {
+  it('writes a valid workflow to the user folder and refuses an invalid one', () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'kilnry-wf-import-'));
+    const good = importWorkflow(
+      dataDir,
+      `
+id: kilnry-imported
+name: Imported
+version: 1.0.0
+category: image
+steps:
+  - id: gen
+    kind: generate
+    capability: text2image
+    prompt: "hi"
+    outputs: { asset: "{{ result.assets[0] }}" }
+outputs:
+  final: "{{ steps.gen.outputs.asset }}"
+`,
+      'kilnry-imported',
+    );
+    expect(good.ok).toBe(true);
+    expect(good.id).toBe('kilnry-imported');
+    expect(existsSync(join(dataDir, 'workflows', 'kilnry-imported.yaml'))).toBe(true);
+    expect(readFileSync(join(dataDir, 'workflows', 'kilnry-imported.yaml'), 'utf8')).toContain(
+      'id: kilnry-imported',
+    );
+
+    // A provider prompt token fails rule 7.7 — the same rule the CLI enforces.
+    const bad = importWorkflow(
+      dataDir,
+      `
+id: kilnry-bad
+name: Bad
+version: 1.0.0
+category: image
+steps:
+  - id: gen
+    kind: generate
+    capability: text2image
+    prompt: "inject <<< maya >>>"
+`,
+      'kilnry-bad',
+    );
+    expect(bad.ok).toBe(false);
+    expect(bad.issues.some((issue) => issue.rule === '7.7')).toBe(true);
   });
 });
