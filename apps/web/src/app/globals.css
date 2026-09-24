@@ -6485,3 +6485,143 @@ html[data-motion='reduced'] *::after {
   margin: 0;
   color: var(--text-muted);
 }
+
+/* Workflow intake form and plan preview (F-WFL-02). */
+.workflow-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.workflow-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.workflow-field-toggle {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.workflow-field-label {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.workflow-field-input,
+.workflow-field-select,
+.workflow-field-textarea {
+  border: 1px solid var(--border-control);
+  background: var(--surface);
+  color: var(--text);
+  padding: 7px 12px;
+  border-radius: var(--radius-md);
+  font: inherit;
+}
+
+.workflow-field-textarea {
+  min-height: 72px;
+  resize: vertical;
+}
+
+.workflow-plan-button,
+.workflow-approve-button {
+  margin-top: 8px;
+  padding: 9px 16px;
+  border-radius: var(--radius-md);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.workflow-plan-button {
+  border: 1px solid var(--border-control);
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.workflow-plan-button:disabled {
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
+.workflow-approve-button {
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--accent-foreground);
+  width: 100%;
+}
+
+.workflow-approve-button:disabled {
+  background: var(--surface-2);
+  border-color: var(--border);
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
+.plan-checklist {
+  margin-top: 12px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+.plan-checklist-head {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.plan-step-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.plan-step {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.plan-step-name {
+  flex: 1;
+}
+
+.plan-step-model {
+  color: var(--text-muted);
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+}
+
+.plan-step-approval {
+  color: var(--accent-text);
+  font-size: 12px;
+}
+
+.plan-step-cost {
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+.workflow-plan-total {
+  margin: 12px 0 0;
+  display: flex;
+  justify-content: space-between;
+  font-weight: 600;
+}
+
+.workflow-plan-total-amount {
+  color: var(--accent-text);
+}
+
+.workflow-drawer-error {
+  margin: 0;
+  color: var(--danger);
+  font-size: 13px;
+}
