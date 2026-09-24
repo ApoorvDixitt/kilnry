@@ -4,11 +4,32 @@ All notable changes to Kilnry are documented here. The format follows Keep a Cha
 
 ## [Unreleased]
 
+### Added
+
+- The spend ledger in Settings, with a group-by over provider, model, folder, character or day and a Comma-Separated Values export, so where the money went is visible without leaving the app (F-PRV-05).
+- Dubbing and voice change in the transforms panel, routed through the same engine path as the other transforms with the language and voice inputs each needs (F-CRE-11).
+- A control on the Voice tab to pick an existing preset or cloned voice and bind it to a character, so a voice can be reused without cloning again (F-CHR-08).
+
+### Fixed
+
+- Identity training, voice cloning and voice previews now price, budget-check and charge through the engine, each writing exactly one ledger row and one audit event instead of billing outside the budget (F-CHR-07, F-VOI-01, F-VOI-02).
+- A read-only Model Context Protocol token may list and preview voices but is now refused when it tries to clone or delete one; the voices tool declares its per-action scope (F-MCP-05).
+- The chat route validates the incoming message payload against the user-message schema at the boundary, and every job records who confirmed the spend as the user, the automatic policy or a Model Context Protocol token, never the sheet importer (F-CHT-01).
+- A release build refuses to serve when the test-only mock hook is enabled, and the request-forgery exemption is scoped to the reindex path alone rather than any request carrying the doctor header (F-SET-08).
+- The training and provider copy now matches the specification's durations and wording, and the message check keeps honest "not yet" copy while failing on a promise whose milestone has already shipped (F-CHR-07, F-SET-05).
+
+### Changed
+
+- The visual check compares each screen against a committed baseline instead of only capturing it, masks the regions that legitimately vary, and adds the missing Library dark baseline (F-CHR-03).
+- A legacy 2025-11-25 Model Context Protocol client is driven through initialize and tools/list so the older protocol path is covered (F-MCP-08).
+- The end-to-end chat scenario proves the three approved renders complete and waits on observable state rather than the clock (F-CHT-03).
+- The continuous-integration FFmpeg install is pinned to 7.0.2, verified against its published checksum and cached across runs.
+
 ## [0.3.1] - 2026-09-23
 
 ### Added
 
-- The fifty seed registry rows for Google, OpenAI, ElevenLabs, MiniMax, Higgsfield and Replicate, so their models price and route without a manual entry (F-PRV-02).
+- The forty-seven seed registry rows for Google, OpenAI, ElevenLabs, MiniMax, Higgsfield and Replicate, so their models price and route without a manual entry (F-PRV-02).
 - The Create half of the Higgsfield scenario: Soul 2 appears in the model picker with its trains-on-inputs tag, the acknowledged-clause card, the real-person likeness confirm and the authoritative estimate (F-PRV-06).
 - The Check status action for an ambiguous timeout, which re-polls the stored provider request instead of resubmitting it (F-JOB-04).
 - The session-cap pause, which stops a Chat turn once the running spend would cross the session budget cap (F-CHT-02).
