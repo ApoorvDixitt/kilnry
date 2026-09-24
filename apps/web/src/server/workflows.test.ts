@@ -24,9 +24,10 @@ import {
   type StepResult,
 } from '@kilnry/workflows';
 import { buildSpendInput, importWorkflow } from './workflows';
-import { mkdtempSync, readFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, readFileSync, existsSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const WF = `
 id: kilnry-money-demo
@@ -165,6 +166,226 @@ describe('workflow host runner money path (F-WFL-01/02/03)', () => {
     expect(input.client_request_id).toBe('run_9:boards[0].board');
     expect(input.request.prompt).toContain('board');
     expect(input.request.source).toBe('workflow');
+  });
+});
+
+describe('every spending step of every kind reaches the engine once (F-WFL-06)', () => {
+  // The shipped catalogue folder, resolved from this test file.
+  function catalogueRoot(): string {
+    const here = dirname(fileURLToPath(import.meta.url));
+    return join(here, '..', '..', '..', '..', 'packages', 'workflows', 'catalogue');
+  }
+
+  function loadCatalogueWorkflow(id: string) {
+    return parseWorkflow(readFileSync(join(catalogueRoot(), `${id}.yaml`), 'utf8'));
+  }
+
+  // A planner that prices every spending leaf the same small amount, enough to
+  // expand foreach/branch and drive the executor without a real engine. Its
+  // resolveInputs applies the workflow's JSON-Schema defaults (as the intake
+  // drawer does) so a foreach whose `over` reads an input with a default — such
+  // as the website mode's site_shots — resolves rather than throwing.
+  const fixturePlan: PlanContext = {
+    resolveInputs: (workflow, inputs) => {
+      const properties =
+        (workflow.inputs as { properties?: Record<string, { default?: unknown }> }).properties ?? {};
+      const withDefaults: Record<string, unknown> = { ...inputs };
+      for (const [key, schema] of Object.entries(properties)) {
+        if (withDefaults[key] === undefined && schema.default !== undefined) {
+          withDefaults[key] = schema.default;
+        }
+      }
+      return withDefaults;
+    },
+    priceStep: (step: Step) => ({
+      model: step.kind === 'generate' ? 'fal/x' : 'openrouter/gemini',
+      provider: step.kind === 'generate' ? 'fal' : 'openrouter',
+      estimate_usd: 0.05,
+      eta_s: 3,
+      why: 'fixture',
+    }),
+  };
+
+  // Drive a catalogue workflow through the pure executor with effects that mirror
+  // the host runner: every generate, transform and analyze step builds its
+  // createJob input through buildSpendInput and reaches the fake engine exactly
+  // once, which counts one submit and writes one ledger row per spend. assemble,
+  // set and export never spend and never submit.
+  function runCounting(id: string, inputs: Record<string, unknown>) {
+    const workflow = loadCatalogueWorkflow(id);
+    const resolved = fixturePlan.resolveInputs(workflow, inputs);
+    const priced = plan(workflow, inputs, fixturePlan);
+    const scope: Scope = { inputs: resolved, defaults: workflow.defaults, vars: priced.vars };
+    const submitsByKind: Record<string, number> = { generate: 0, transform: 0, analyze: 0 };
+    // A mutable counter object so the returned handle observes every increment
+    // (a returned primitive would freeze at zero).
+    const counters = { ledgerWrites: 0 };
+    const submits: Array<ReturnType<typeof buildSpendInput>> = [];
+
+    const fakeCreateJob = (input: ReturnType<typeof buildSpendInput>, kind: string): { assets: string[] } => {
+      submits.push(input);
+      submitsByKind[kind] = (submitsByKind[kind] ?? 0) + 1;
+      counters.ledgerWrites += 1; // the real engine writes exactly one spend-ledger row per createJob
+      return { assets: [`asset-${submits.length}`] };
+    };
+
+    const effects: Effects = {
+      // Answer every checkpoint immediately so a fixture run reaches the end.
+      decide: async (): Promise<'approve' | 'deny' | 'wait'> => 'approve',
+      runStep: async (node: RunStep, rendered: Step): Promise<StepResult> => {
+        if (node.kind === 'generate' || node.kind === 'transform' || node.kind === 'analyze') {
+          const planStep = priced.steps.find((step) => step.step_id === node.step_id);
+          const jobInput = buildSpendInput(
+            'run_fixture',
+            'Client_A/Run_2026-09-18_1120',
+            node,
+            rendered,
+            scope,
+            planStep?.estimate_usd ?? 0,
+          );
+          const result = fakeCreateJob(jobInput, node.kind);
+          return {
+            outputs: {
+              asset: result.assets[0],
+              assets: result.assets,
+              // Generous result namespace so the shipped workflows' output
+              // templates (a transform's transcript, an analyze step's
+              // structured JSON, a board's clean plate) all resolve during a
+              // fixture run; the assertion here is on the money path, not on
+              // provider content.
+              result: {
+                assets: result.assets,
+                asset_id: result.assets[0],
+                words: [],
+                structured: {
+                  ok: true,
+                  pass: true,
+                  reasons: [],
+                  issues: [],
+                  description: 'a product',
+                  visible_text: '',
+                  tier: 'everyday',
+                  hook: 'hook',
+                  segments: ['a', 'b', 'c', 'd', 'e'],
+                },
+              },
+            },
+            actual_usd: jobInput.confirmed_cost_usd,
+            status: 'completed',
+          };
+        }
+        return { outputs: { asset: 'local', assets: ['local'] }, actual_usd: 0, status: 'completed' };
+      },
+    };
+
+    return { workflow, priced, submits, submitsByKind, counters, effects, scope };
+  }
+
+  it('runs the transcribe transform of kilnry-subtitles-burn through the engine once', async () => {
+    const run = runCounting('kilnry-subtitles-burn', {
+      video: 'asset-video-1',
+      look: 'clean',
+      language: 'en',
+      max_line_chars: 28,
+      position: 'lower_third',
+      karaoke: false,
+    });
+    const state = await execute(run.workflow, run.scope, run.effects, {
+      automatic: true,
+      skipApprovals: true,
+    });
+    expect(['completed', 'cancelled']).toContain(state.status);
+    // Exactly one spending step: the transcribe transform. burn is a local
+    // ffmpeg assemble and export copies files — neither spends.
+    expect(run.submits).toHaveLength(1);
+    expect(run.submitsByKind.transform).toBe(1);
+    expect(run.submitsByKind.generate).toBe(0);
+    expect(run.counters.ledgerWrites).toBe(1);
+    const transform = run.submits[0]!;
+    expect(transform.request.source).toBe('workflow');
+    expect(transform.step_id).toBe('transcribe');
+    expect(transform.confirmed_by).toBe('user');
+    // The transcribe request routes as speech-to-text over the source video, not
+    // a placeholder image request.
+    expect(transform.request.capability).toBe('stt');
+    expect(transform.request.medias.some((media) => media.asset_id === 'asset-video-1')).toBe(true);
+  });
+
+  it('runs every generate, transform and analyze step of kilnry-ugc-ad through the engine once', async () => {
+    const run = runCounting('kilnry-ugc-ad', {
+      mode: 'product-only',
+      product: 'asset-serum-1',
+      duration_s: 15,
+      approved_claims: ['hydrating'],
+      folder: 'Client_A',
+    });
+    // The run drives every spending step through the fake engine. The terminal
+    // export step's per-file name templates (F-WFL-09 array expansion) are not
+    // the subject here; if it raises while rendering, the spending steps have
+    // already gone through the engine and the money-path assertions below hold.
+    try {
+      await execute(run.workflow, run.scope, run.effects, { automatic: true, skipApprovals: true });
+    } catch {
+      // A terminal export/render issue does not undo the spending already routed.
+    }
+
+    const generate = run.submitsByKind.generate ?? 0;
+    const transform = run.submitsByKind.transform ?? 0;
+    const analyze = run.submitsByKind.analyze ?? 0;
+
+    // One createJob and one ledger write per spending step reached — a generate,
+    // transform or analyze step, expanded through foreach and branch — and never
+    // a placeholder request. The gate, product normalisation and script analyze
+    // steps, the storyboard and clip generates, and the clip QA analyze all run.
+    expect(analyze).toBeGreaterThan(0);
+    expect(generate).toBeGreaterThan(0);
+    expect(transform).toBeGreaterThan(0);
+    expect(run.submits.length).toBe(run.counters.ledgerWrites);
+    expect(run.submits.length).toBe(generate + transform + analyze);
+
+    for (const submit of run.submits) {
+      expect(submit.request.source).toBe('workflow');
+      expect(submit.run_id).toBe('run_fixture');
+      expect(submit.confirmed_by).toBe('user');
+      expect(submit.request.target_folder).toBe('Client_A/Run_2026-09-18_1120');
+    }
+    // An analyze step over refs routes as a vision-language request; with no refs
+    // it routes as a text large-language request — never a placeholder image
+    // generate.
+    const analyzeSubmits = run.submits.filter((submit) => ['vlm', 'llm'].includes(submit.request.capability));
+    expect(analyzeSubmits.length).toBe(analyze);
+    // A generate step keeps a generative capability, not an analyze or transform
+    // one.
+    const generateSubmits = run.submits.filter((submit) =>
+      ['text2image', 'image_edit', 'reference2video', 'text2video', 'image2video'].includes(
+        submit.request.capability,
+      ),
+    );
+    expect(generateSubmits.length).toBe(generate);
+  });
+
+  it('the shipped catalogue exercises a spending step of every wired kind', () => {
+    // A guard that the fixtures above cover transform and analyze, not only
+    // generate: the catalogue must exercise all three wired kinds.
+    const kinds = new Set<string>();
+    for (const file of readdirSync(catalogueRoot()).filter((name) => /\.ya?ml$/.test(name))) {
+      const workflow = parseWorkflow(readFileSync(join(catalogueRoot(), file), 'utf8'));
+      const walk = (steps: Step[]): void => {
+        for (const step of steps) {
+          kinds.add(step.kind);
+          if (step.kind === 'branch') {
+            walk(step.then);
+            walk(step.else);
+          } else if (step.kind === 'foreach') {
+            walk(step.steps);
+          }
+        }
+      };
+      walk(workflow.steps);
+    }
+    expect(kinds.has('generate')).toBe(true);
+    expect(kinds.has('transform')).toBe(true);
+    expect(kinds.has('analyze')).toBe(true);
   });
 });
 

@@ -27,6 +27,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
 import { and, eq } from 'drizzle-orm';
 import { KilnryError, loadConfig, ulid } from '@kilnry/core';
+import { CanonicalRequestSchema, type CanonicalRequest, type RouteConstraints } from '@kilnry/core';
 import { assets, runSteps, runs, type DatabaseState } from '@kilnry/db';
 import {
   buildManifest,
@@ -204,44 +205,196 @@ function findStep(steps: Step[], id: string): Step | undefined {
   return undefined;
 }
 
+// Map a workflow transform op to the routable capability, media kind and the
+// role the source takes, exactly as apps/web/src/app/api/transform/route.ts does
+// for the transforms panel, so a transform step routes and prices through the
+// same estimator every other spend uses (TRD-12 §6, F-CRE-11). Dubbing and voice
+// change are text-to-speech models the registry tags, so they carry the tts
+// capability and a tag constraint rather than a first-class capability.
+const TRANSFORM_CAPABILITY: Record<string, string> = {
+  upscale: 'upscale_image',
+  bg_remove: 'bg_remove',
+  reframe: 'reframe_image',
+  outpaint: 'outpaint',
+  lipsync: 'lipsync',
+  transcribe: 'stt',
+  dubbing: 'tts',
+  voice_change: 'tts',
+};
+const TRANSFORM_KIND: Record<string, 'image' | 'video' | 'audio'> = {
+  lipsync: 'video',
+  transcribe: 'audio',
+  dubbing: 'audio',
+  voice_change: 'audio',
+};
+const TRANSFORM_SOURCE_ROLE: Record<string, 'video' | 'audio' | 'reference'> = {
+  lipsync: 'video',
+  transcribe: 'audio',
+  dubbing: 'audio',
+  voice_change: 'audio',
+};
+const TRANSFORM_TAG: Record<string, string> = { dubbing: 'dubbing', voice_change: 'voice_change' };
+const TRANSFORM_MODEL: Record<string, string> = { dubbing: 'dubbing_v2', voice_change: 'voice_changer' };
+
+// A canonical request plus its route constraints, the shape engine.estimate and
+// engine.createJob read. Transform and analyze build one directly (with an
+// explicit capability) rather than through canonicalGeneration, whose capability
+// is inferred from the media kind and so cannot express bg_remove or stt.
+interface CanonicalForStep {
+  request: CanonicalRequest & { source: 'workflow'; target_folder: string };
+  constraints: RouteConstraints;
+}
+
+// A rendered MediaRef that is a non-empty asset id.
+function refToAsset(ref: unknown): string | undefined {
+  return ref === null || ref === undefined || ref === '' ? undefined : String(ref);
+}
+
+// Build the CanonicalRequest for a rendered transform step (TRD-12 §6). The
+// source becomes the media the estimator and adapter read; the op decides the
+// capability, media kind and source role.
+function canonicalForTransform(rendered: Extract<Step, { kind: 'transform' }>): CanonicalForStep {
+  const op = rendered.op;
+  const capability = TRANSFORM_CAPABILITY[op] ?? 'upscale_image';
+  const kind = TRANSFORM_KIND[op] ?? 'image';
+  const supplied: Record<string, unknown> = { ...(rendered.params ?? {}) };
+  const clipSeconds = typeof supplied.clip_seconds === 'number' ? supplied.clip_seconds : undefined;
+  const aspectRatio = typeof supplied.aspect_ratio === 'string' ? supplied.aspect_ratio : undefined;
+  const extraAudio = typeof supplied.audio === 'string' ? supplied.audio.trim() : '';
+  delete supplied.clip_seconds;
+  delete supplied.aspect_ratio;
+  delete supplied.audio;
+  const pinned = TRANSFORM_MODEL[op] ?? (rendered.model !== 'auto' ? rendered.model : undefined);
+  const tag = TRANSFORM_TAG[op];
+  const medias: Array<{ role: string; asset_id: string }> = [];
+  const source = refToAsset(rendered.source);
+  if (source) medias.push({ role: TRANSFORM_SOURCE_ROLE[op] ?? 'reference', asset_id: source });
+  if (op === 'lipsync' && extraAudio !== '') medias.push({ role: 'audio', asset_id: extraAudio });
+  const request = CanonicalRequestSchema.parse({
+    kind,
+    capability,
+    prompt: op,
+    params: {
+      ...(aspectRatio === undefined ? {} : { aspect_ratio: aspectRatio }),
+      ...(clipSeconds === undefined || clipSeconds <= 0 ? {} : { duration_s: clipSeconds }),
+      ...(Object.keys(supplied).length === 0 ? {} : { extra: supplied }),
+    },
+    medias,
+    injections: [],
+    count: 1,
+    target_folder: 'inbox',
+    source: 'workflow',
+  }) as CanonicalForStep['request'];
+  return {
+    request,
+    constraints: {
+      ...(pinned === undefined ? {} : { pinned_model: pinned }),
+      ...(tag === undefined ? {} : { tags: [tag] }),
+      refs_count: medias.filter((media) => ['reference', 'product'].includes(media.role)).length,
+      ...(clipSeconds === undefined ? {} : { duration_s: clipSeconds }),
+      ...(aspectRatio === undefined ? {} : { aspect_ratio: aspectRatio }),
+    },
+  };
+}
+
+// Build the CanonicalRequest for a rendered analyze step (TRD-12 §6, §4 table).
+// With refs it is a vision-language-model (VLM) task over those media; with no
+// refs it is a text-only large-language-model (LLM) call metered as an llm spend
+// (same model resolution as Chat). The instructions and task become the prompt.
+function canonicalForAnalyze(rendered: Extract<Step, { kind: 'analyze' }>): CanonicalForStep {
+  const refs = Array.isArray(rendered.refs)
+    ? rendered.refs.map(refToAsset).filter((id): id is string => id !== undefined)
+    : [];
+  const capability = refs.length > 0 ? 'vlm' : 'llm';
+  const instructions = typeof rendered.instructions === 'string' ? rendered.instructions : '';
+  const prompt = `${rendered.task}${instructions === '' ? '' : `: ${instructions}`}`;
+  const pinned = rendered.model !== 'auto' ? rendered.model : undefined;
+  const request = CanonicalRequestSchema.parse({
+    kind: 'image',
+    capability,
+    prompt: prompt.slice(0, 20_000) || rendered.task,
+    params: rendered.schema === undefined ? {} : { extra: { schema: rendered.schema } },
+    medias: refs.map((asset_id) => ({ role: 'reference', asset_id })),
+    injections: [],
+    count: 1,
+    target_folder: 'inbox',
+    source: 'workflow',
+  }) as CanonicalForStep['request'];
+  return {
+    request,
+    constraints: {
+      ...(pinned === undefined ? {} : { pinned_model: pinned }),
+      refs_count: refs.length,
+    },
+  };
+}
+
 // Build a CanonicalRequest for a generate/transform/analyze step under a scope.
-function canonicalRequestForStep(step: Step, scope: Scope): ReturnType<typeof canonicalGeneration> {
+// generate goes through canonicalGeneration (capability inferred from kind and
+// medias); transform and analyze build the request directly with an explicit
+// capability so each routes and prices as its own tool (TRD-12 §6).
+function canonicalRequestForStep(step: Step, scope: Scope): CanonicalForStep {
   const rendered = renderStep(step, scope);
-  if (rendered.kind === 'generate') {
-    const medias = Array.isArray(rendered.medias)
-      ? rendered.medias
-          .filter((media) => media.ref !== null && media.ref !== undefined && media.ref !== '')
-          .map((media) => ({ role: media.role, asset_id: String(media.ref) }))
-      : [];
-    return canonicalGeneration(
-      GenerationInput.parse({
-        kind: rendered.kind_of ?? 'image',
-        prompt: String(rendered.prompt || 'workflow step'),
-        ...(rendered.negative_prompt === undefined
-          ? {}
-          : { negative_prompt: String(rendered.negative_prompt) }),
-        model: typeof rendered.model === 'string' ? rendered.model : 'auto',
-        params: rendered.params,
-        medias,
-        count: typeof rendered.count === 'number' ? rendered.count : 1,
-        target_folder: 'inbox',
-        source: 'ui',
-      }),
-    );
+  if (rendered.kind === 'transform') return canonicalForTransform(rendered);
+  if (rendered.kind === 'analyze') return canonicalForAnalyze(rendered);
+  const generate = rendered as Extract<Step, { kind: 'generate' }>;
+  const medias = Array.isArray(generate.medias)
+    ? generate.medias
+        .filter((media) => media.ref !== null && media.ref !== undefined && media.ref !== '')
+        .map((media) => ({ role: media.role, asset_id: String(media.ref) }))
+    : [];
+  // A generate step's params mix canonical routing params (aspect ratio,
+  // resolution, duration, seed, audio, language) with free provider params. Keep
+  // the canonical ones at the top level and route the rest — including a
+  // provider-specific quality that is not the canonical draft/standard/premium
+  // enum — through `extra`, so the request validates.
+  const CANONICAL_PARAM_KEYS = new Set([
+    'aspect_ratio',
+    'width',
+    'height',
+    'resolution',
+    'duration_s',
+    'seed',
+    'audio',
+    'language',
+    'voice',
+  ]);
+  const QUALITY_TIERS = new Set(['draft', 'standard', 'premium']);
+  const rawParams =
+    generate.params !== null && typeof generate.params === 'object'
+      ? (generate.params as Record<string, unknown>)
+      : {};
+  const params: Record<string, unknown> = {};
+  const extra: Record<string, unknown> =
+    typeof rawParams.extra === 'object' && rawParams.extra !== null
+      ? { ...(rawParams.extra as Record<string, unknown>) }
+      : {};
+  for (const [key, value] of Object.entries(rawParams)) {
+    if (key === 'extra') continue;
+    if (key === 'quality' && QUALITY_TIERS.has(String(value))) params.quality = value;
+    else if (CANONICAL_PARAM_KEYS.has(key)) params[key] = value;
+    else extra[key] = value;
   }
-  // transform / analyze price as small llm/tool calls; treated as a text request.
-  return canonicalGeneration(
+  if (Object.keys(extra).length > 0) params.extra = extra;
+  const canonical = canonicalGeneration(
     GenerationInput.parse({
-      kind: 'image',
-      prompt: 'workflow step',
-      model: 'auto',
-      params: {},
-      medias: [],
-      count: 1,
+      kind: generate.kind_of ?? 'image',
+      prompt: String(generate.prompt || 'workflow step'),
+      ...(generate.negative_prompt === undefined
+        ? {}
+        : { negative_prompt: String(generate.negative_prompt) }),
+      model: typeof generate.model === 'string' ? generate.model : 'auto',
+      params,
+      medias,
+      count: typeof generate.count === 'number' ? generate.count : 1,
       target_folder: 'inbox',
       source: 'ui',
     }),
   );
+  return {
+    request: { ...canonical.request, source: 'workflow', target_folder: 'inbox' },
+    constraints: canonical.constraints,
+  };
 }
 
 // The exact createJob input for a spending step: source 'workflow', the run and
@@ -249,8 +402,8 @@ function canonicalRequestForStep(step: Step, scope: Scope): ReturnType<typeof ca
 // confirmed cost. Exported and pure so the money path is unit-testable against a
 // fake engine that counts submits and ledger writes (TRD-12 §6).
 export interface SpendJobInput {
-  request: ReturnType<typeof canonicalGeneration>['request'] & { source: 'workflow'; target_folder: string };
-  constraints: ReturnType<typeof canonicalGeneration>['constraints'];
+  request: CanonicalRequest & { source: 'workflow'; target_folder: string };
+  constraints: RouteConstraints;
   confirmed_cost_usd: number;
   confirmed_by: 'user';
   run_id: string;
@@ -577,7 +730,8 @@ function runEffects(db: DatabaseState, engine: JobEngine, run: RunContext): Effe
 
 // One spending step → one createJob → estimate/confirm/reserve/ledger, tagged
 // with source 'workflow', the run and step id, and the plan step's estimate as
-// the confirmed cost. The executor never touches an adapter.
+// the confirmed cost. generate, transform and analyze all take this one road;
+// the executor never touches an adapter (TRD-12 §6).
 async function spendThroughEngine(
   db: DatabaseState,
   engine: JobEngine,
@@ -586,12 +740,6 @@ async function spendThroughEngine(
   rendered: Step,
   scope: Scope,
 ): Promise<StepResult> {
-  if (rendered.kind !== 'generate') {
-    // transform / analyze are not yet wired to their tools in the run loop; they
-    // complete without spend so a run can progress. Their tool wiring is filed
-    // for the routes group's follow-up.
-    return { outputs: {}, actual_usd: 0, status: 'completed' };
-  }
   const planStep = run.plan.steps.find((step) => step.step_id === node.step_id);
   const confirmedCost = planStep?.estimate_usd ?? 0;
   const jobInput = buildSpendInput(run.runId, run.folder, node, rendered, scope, confirmedCost);
@@ -606,12 +754,25 @@ async function spendThroughEngine(
     })
     .where(and(eq(runSteps.runId, run.runId), eq(runSteps.stepId, node.step_id)));
 
-  const terminal = await engine.waitForJob(created.job_id, 120_000);
+  // Wait for the job's terminal state, bounded by the engine's own poll window
+  // rather than a fixed two minutes, so a real video or lip-sync step that
+  // outlasts two minutes is not cut off (waitForJob returns the instant the job
+  // is terminal, so this never slows a fast step).
+  const terminal = await engine.waitForJob(created.job_id, engine.pollWindowMs);
   const assetIds = await jobAssetIds(db, created.job_id);
   const actual = Number(terminal.actualUsd ?? terminal.estimateUsd ?? confirmedCost) || confirmedCost;
   if (terminal.status === 'completed') {
     return {
-      outputs: { asset: assetIds[0] ?? '', assets: assetIds, job: created.job_id },
+      outputs: {
+        asset: assetIds[0] ?? '',
+        assets: assetIds,
+        job: created.job_id,
+        // The step's own `outputs` templates (e.g. transcript, words) are
+        // evaluated by the executor against `result`; expose the produced asset
+        // ids under `result.assets` and `result.asset_id` so a transform's
+        // transcript output and an assemble reading it resolve to a real file.
+        result: { assets: assetIds, asset_id: assetIds[0] ?? '' },
+      },
       actual_usd: actual,
       model: created.route.model,
       provider: created.route.provider,

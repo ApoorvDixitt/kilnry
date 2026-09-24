@@ -153,7 +153,19 @@ function expand(
   const scope = baseScope(workflow, inputs, vars, ctx);
   for (const step of steps) {
     if (step.kind === 'set') continue;
-    if (!conditional && !whenHolds(step.when, scope)) continue;
+    // A step's `when` may reference a step output that only exists at run time
+    // (e.g. a QA gate over clip results). If it resolves now to false, drop the
+    // step; if it cannot be resolved yet, keep it (it is conditional on runtime
+    // outputs) rather than throwing during planning.
+    if (!conditional) {
+      let holds: boolean;
+      try {
+        holds = whenHolds(step.when, scope);
+      } catch {
+        holds = true;
+      }
+      if (!holds) continue;
+    }
     if (step.kind === 'branch') {
       let taken: 'then' | 'else' | undefined;
       try {

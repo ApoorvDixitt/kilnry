@@ -102,9 +102,16 @@ function expandRun(steps: Step[], scope: Scope, prefix: string, extra: Record<st
   const out: RunStep[] = [];
   for (const step of steps) {
     if (step.kind === 'branch') {
-      const holds = truthy(renderString(step.when, freshScope(scope, extra)));
-      const chosen = holds ? step.then : step.else;
-      out.push(...expandRun(chosen, scope, prefix, extra));
+      // A branch is expanded lazily: rather than evaluating `when` now (it may
+      // read a step output that is not yet produced, e.g. a QA gate over clip
+      // results), push the condition onto each child as an added guard and
+      // expand both sides. The run loop then evaluates each child's `when` only
+      // once its dependencies — including the steps the condition reads — are
+      // ready, reusing the same skip-when-false machinery every step uses. A
+      // `then` child runs when the condition holds; an `else` child when it does
+      // not.
+      out.push(...expandRun(guardSteps(step.then, step.when, false), scope, prefix, extra));
+      out.push(...expandRun(guardSteps(step.else, step.when, true), scope, prefix, extra));
       continue;
     }
     if (step.kind === 'foreach') {
@@ -133,6 +140,26 @@ function expandRun(steps: Step[], scope: Scope, prefix: string, extra: Record<st
     });
   }
   return out;
+}
+
+// Combine a branch's condition with each child's own `when` so the child runs
+// only on the correct side of the branch. `negate` handles the else side. The
+// child keeps its own condition too, so an inner `when` still applies.
+function guardSteps(children: Step[], condition: string, negate: boolean): Step[] {
+  const guard = negate ? `!(${unwrap(condition)})` : `(${unwrap(condition)})`;
+  return children.map((child) => {
+    const own = child.when === undefined ? undefined : unwrap(child.when);
+    const combined = own === undefined ? guard : `${guard} && (${own})`;
+    return { ...child, when: `{{ ${combined} }}` } as Step;
+  });
+}
+
+// Strip a single surrounding `{{ }}` so two conditions can be combined into one
+// expression; a bare expression is returned unchanged.
+function unwrap(expr: string): string {
+  const trimmed = expr.trim();
+  const match = /^\{\{(.*)\}\}$/s.exec(trimmed);
+  return match?.[1]?.trim() ?? trimmed;
 }
 
 function truthy(value: unknown): boolean {
@@ -179,7 +206,15 @@ export async function execute(
   const state: RunState = existing ?? { status: 'running', steps: nodes, spent_usd: 0 };
   state.status = 'running';
 
-  const byStepId = (id: string): RunStep[] => state.steps.filter((node) => node.step_id === id);
+  const byStepId = (id: string): RunStep[] => {
+    const direct = state.steps.filter((node) => node.step_id === id);
+    if (direct.length > 0) return direct;
+    // A foreach container id (e.g. `clips`) is not a node itself; a dependency on
+    // it means every child instance of that foreach (`clips[k].*`). Resolve those
+    // so a step reading `steps.clips.assets` waits for the whole foreach.
+    const prefix = `${id}[`;
+    return state.steps.filter((node) => node.instance_id.startsWith(prefix));
+  };
   const done = (node: RunStep): boolean => node.status === 'completed' || node.status === 'skipped';
 
   const checkpoint = async (): Promise<void> => {
@@ -191,7 +226,13 @@ export async function execute(
     progressed = false;
     for (const node of state.steps) {
       if (node.status !== 'pending') continue;
-      const deps = impliedDependencies(node.step);
+      // A step inside foreach X may reference `steps.X.outputs[k-1]` (the prior
+      // iteration); that is not a dependency on its own container — sequencing
+      // within a foreach is handled by concurrency, not the DAG — so drop the
+      // enclosing container id from the implied dependencies to avoid a
+      // self-deadlock.
+      const enclosing = node.instance_id.match(/^([a-z0-9][a-z0-9_-]*)\[/)?.[1];
+      const deps = impliedDependencies(node.step).filter((dep) => dep !== enclosing);
       const ready = deps.every(
         (dep) => (byStepId(dep).every(done) && byStepId(dep).length > 0) || byStepId(dep).length === 0,
       );
@@ -250,7 +291,31 @@ export async function execute(
       await checkpoint();
       const rendered = renderDeep(node.step, scope) as Step;
       const result = await runWithRetry(node, rendered, scope, effects);
-      node.outputs = result.outputs;
+      // The step's declared `outputs` are templates over its result (e.g.
+      // `ok: '{{ result.structured.ok }}'`, `transcript: '{{ result.assets[0] }}'`).
+      // Evaluate them against a scope that binds `result` to what the step
+      // produced, so downstream steps read the named outputs the YAML promises;
+      // fall back to the raw result outputs when a step declares none.
+      const declared = node.step.outputs ?? {};
+      // The declared `outputs` templates reference `result` — the step's result
+      // namespace (assets, asset_id, structured, words). A step result carries
+      // that under `outputs.result`; expose it as `result` and also spread the
+      // raw outputs so `{{ result.assets[0] }}` and a bare `{{ asset }}` both
+      // resolve.
+      const resultNamespace =
+        result.outputs.result !== undefined && typeof result.outputs.result === 'object'
+          ? (result.outputs.result as Record<string, unknown>)
+          : result.outputs;
+      const resultScope = { ...scope, result: resultNamespace, ...result.outputs };
+      const named: Record<string, unknown> = {};
+      for (const [key, expr] of Object.entries(declared)) {
+        try {
+          named[key] = renderString(expr, resultScope);
+        } catch {
+          named[key] = undefined;
+        }
+      }
+      node.outputs = Object.keys(named).length > 0 ? { ...result.outputs, ...named } : result.outputs;
       node.actual_usd += result.actual_usd ?? 0;
       state.spent_usd += result.actual_usd ?? 0;
       if (result.model !== undefined) node.model = result.model;
@@ -333,7 +398,12 @@ function applyFailPolicy(node: RunStep, state: RunState): boolean {
 }
 
 // The steps namespace for template evaluation: each step id maps to its outputs,
-// and a foreach id maps to the array of its iterations' outputs.
+// and a foreach id maps to the array of its iterations' outputs. A foreach
+// container id (e.g. `boards`, `clips`) is not a node itself, so its namespace
+// is built from its child instances: `steps.boards.outputs[k]` is the merged
+// outputs of every child step in iteration k, and `steps.boards.assets` is those
+// iterations' assets flattened — which is what the shipped workflows read
+// (`steps.clips.assets`, `steps.boards.outputs | map('clean')`).
 function stepsScope(state: RunState): { steps: Record<string, unknown> } {
   const steps: Record<string, unknown> = {};
   const groups = new Map<string, RunStep[]>();
@@ -351,6 +421,42 @@ function stepsScope(state: RunState): { steps: Record<string, unknown> } {
         assets: list.flatMap((node) => (Array.isArray(node.outputs.assets) ? node.outputs.assets : [])),
       };
     }
+  }
+
+  // Build each foreach container's aggregated namespace from its child instances.
+  // A child instance id looks like `<container>[<k>].<child...>`; several nested
+  // levels give `<outer>[<i>].<inner>[<j>].<leaf>`. Merge per top-level iteration.
+  const containers = new Map<string, Map<number, Record<string, unknown>>>();
+  const containerAssets = new Map<string, Map<number, string[]>>();
+  for (const node of state.steps) {
+    const match = /^([a-z0-9][a-z0-9_-]*)\[(\d+)\]\./.exec(node.instance_id);
+    if (!match) continue;
+    const container = match[1]!;
+    const index = Number(match[2]);
+    const byIndex = containers.get(container) ?? new Map<number, Record<string, unknown>>();
+    const merged = byIndex.get(index) ?? {};
+    Object.assign(merged, node.outputs);
+    byIndex.set(index, merged);
+    containers.set(container, byIndex);
+    const assetsByIndex = containerAssets.get(container) ?? new Map<number, string[]>();
+    const existing = assetsByIndex.get(index) ?? [];
+    if (Array.isArray(node.outputs.assets)) existing.push(...(node.outputs.assets as string[]));
+    assetsByIndex.set(index, existing);
+    containerAssets.set(container, assetsByIndex);
+  }
+  for (const [container, byIndex] of containers) {
+    // Do not shadow a real step that happens to share the id.
+    if (
+      steps[container] !== undefined &&
+      !Array.isArray((steps[container] as { outputs?: unknown }).outputs)
+    ) {
+      continue;
+    }
+    const indices = [...byIndex.keys()].sort((a, b) => a - b);
+    const outputs = indices.map((index) => byIndex.get(index) ?? {});
+    const assetsByIndex = containerAssets.get(container) ?? new Map<number, string[]>();
+    const assets = indices.flatMap((index) => assetsByIndex.get(index) ?? []);
+    steps[container] = { outputs, assets };
   }
   return { steps };
 }

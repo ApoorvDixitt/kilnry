@@ -705,6 +705,16 @@ export class JobEngine {
     }
   }
 
+  /**
+   * The full poll window a running job may take before the worker gives up
+   * (TRD-08). A caller that waits for a job's terminal state — the workflow host
+   * runner driving a step — bounds its wait by this rather than a fixed short
+   * timeout, so a real video step that outlasts two minutes is not cut off.
+   */
+  get pollWindowMs(): number {
+    return this.#options.pollTimeoutMs;
+  }
+
   async waitForJob(jobId: string, timeoutMs = 30_000): Promise<JobRow> {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() <= deadline) {
