@@ -11,3 +11,28 @@ export {
   FUNCTION_NAMES,
   type Scope,
 } from './template.js';
+
+export {
+  WorkflowFileSchema,
+  StepSchema,
+  Id,
+  MediaRef,
+  TransformOpSchema,
+  FfmpegOpSchema,
+  InternalAssemblyOpSchema,
+  AnalyzeTaskSchema,
+  ErrorCodeSchema,
+  RouteConstraintsSchema,
+  RetrySchema,
+  type WorkflowFile,
+  type Step,
+  type BranchStepValue,
+  type ForeachStepValue,
+  type TransformOp,
+  type FfmpegOp,
+  type InternalAssemblyOp,
+  type AnalyzeTask,
+  type ErrorCode,
+} from './schema.js';
+
+export { parseWorkflow, canonicaliseId, WorkflowParseError } from './parse.js';

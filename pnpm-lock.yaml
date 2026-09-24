@@ -506,9 +506,18 @@ importers:
 
   packages/workflows:
     dependencies:
+      '@kilnry/core':
+        specifier: workspace:*
+        version: link:../core
       jsep:
         specifier: 1.4.0
         version: 1.4.0
+      yaml:
+        specifier: 2.9.1
+        version: 2.9.1
+      zod:
+        specifier: 4.6.5
+        version: 4.6.5
 
 packages:
   '@ai-sdk/anthropic@4.0.57':

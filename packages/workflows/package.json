@@ -17,6 +17,9 @@
     "test": "vitest run --passWithNoTests --exclude 'dist/**'"
   },
   "dependencies": {
-    "jsep": "1.4.0"
+    "@kilnry/core": "workspace:*",
+    "jsep": "1.4.0",
+    "yaml": "2.9.1",
+    "zod": "4.6.5"
   }
 }
