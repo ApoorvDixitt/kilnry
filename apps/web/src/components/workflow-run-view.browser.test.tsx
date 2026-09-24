@@ -123,14 +123,16 @@ describe('workflow run view (F-WFL-03)', () => {
   });
 
   it('approves through the interface, posting to the approve route', async () => {
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ run: RUN }), { status: 200 }));
+    const calledUrls: string[] = [];
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      calledUrls.push(String(input));
+      return Promise.resolve(new Response(JSON.stringify({ run: RUN }), { status: 200 }));
+    });
     vi.stubGlobal('fetch', fetchMock);
     const waiting: RunView = { ...RUN, status: 'awaiting_approval' };
     const host = await render(<WorkflowRunView runId="run_1" initial={waiting} />);
     const approveButton = host.querySelector('.approval-approve-button') as HTMLButtonElement;
     await act(async () => approveButton.click());
-    expect(
-      fetchMock.mock.calls.some((call) => String(call[0] ?? '').endsWith('/api/runs/run_1/approve')),
-    ).toBe(true);
+    expect(calledUrls.some((url) => url.endsWith('/api/runs/run_1/approve'))).toBe(true);
   });
 });
