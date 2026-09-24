@@ -1,6 +1,6 @@
 {
   "name": "@kilnry/db",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "PGlite and PostgreSQL schema and migrations",
   "private": true,
   "type": "module",

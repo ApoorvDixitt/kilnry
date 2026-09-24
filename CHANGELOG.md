@@ -4,6 +4,8 @@ All notable changes to Kilnry are documented here. The format follows Keep a Cha
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-09-24
+
 ### Added
 
 - The spend ledger in Settings, with a group-by over provider, model, folder, character or day and a Comma-Separated Values export, so where the money went is visible without leaving the app (F-PRV-05).

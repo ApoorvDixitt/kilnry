@@ -1,6 +1,6 @@
 {
   "name": "@kilnry/media",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Local media processing and metadata",
   "private": true,
   "type": "module",
