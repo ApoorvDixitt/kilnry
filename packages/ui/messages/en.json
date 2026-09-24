@@ -124,7 +124,7 @@
     "generate": "Generate",
     "generateDisabled": "Connect a provider before generating.",
     "plan": "Plan",
-    "workflowLater": "Workflows arrive in a future milestone.",
+    "workflowLater": "Workflows arrive in M6.",
     "generateDisabledReason": {
       "noKey": "Add a provider key or start the demo.",
       "empty": "Type a prompt first.",
@@ -561,8 +561,8 @@
       "saved": "Chat settings saved.",
       "saveFailed": "Kilnry could not save the chat settings.",
       "laterTitle": "Arrives later",
-      "laterReasoning": "Choosing how much of the model's thinking is shown arrives with visible thinking.",
-      "laterMemory": "Reading project notes from the current folder arrives with project memory."
+      "laterReasoning": "Choosing how much of the model's thinking is shown arrives with visible thinking in M6.",
+      "laterMemory": "Reading project notes from the current folder arrives with project memory in M6."
     }
   },
   "placeholder": {
