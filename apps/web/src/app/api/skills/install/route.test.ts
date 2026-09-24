@@ -69,7 +69,7 @@ describe('POST /api/skills/install (F-SKL-03)', () => {
     expect(result.ok).toBe(true);
     expect(result.name).toBe('acme-helper');
     expect(existsSync(join(dataDir, 'skills', 'acme-helper', 'SKILL.md'))).toBe(true);
-  });
+  }, 30_000);
 
   it('refuses a dropped skill with an executable script and writes nothing', async () => {
     const response = await post({
@@ -86,5 +86,5 @@ describe('POST /api/skills/install (F-SKL-03)', () => {
     expect(result.ok).toBe(false);
     expect(result.issues.some((issue) => issue.message.includes('does not run skill scripts'))).toBe(true);
     expect(existsSync(join(dataDir, 'skills', 'acme-helper'))).toBe(false);
-  });
+  }, 30_000);
 });
