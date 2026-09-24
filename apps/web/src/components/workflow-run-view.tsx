@@ -119,6 +119,57 @@ export function StepDetail({ step }: { step: RunStepView | undefined }): React.R
   );
 }
 
+export function ApprovalCard({
+  run,
+  onApprove,
+  onDeny,
+  busy = false,
+}: {
+  run: RunView;
+  onApprove: () => void;
+  onDeny: () => void;
+  busy?: boolean;
+}): React.ReactNode {
+  const waiting = run.steps.find((step) => step.status === 'waiting');
+  // The planned calls that still remain: steps not yet completed or skipped,
+  // with their estimated cost, so the card shows what approving will spend.
+  const remaining = run.steps.filter((step) => !['completed', 'skipped', 'waiting'].includes(step.status));
+  const remainingCost = remaining.reduce((total, step) => total + (step.estimate_usd ?? 0), 0);
+  return (
+    <section className="approval-card" role="alertdialog" aria-label={message('workflows.approval.title')}>
+      <h2 className="approval-card-title">
+        {message('workflows.approval.title')}
+        {waiting ? ` · ${waiting.name}` : ''}
+      </h2>
+      <table className="approval-card-calls">
+        <tbody>
+          {remaining.map((step) => (
+            <tr key={step.step_id} data-step-id={step.step_id}>
+              <td>{step.name}</td>
+              <td className="approval-card-model">{step.model ?? ''}</td>
+              <td className="approval-card-cost">
+                {step.estimate_usd && step.estimate_usd > 0 ? `≈ $${step.estimate_usd.toFixed(2)}` : ''}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="approval-card-total">
+        {message('workflows.approval.remaining')}
+        <span className="approval-card-total-amount">{` ≈ $${remainingCost.toFixed(2)}`}</span>
+      </p>
+      <div className="approval-card-actions">
+        <button type="button" className="approval-deny-button" disabled={busy} onClick={onDeny}>
+          {message('workflows.approval.deny')}
+        </button>
+        <button type="button" className="approval-approve-button" disabled={busy} onClick={onApprove}>
+          {message('workflows.approval.approve')}
+        </button>
+      </div>
+    </section>
+  );
+}
+
 export function WorkflowRunView({ runId, initial }: { runId: string; initial?: RunView }): React.ReactNode {
   const [run, setRun] = useState<RunView | null>(initial ?? null);
   const [selected, setSelected] = useState<string>();
@@ -149,6 +200,16 @@ export function WorkflowRunView({ runId, initial }: { runId: string; initial?: R
     void reload();
   }, [runId, reload]);
 
+  const approve = useCallback(async (): Promise<void> => {
+    await apiFetch(`/api/runs/${encodeURIComponent(runId)}/approve`, { method: 'POST' });
+    void reload();
+  }, [runId, reload]);
+
+  const deny = useCallback(async (): Promise<void> => {
+    await apiFetch(`/api/runs/${encodeURIComponent(runId)}/deny`, { method: 'POST' });
+    void reload();
+  }, [runId, reload]);
+
   const current = useMemo(
     () => run?.steps.find((step) => step.step_id === selected) ?? run?.steps[0],
     [run, selected],
@@ -159,6 +220,9 @@ export function WorkflowRunView({ runId, initial }: { runId: string; initial?: R
   return (
     <section className="run-view">
       <RunHeader run={run} onCancel={() => void cancel()} />
+      {run.status === 'awaiting_approval' ? (
+        <ApprovalCard run={run} onApprove={() => void approve()} onDeny={() => void deny()} />
+      ) : null}
       <div className="run-body">
         <StepList steps={run.steps} selected={selected} onSelect={setSelected} />
         <StepDetail step={current} />

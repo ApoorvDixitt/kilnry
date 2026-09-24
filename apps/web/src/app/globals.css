@@ -6841,3 +6841,79 @@ html[data-motion='reduced'] *::after {
   margin: 0;
   color: var(--text-muted);
 }
+
+/* Workflow ApprovalCard (F-WFL-04). */
+.approval-card {
+  margin: 16px 24px 0;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.approval-card-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.approval-card-calls {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.approval-card-calls td {
+  padding: 3px 0;
+}
+
+.approval-card-model {
+  color: var(--text-muted);
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+}
+
+.approval-card-cost {
+  text-align: right;
+  color: var(--accent-text);
+}
+
+.approval-card-total {
+  margin: 0;
+  font-weight: 600;
+}
+
+.approval-card-total-amount {
+  color: var(--accent-text);
+}
+
+.approval-card-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.approval-approve-button {
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--accent-foreground);
+  padding: 7px 16px;
+  border-radius: var(--radius-md);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.approval-deny-button {
+  border: 1px solid var(--border-control);
+  background: var(--surface-2);
+  color: var(--text);
+  padding: 7px 16px;
+  border-radius: var(--radius-md);
+  font: inherit;
+  cursor: pointer;
+}

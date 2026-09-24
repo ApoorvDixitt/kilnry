@@ -5,8 +5,8 @@
 
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, describe, expect, it } from 'vitest';
-import { RunHeader, StepDetail, StepList, WorkflowRunView } from './workflow-run-view';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { ApprovalCard, RunHeader, StepDetail, StepList, WorkflowRunView } from './workflow-run-view';
 import type { RunView } from './workflow-run-view-logic';
 
 let root: Root | undefined;
@@ -16,6 +16,7 @@ afterEach(async () => {
   await act(async () => root?.unmount());
   root = undefined;
   document.body.replaceChildren();
+  vi.restoreAllMocks();
 });
 
 async function render(node: React.ReactNode): Promise<HTMLElement> {
@@ -79,5 +80,57 @@ describe('workflow run view (F-WFL-03)', () => {
     const host = await render(<WorkflowRunView runId="run_1" initial={RUN} />);
     expect(host.querySelector('.run-header')).not.toBeNull();
     expect(host.querySelectorAll('.run-step-row')).toHaveLength(2);
+  });
+
+  it('shows the ApprovalCard with remaining calls when the run is waiting', async () => {
+    const waiting: RunView = {
+      ...RUN,
+      status: 'awaiting_approval',
+      steps: [
+        {
+          step_id: 'plan',
+          name: 'Plan',
+          kind: 'set',
+          status: 'completed',
+          model: null,
+          estimate_usd: 0,
+          actual_usd: 0,
+        },
+        {
+          step_id: 'gate',
+          name: 'Approve boards',
+          kind: 'approval',
+          status: 'waiting',
+          model: null,
+          estimate_usd: 0,
+          actual_usd: null,
+        },
+        {
+          step_id: 'clip',
+          name: 'Clip',
+          kind: 'generate',
+          status: 'queued',
+          model: 'seedance',
+          estimate_usd: 1.5,
+          actual_usd: null,
+        },
+      ],
+    };
+    const host = await render(<ApprovalCard run={waiting} onApprove={() => {}} onDeny={() => {}} />);
+    expect(host.querySelector('.approval-card-title')?.textContent).toContain('Approve boards');
+    expect(host.querySelector('[data-step-id="clip"] .approval-card-cost')?.textContent).toContain('1.50');
+    expect(host.querySelector('.approval-card-total-amount')?.textContent).toContain('1.50');
+  });
+
+  it('approves through the interface, posting to the approve route', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ run: RUN }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const waiting: RunView = { ...RUN, status: 'awaiting_approval' };
+    const host = await render(<WorkflowRunView runId="run_1" initial={waiting} />);
+    const approveButton = host.querySelector('.approval-approve-button') as HTMLButtonElement;
+    await act(async () => approveButton.click());
+    expect(
+      fetchMock.mock.calls.some((call) => String(call[0] ?? '').endsWith('/api/runs/run_1/approve')),
+    ).toBe(true);
   });
 });

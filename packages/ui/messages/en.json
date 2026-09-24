@@ -918,6 +918,12 @@
         "cost": "Cost"
       }
     },
+    "approval": {
+      "title": "Approve before spending",
+      "remaining": "Remaining",
+      "approve": "Approve ⏎",
+      "deny": "Deny"
+    },
     "category": {
       "all": "All",
       "ads": "Ads",
