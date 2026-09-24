@@ -43,3 +43,5 @@ export {
   type WorkflowIssue,
   type ValidationResult,
 } from './validate.js';
+
+export { plan, renderStep, type Plan, type PlanStep, type PlanContext } from './planner.js';
