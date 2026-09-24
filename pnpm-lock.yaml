@@ -493,7 +493,11 @@ importers:
         specifier: 2.15.0
         version: 2.15.0(@types/node@24.13.5)(@typescript/typescript6@6.0.2)
 
-  packages/skills: {}
+  packages/skills:
+    devDependencies:
+      gpt-tokenizer:
+        specifier: 4.0.0
+        version: 4.0.0
 
   packages/ui: {}
 
@@ -3871,6 +3875,12 @@ packages:
         integrity: sha512-ZUKRh6/kUFoAiTAtTYPZJ3hw9wNxx+BIBOijnlG9PnrJsCcSjs1wyyD6vJpaYtgnzDrKYRSqf3OO6Rfa93xsRg==,
       }
     engines: { node: '>= 0.4' }
+
+  gpt-tokenizer@4.0.0:
+    resolution:
+      {
+        integrity: sha512-YAWIyzvuVUHEfW7tFfFAxH8qQb+Q3RU9nYOTy7skMNX5qzU6Q8jxTHZLyO56ug1vYvCR7wndzpd3jwD86/mhjQ==,
+      }
 
   graceful-fs@4.2.11:
     resolution:
@@ -8048,6 +8058,8 @@ snapshots:
   globals@17.12.0: {}
 
   gopd@1.2.0: {}
+
+  gpt-tokenizer@4.0.0: {}
 
   graceful-fs@4.2.11: {}
 

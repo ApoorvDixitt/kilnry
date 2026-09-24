@@ -6,6 +6,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { encode } from 'gpt-tokenizer/model/gpt-4o';
 import { describe, expect, it } from 'vitest';
 
 const prompts = join(dirname(fileURLToPath(import.meta.url)), '..', 'prompts');
@@ -18,21 +19,20 @@ function promptBody(file: string): string {
     .trim();
 }
 
-// A token estimate without a tokenizer dependency, using the widely used ratio
-// of about 0.75 English words per token (so tokens ≈ words × 1.33). This tracks
-// real GPT tokenisation of prose far better than a raw character count, which
-// over-counts Markdown punctuation. PRD-13 §1 states the prompt is about 1,250
-// tokens; the limit is 1,300.
-function estimateTokens(text: string): number {
-  const words = text.split(/\s+/).filter(Boolean).length;
-  return Math.ceil(words * 1.33);
+// Measure the real token count with the gpt-tokenizer o200k_base encoding used
+// by the current GPT-4o / GPT-image family (M5 default revisited in M6: the
+// earlier words × 1.33 ratio only approximated this). The sixteen skills and the
+// flagship texts enter the instructions assembly at TRD-11 §3, so the base
+// budget the assembly starts from must be measured, not estimated.
+function countTokens(text: string): number {
+  return encode(text).length;
 }
 
 describe('prompt library (F-SKL-05)', () => {
   it('ships the base system prompt with a token count at or under 1300 (PRD-13 §1)', () => {
     const body = promptBody('base-system.md');
     expect(body.startsWith('You are Kilnry')).toBe(true);
-    expect(estimateTokens(body)).toBeLessThanOrEqual(1300);
+    expect(countTokens(body)).toBeLessThanOrEqual(1300);
   });
 
   it('ships the three per-mode addenda', () => {

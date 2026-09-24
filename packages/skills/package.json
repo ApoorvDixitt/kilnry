@@ -23,5 +23,8 @@
     "build": "tsc -b",
     "typecheck": "tsc -b --pretty false",
     "test": "vitest run --passWithNoTests --exclude 'dist/**'"
+  },
+  "devDependencies": {
+    "gpt-tokenizer": "4.0.0"
   }
 }
