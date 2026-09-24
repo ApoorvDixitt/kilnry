@@ -189,7 +189,12 @@ describe('POST /api/chat — scripted OpenRouter tool rounds', () => {
 
     expect(engine.createJob).not.toHaveBeenCalled();
     expect(await database.db.select().from(jobs)).toHaveLength(0);
-  }, 15_000);
+    // This case seeds a real in-memory database and registry and drives the full
+    // agent tool loop (skills, estimate, then the approval), which is a few
+    // seconds locally but several times that on a loaded continuous-integration
+    // runner; a generous, deterministic timeout removes the flake seen at 15s
+    // without masking a real hang.
+  }, 30_000);
 
   it('stamps an automatic confirmer on a call the policy let through below the threshold', async () => {
     const root = mkdtempSync(join(tmpdir(), 'kilnry-chat-auto-'));
@@ -249,5 +254,5 @@ describe('POST /api/chat — scripted OpenRouter tool rounds', () => {
       confirmed_by: 'auto',
       request: { source: 'chat' },
     });
-  }, 15_000);
+  }, 30_000);
 });
