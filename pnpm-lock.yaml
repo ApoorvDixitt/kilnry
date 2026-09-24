@@ -314,6 +314,9 @@ importers:
       '@kilnry/ui':
         specifier: workspace:*
         version: link:../../packages/ui
+      '@kilnry/workflows':
+        specifier: workspace:*
+        version: link:../../packages/workflows
       '@number-flow/react':
         specifier: 0.6.2
         version: 0.6.2(react-dom@19.3.0(react@19.3.0))(react@19.3.0)

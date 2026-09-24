@@ -36,6 +36,8 @@ export interface FinalizeInput {
     modelId: string;
     providerRequestId: string;
     createdAt: Date;
+    runId?: string | null;
+    stepId?: string | null;
   };
   request: CanonicalRequest;
   estimate: Estimate;
@@ -113,8 +115,8 @@ function sidecarFor(
       provider_request_id: input.job.providerRequestId,
       output_index: input.output.index,
       job_id: input.job.id,
-      run_id: null,
-      step_id: null,
+      run_id: input.job.runId ?? null,
+      step_id: input.job.stepId ?? null,
       adjustments: input.estimate.adjustments,
       recovered_from: null,
     },

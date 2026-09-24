@@ -26,6 +26,7 @@
     "@kilnry/providers": "workspace:*",
     "@kilnry/skills": "workspace:*",
     "@kilnry/ui": "workspace:*",
+    "@kilnry/workflows": "workspace:*",
     "@number-flow/react": "0.6.2",
     "@tailwindcss/postcss": "4.3.3",
     "@tanstack/react-virtual": "3.14.13",

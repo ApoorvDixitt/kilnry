@@ -401,6 +401,10 @@ export class JobEngine {
     allow_stale_price?: boolean;
     /** The preset the run came from, so the job can be traced back to it (F-PRE-02). */
     preset_id?: string;
+    /** The workflow run and step this job belongs to, so its output sidecar can be
+     * traced back and a reindex can rebuild run_steps.outputs (F-WFL-09). */
+    run_id?: string;
+    step_id?: string;
   }): Promise<CreateJobResult> {
     if (!this.#started) throw new Error('Job engine must be started before creating jobs.');
     if (input.client_request_id) {
@@ -449,6 +453,8 @@ export class JobEngine {
       unitPrice: { ...prepared.estimate.unit_price },
       ...(input.client_request_id === undefined ? {} : { clientRequestId: input.client_request_id }),
       ...(input.preset_id === undefined ? {} : { presetId: input.preset_id }),
+      ...(input.run_id === undefined ? {} : { runId: input.run_id }),
+      ...(input.step_id === undefined ? {} : { stepId: input.step_id }),
       targetFolder: prepared.request.target_folder,
       confirmedCostUsd: input.confirmed_cost_usd?.toFixed(6) ?? '0.000000',
       confirmedBy: normalizeConfirmedBy(input.confirmed_by),
@@ -966,6 +972,8 @@ export class JobEngine {
             modelId: row.modelId ?? String(request.params.extra?.model ?? ''),
             providerRequestId: row.providerRequestId ?? 'inline',
             createdAt: row.createdAt,
+            runId: row.runId,
+            stepId: row.stepId,
           },
           request,
           estimate,
