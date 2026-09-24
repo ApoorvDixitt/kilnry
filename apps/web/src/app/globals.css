@@ -6625,3 +6625,219 @@ html[data-motion='reduced'] *::after {
   color: var(--danger);
   font-size: 13px;
 }
+
+/* Workflow run view (F-WFL-03). */
+.run-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.run-header {
+  border-bottom: 1px solid var(--border);
+  padding: 16px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.run-header-top {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.run-status-pill {
+  text-transform: capitalize;
+  font-size: 13px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+}
+
+.run-status-running {
+  color: var(--accent-text);
+  border-color: var(--accent);
+}
+
+.run-status-failed {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.run-progress-count {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.run-cost {
+  color: var(--accent-text);
+  font-weight: 600;
+  margin-left: auto;
+}
+
+.run-cancel-button {
+  border: 1px solid var(--border-control);
+  background: var(--surface-2);
+  color: var(--text);
+  padding: 5px 14px;
+  border-radius: var(--radius-md);
+  font: inherit;
+  cursor: pointer;
+}
+
+.run-progress-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+
+.run-progress-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+
+.run-body {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  flex: 1;
+  min-height: 0;
+}
+
+.run-step-list {
+  list-style: none;
+  margin: 0;
+  padding: 8px;
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+}
+
+.run-step-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.run-step-row.is-selected {
+  background: var(--surface-2);
+}
+
+.run-step-glyph {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1.75px solid var(--border-control);
+  flex-shrink: 0;
+}
+
+.run-step-glyph.glyph-check {
+  border-color: var(--success);
+  background: var(--success);
+}
+
+.run-step-glyph.glyph-spinner {
+  border-color: var(--accent);
+  border-top-color: transparent;
+  animation: run-spin 0.8s linear infinite;
+}
+
+.run-step-glyph.glyph-failed {
+  border-color: var(--danger);
+  background: var(--danger);
+}
+
+.run-step-glyph.glyph-skipped {
+  border-style: dashed;
+}
+
+.run-step-glyph.glyph-waiting {
+  border-color: var(--warning);
+  background: var(--warning);
+}
+
+@keyframes run-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .run-step-glyph.glyph-spinner {
+    animation: none;
+  }
+  .run-progress-fill {
+    transition: none;
+  }
+}
+
+.run-step-number {
+  color: var(--text-muted);
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+}
+
+.run-step-name {
+  flex: 1;
+}
+
+.run-step-model {
+  color: var(--text-muted);
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+}
+
+.run-step-detail {
+  padding: 16px 24px;
+  overflow-y: auto;
+}
+
+.run-step-detail-title {
+  margin: 0 0 12px;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.run-detail-tabs {
+  display: flex;
+  gap: 6px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 12px;
+}
+
+.run-detail-tab {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  padding: 6px 10px;
+  font: inherit;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+}
+
+.run-detail-tab[aria-selected='true'] {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+
+.run-detail-cost {
+  margin: 0;
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+.run-detail-empty {
+  margin: 0;
+  color: var(--text-muted);
+}

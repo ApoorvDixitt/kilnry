@@ -906,6 +906,18 @@
     "loadFailed": "That workflow could not be loaded. Try again.",
     "planFailed": "The plan could not be priced. Try again.",
     "runFailed": "The run could not start. Try again.",
+    "runView": {
+      "progress": "{n} of {m} steps",
+      "cancel": "Cancel",
+      "stepsLabel": "Run steps",
+      "detailLabel": "Step detail",
+      "tab": {
+        "inputs": "Inputs",
+        "outputs": "Outputs",
+        "logs": "Logs",
+        "cost": "Cost"
+      }
+    },
     "category": {
       "all": "All",
       "ads": "Ads",
