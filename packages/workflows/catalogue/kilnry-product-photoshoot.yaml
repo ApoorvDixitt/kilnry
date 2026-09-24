@@ -1,0 +1,156 @@
+# Kilnry — https://github.com/ApoorvDixitt/kilnry
+# Copyright (c) 2026 Apoorv Dixit. Licensed under the Sustainable Use License 1.0.
+# SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
+# See LICENSE.md in the repository root. You may not remove or obscure this notice.
+id: kilnry-product-photoshoot
+name: Product photoshoot
+version: 1.0.0
+description: >
+  Studio and lifestyle product shots from one product image: packshot, lifestyle, with a person, hero banner, carousel, ad pack, try-on, conceptual or restyle.
+  Keeps the product's geometry and label; changes only the scene, light and framing. Optional transparent cut-out.
+category: image
+requires: [image_edit, vlm, bg_remove]
+inputs:
+  type: object
+  required: [product, mode]
+  properties:
+    product:
+      {
+        type: string,
+        description: 'Product photo or product page URL',
+        x-kilnry: { widget: media, accept: [image], roles: [product], allow_url: true },
+      }
+    mode:
+      {
+        type: string,
+        enum: [packshot, lifestyle, with_person, hero_banner, carousel, ad_pack, try_on, conceptual, restyle],
+        default: packshot,
+        x-kilnry: { widget: segment },
+      }
+    variants:
+      { type: integer, minimum: 1, maximum: 6, default: 3, x-kilnry: { widget: chips, options: [1, 3, 6] } }
+    aspect:
+      { type: string, enum: ['1:1', '4:5', '16:9', '9:16'], default: '1:1', x-kilnry: { widget: segment } }
+    background:
+      {
+        type: string,
+        enum: [clean_studio, surface, scene, transparent],
+        default: clean_studio,
+        x-kilnry: { widget: select },
+      }
+    brand_colors:
+      {
+        type: array,
+        items: { type: string },
+        default: [],
+        x-kilnry: { widget: tags, help: 'Hex colours to keep on brand' },
+      }
+    character:
+      {
+        type: string,
+        description: '@handle for with_person / try_on',
+        x-kilnry: { widget: character, kinds: [character], allow_empty: true },
+      }
+defaults:
+  mode_prompts:
+    packshot: 'clean studio packshot, seamless background, soft even light, product centred, crisp shadow'
+    lifestyle: 'lifestyle scene on a real surface, natural window light, shallow depth of field, props in soft focus'
+    with_person: 'held or used by the person in the reference, natural gesture, product clearly readable'
+    hero_banner: 'wide hero banner composition, product to one side, generous negative space for a headline'
+    carousel: 'one square carousel frame, consistent light and angle across the set'
+    ad_pack: 'punchy ad still, bold single-colour backdrop from the brand palette, product hero'
+    try_on: 'worn or applied by the person in the reference, true scale, natural fit'
+    conceptual: 'surreal conceptual still, product intact, imaginative setting, editorial lighting'
+    restyle: 'restyle the surrounding scene only; keep the exact product geometry, colour and label'
+budget: { max_usd: 2, warn_usd: 1 }
+steps:
+  - id: product_norm
+    kind: analyze
+    name: Read the product
+    task: describe
+    model: auto
+    refs: ['{{ inputs.product }}']
+    instructions: >
+      Describe this product for a photographer: category, materials, colours, the label side that should face camera,
+      and any text visible on it verbatim. 50 words. Return JSON {description, visible_text}.
+    schema:
+      {
+        type: object,
+        required: [description],
+        properties: { description: { type: string }, visible_text: { type: string } },
+      }
+    outputs:
+      { desc: '{{ result.structured.description }}', visible_text: '{{ result.structured.visible_text }}' }
+
+  - id: refs
+    kind: set
+    values:
+      character_ref: "{{ inputs.character ? (characters[inputs.character].references | filter('role','anchor') | first).asset_id : null }}"
+      scene: '{{ defaults.mode_prompts[inputs.mode] }}'
+
+  - id: shots
+    kind: foreach
+    over: '{{ range(0, inputs.variants) }}'
+    as: k
+    concurrency: 2
+    steps:
+      - id: shot_gen
+        kind: generate
+        name: 'Shot {{ k + 1 }}/{{ inputs.variants }}'
+        capability: image_edit
+        model: auto
+        constraints: { quality: premium, refs_count: '{{ 1 + (vars.character_ref ? 1 : 0) }}' }
+        alternates:
+          [openai/gpt-image-2.5-sunburst, fal-ai/nano-banana-pro/edit, fal-ai/bytedance/seedream/v4.5/edit]
+        prompt: >
+          Product photograph of the product in image 1, unchanged in shape, colour and label: {{ vars.scene }}.
+          {{ steps.product_norm.outputs.desc }}. {{ vars.character_ref ? 'The person in image 2 is present, natural and secondary to the product.' : '' }}
+          {{ len(inputs.brand_colors) > 0 ? 'Keep these brand colours in the scene: ' + (inputs.brand_colors | join(', ')) + '.' : '' }}
+          No text, no watermark, no extra products.
+        params: { aspect_ratio: '{{ inputs.aspect }}', resolution: '2K', quality: high }
+        medias:
+          - { role: product, ref: '{{ inputs.product }}', label: product }
+          - {
+              role: reference,
+              ref: '{{ vars.character_ref }}',
+              when: '{{ vars.character_ref }}',
+              label: person,
+            }
+        characters: ['{{ inputs.character }}']
+        retry: { max: 1, on: [MODERATION_REJECTED, PROVIDER_ERROR], reword: true }
+        outputs: { raw: '{{ result.assets[0] }}' }
+      - id: shot_refine
+        kind: generate
+        name: 'Refine {{ k + 1 }}'
+        capability: image_edit
+        model: fal-ai/bytedance/seedream/v4.5/edit
+        prompt: 'Keep the product geometry and label exactly; fix only lighting, edges and colour balance. No new objects, no text.'
+        params: { aspect_ratio: '{{ inputs.aspect }}', resolution: '2K' }
+        medias: [{ role: reference, ref: '{{ steps.shot_gen.outputs.raw }}' }]
+        on_fail: continue
+        outputs: { asset: '{{ result.assets[0] | default(steps.shot_gen.outputs.raw) }}' }
+      - id: shot_bg
+        kind: branch
+        when: "{{ inputs.background == 'transparent' }}"
+        then:
+          - id: cutout
+            kind: transform
+            op: bg_remove
+            source: '{{ steps.shot_refine.outputs.asset }}'
+            outputs: { asset: '{{ result.assets[0] }}' }
+        else: []
+      - id: shot_final
+        kind: set
+        values: { asset: '{{ steps.cutout.outputs.asset | default(steps.shot_refine.outputs.asset) }}' }
+
+  - id: export
+    kind: export
+    files:
+      - {
+          ref: "{{ steps.shots.outputs | map('asset') }}",
+          name: 'product_{{ inputs.mode }}_{{ index + 1 | pad(2) }}.png',
+          tags: [deliverable, '{{ inputs.mode }}'],
+        }
+outputs:
+  final: '{{ steps.shots.assets | first }}'
+  extras: ['{{ steps.shots.assets }}']

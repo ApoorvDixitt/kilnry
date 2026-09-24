@@ -1,0 +1,66 @@
+# Kilnry — https://github.com/ApoorvDixitt/kilnry
+# Copyright (c) 2026 Apoorv Dixit. Licensed under the Sustainable Use License 1.0.
+# SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
+# See LICENSE.md in the repository root. You may not remove or obscure this notice.
+id: kilnry-subtitles-burn
+name: Subtitles burn
+version: 1.0.0
+description: >
+  Transcribe a video and burn readable captions into it. Review and edit the transcript before it is burned; choose the look,
+  line length and position.
+category: utility
+requires: [stt]
+inputs:
+  type: object
+  required: [video]
+  properties:
+    video:
+      {
+        type: string,
+        description: 'The video to caption',
+        x-kilnry: { widget: media, accept: [video], roles: [video] },
+      }
+    look: { type: string, enum: [clean, paper, bold], default: clean, x-kilnry: { widget: segment } }
+    language: { type: string, default: en, x-kilnry: { widget: language } }
+    max_line_chars: { type: integer, minimum: 16, maximum: 48, default: 28, x-kilnry: { widget: number } }
+    position:
+      { type: string, enum: [lower_third, center, top], default: lower_third, x-kilnry: { widget: select } }
+    karaoke: { type: boolean, default: false, x-kilnry: { widget: toggle } }
+budget: { max_usd: 1, warn_usd: 0.5 }
+steps:
+  - id: transcribe
+    kind: transform
+    name: Transcribe
+    op: transcribe
+    source: '{{ inputs.video }}'
+    params: { language: '{{ inputs.language }}' }
+    outputs: { transcript: '{{ result.assets[0] }}', words: '{{ result.result.words }}' }
+
+  - id: review
+    kind: approval
+    mode: soft
+    title: 'Review the transcript'
+    message: 'Edit the words before they are burned in. Deny to stop.'
+    show: ['{{ steps.transcribe.outputs.transcript }}']
+
+  - id: burn
+    kind: assemble
+    name: Burn captions
+    op: burn_captions
+    inputs: ['{{ inputs.video }}']
+    params:
+      transcript: '{{ steps.transcribe.outputs.transcript }}'
+      look: '{{ inputs.look }}'
+      max_chars: '{{ inputs.max_line_chars }}'
+      position: '{{ inputs.position }}'
+      karaoke: '{{ inputs.karaoke }}'
+      language: '{{ inputs.language | slice(0, 2) }}'
+    output_name: captioned.mp4
+    outputs: { asset: '{{ result.asset_id }}' }
+
+  - id: export
+    kind: export
+    files:
+      - { ref: '{{ steps.burn.outputs.asset }}', name: captioned.mp4, tags: [deliverable] }
+outputs:
+  final: '{{ steps.burn.outputs.asset }}'

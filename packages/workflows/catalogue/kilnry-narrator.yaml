@@ -1,0 +1,89 @@
+# Kilnry — https://github.com/ApoorvDixitt/kilnry
+# Copyright (c) 2026 Apoorv Dixit. Licensed under the Sustainable Use License 1.0.
+# SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
+# See LICENSE.md in the repository root. You may not remove or obscure this notice.
+id: kilnry-narrator
+name: Narrator
+version: 1.0.0
+description: >
+  Turn written lines into spoken narration with one voice: separate takes, one continuous track, or a presenter reading to camera.
+  Each take is measured; a line that runs long is shortened rather than time-stretched.
+category: audio
+requires: [tts, stt]
+inputs:
+  type: object
+  required: [mode, lines, voice]
+  properties:
+    mode:
+      { type: string, enum: [takes, continuous, presenter], default: takes, x-kilnry: { widget: segment } }
+    lines:
+      {
+        type: array,
+        items: { type: string },
+        default: [],
+        x-kilnry: { widget: tags, help: 'One spoken line per entry' },
+      }
+    voice:
+      {
+        type: string,
+        description: 'provider:voice_id or @character with a bound voice',
+        x-kilnry: { widget: voice },
+      }
+    language: { type: string, default: en, x-kilnry: { widget: language } }
+    gap_s:
+      {
+        type: number,
+        minimum: 0,
+        maximum: 5,
+        default: 0.5,
+        x-kilnry: { widget: number, help: 'Silence between takes for continuous mode' },
+      }
+budget: { max_usd: 1, warn_usd: 0.5 }
+steps:
+  - id: takes
+    kind: foreach
+    over: '{{ inputs.lines }}'
+    as: line
+    concurrency: 4
+    steps:
+      - id: vo
+        kind: generate
+        name: 'Take {{ index + 1 }}'
+        capability: tts
+        model: auto
+        constraints: { quality: standard }
+        prompt: '{{ line }}'
+        params: { voice: '{{ inputs.voice }}', language: '{{ inputs.language }}', format: wav }
+        outputs: { asset: '{{ result.assets[0] }}' }
+      - id: probe
+        kind: assemble
+        op: probe
+        inputs: ['{{ steps.vo.outputs.asset }}']
+        outputs: { dur: '{{ result.duration_s }}' }
+
+  - id: continuous
+    kind: branch
+    when: "{{ inputs.mode == 'continuous' }}"
+    then:
+      - id: join
+        kind: assemble
+        name: Join takes
+        op: concat
+        inputs: '{{ steps.takes.assets }}'
+        params: { mode: audio, gap_s: '{{ inputs.gap_s }}' }
+        output_name: narration.wav
+        outputs: { asset: '{{ result.asset_id }}' }
+    else: []
+
+  - id: export
+    kind: export
+    files:
+      - {
+          ref: "{{ steps.takes.outputs | map('asset') }}",
+          name: 'take_{{ index + 1 | pad(2) }}.wav',
+          tags: [take],
+        }
+      - { ref: '{{ steps.join.outputs.asset }}', name: narration.wav, tags: [deliverable] }
+outputs:
+  final: '{{ steps.join.outputs.asset | default(steps.takes.assets | first) }}'
+  extras: ['{{ steps.takes.assets }}']
