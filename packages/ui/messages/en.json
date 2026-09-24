@@ -916,7 +916,10 @@
         "outputs": "Outputs",
         "logs": "Logs",
         "cost": "Cost"
-      }
+      },
+      "retry": "Retry step",
+      "rerunFrom": "Re-run from here",
+      "swapModel": "Swap model (optional)"
     },
     "approval": {
       "title": "Approve before spending",

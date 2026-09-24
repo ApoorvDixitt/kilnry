@@ -82,9 +82,20 @@ export function StepList({
   );
 }
 
-export function StepDetail({ step }: { step: RunStepView | undefined }): React.ReactNode {
+export function StepDetail({
+  step,
+  onRetry,
+  busy = false,
+}: {
+  step: RunStepView | undefined;
+  onRetry?: (stepId: string, model?: string) => void;
+  busy?: boolean;
+}): React.ReactNode {
   const [tab, setTab] = useState<DetailTab>('outputs');
+  const [swapModel, setSwapModel] = useState('');
   if (!step) return <section className="run-step-detail" aria-live="polite" />;
+  const failed = step.status === 'failed' || step.status === 'denied';
+  const canRerun = step.status === 'completed';
   return (
     <section className="run-step-detail" aria-live="polite">
       <h2 className="run-step-detail-title">{step.name}</h2>
@@ -115,6 +126,39 @@ export function StepDetail({ step }: { step: RunStepView | undefined }): React.R
           <p className="run-detail-empty">{message(`workflows.runView.tab.${tab}`)}</p>
         )}
       </div>
+      {onRetry && (failed || canRerun) ? (
+        <div className="run-step-actions">
+          {failed ? (
+            <>
+              <input
+                type="text"
+                className="run-step-swap-input"
+                placeholder={message('workflows.runView.swapModel')}
+                aria-label={message('workflows.runView.swapModel')}
+                value={swapModel}
+                onChange={(event) => setSwapModel(event.target.value)}
+              />
+              <button
+                type="button"
+                className="run-step-retry-button"
+                disabled={busy}
+                onClick={() => onRetry(step.step_id, swapModel.trim() === '' ? undefined : swapModel.trim())}
+              >
+                {message('workflows.runView.retry')}
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              className="run-step-rerun-button"
+              disabled={busy}
+              onClick={() => onRetry(step.step_id, undefined)}
+            >
+              {message('workflows.runView.rerunFrom')}
+            </button>
+          )}
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -210,6 +254,18 @@ export function WorkflowRunView({ runId, initial }: { runId: string; initial?: R
     void reload();
   }, [runId, reload]);
 
+  const retry = useCallback(
+    async (stepId: string, model?: string): Promise<void> => {
+      await apiFetch(`/api/runs/${encodeURIComponent(runId)}/retry-step`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ step_id: stepId, ...(model === undefined ? {} : { model }) }),
+      });
+      void reload();
+    },
+    [runId, reload],
+  );
+
   const current = useMemo(
     () => run?.steps.find((step) => step.step_id === selected) ?? run?.steps[0],
     [run, selected],
@@ -225,7 +281,7 @@ export function WorkflowRunView({ runId, initial }: { runId: string; initial?: R
       ) : null}
       <div className="run-body">
         <StepList steps={run.steps} selected={selected} onSelect={setSelected} />
-        <StepDetail step={current} />
+        <StepDetail step={current} onRetry={(stepId, model) => void retry(stepId, model)} />
       </div>
     </section>
   );

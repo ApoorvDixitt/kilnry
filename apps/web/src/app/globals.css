@@ -6917,3 +6917,40 @@ html[data-motion='reduced'] *::after {
   font: inherit;
   cursor: pointer;
 }
+
+/* Workflow retry / swap / re-run controls (F-WFL-05). */
+.run-step-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.run-step-swap-input {
+  border: 1px solid var(--border-control);
+  background: var(--surface);
+  color: var(--text);
+  padding: 6px 10px;
+  border-radius: var(--radius-md);
+  font: inherit;
+  flex: 1;
+}
+
+.run-step-retry-button,
+.run-step-rerun-button {
+  border: 1px solid var(--border-control);
+  background: var(--surface-2);
+  color: var(--text);
+  padding: 6px 14px;
+  border-radius: var(--radius-md);
+  font: inherit;
+  cursor: pointer;
+}
+
+.run-step-retry-button:disabled,
+.run-step-rerun-button:disabled {
+  color: var(--text-muted);
+  cursor: not-allowed;
+}

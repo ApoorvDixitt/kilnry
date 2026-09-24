@@ -135,4 +135,31 @@ describe('workflow run view (F-WFL-03)', () => {
     await act(async () => approveButton.click());
     expect(calledUrls.some((url) => url.endsWith('/api/runs/run_1/approve'))).toBe(true);
   });
+
+  it('shows a Retry control on a failed step that posts to retry-step', async () => {
+    const failedStep = {
+      step_id: 'clip',
+      name: 'Clip',
+      kind: 'generate',
+      status: 'failed',
+      model: 'seedance',
+      estimate_usd: 1.5,
+      actual_usd: null,
+    };
+    const posted: Array<{ url: string; body: string }> = [];
+    let onRetryStepId = '';
+    const host = await render(
+      <StepDetail
+        step={failedStep}
+        onRetry={(stepId, model) => {
+          onRetryStepId = stepId;
+          posted.push({ url: '/retry-step', body: JSON.stringify({ stepId, model }) });
+        }}
+      />,
+    );
+    const retryButton = host.querySelector('.run-step-retry-button') as HTMLButtonElement;
+    expect(retryButton).not.toBeNull();
+    await act(async () => retryButton.click());
+    expect(onRetryStepId).toBe('clip');
+  });
 });
