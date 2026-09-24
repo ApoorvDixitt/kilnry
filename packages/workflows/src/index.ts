@@ -45,3 +45,15 @@ export {
 } from './validate.js';
 
 export { plan, renderStep, type Plan, type PlanStep, type PlanContext } from './planner.js';
+
+export {
+  execute,
+  resetFrom,
+  type RunState,
+  type RunStep,
+  type RunStatus,
+  type StepStatus,
+  type StepResult,
+  type Effects,
+  type RunOptions,
+} from './executor.js';
