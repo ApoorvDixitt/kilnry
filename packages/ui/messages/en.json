@@ -309,7 +309,26 @@
       "appearance": "Appearance",
       "budget": "Budget",
       "chat": "Chat",
-      "mcp": "MCP"
+      "mcp": "MCP",
+      "skills": "Skills"
+    },
+    "skills": {
+      "title": "Skills",
+      "intro": "Skills are instructions the agent reads. Kilnry ships a catalogue; you can install community skills, and disabling one hides it from Chat.",
+      "installLabel": "Install a skill",
+      "installPlaceholder": "https://…/SKILL.md or a GitHub repository",
+      "install": "Install",
+      "installed": "Installed. It is enabled and ready.",
+      "installFailed": "That skill could not be installed.",
+      "removeFailed": "That skill could not be removed.",
+      "sourceShipped": "Shipped with Kilnry",
+      "sourceInstalled": "Community",
+      "noLicense": "No licence declared",
+      "enabled": "Enabled",
+      "preview": "Preview",
+      "previewLabel": "Skill preview",
+      "close": "Close",
+      "remove": "Remove"
     },
     "mcp": {
       "eyebrow": "Give an agent a studio",

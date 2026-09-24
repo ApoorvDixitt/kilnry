@@ -10,6 +10,7 @@ import { ChatSettings } from '../../../../components/chat-settings';
 import { McpSettings } from '../../../../components/mcp-settings';
 import { ProviderSettings } from '../../../../components/provider-settings';
 import { SecuritySettings } from '../../../../components/security-settings';
+import { SkillsSettings } from '../../../../components/skills-settings';
 import { SettingsLayout } from '../../../../components/settings-layout';
 import { WorkspaceSettings } from '../../../../components/workspace-settings';
 
@@ -19,9 +20,16 @@ export default async function SettingsPage({
   params: Promise<{ section?: string[] }>;
 }): Promise<React.ReactNode> {
   const requested = (await params).section?.[0] ?? 'providers';
-  const section = ['providers', 'workspace', 'budget', 'chat', 'security', 'mcp', 'appearance'].includes(
-    requested,
-  )
+  const section = [
+    'providers',
+    'workspace',
+    'budget',
+    'chat',
+    'security',
+    'mcp',
+    'skills',
+    'appearance',
+  ].includes(requested)
     ? requested
     : 'providers';
   const config = loadConfig();
@@ -42,6 +50,8 @@ export default async function SettingsPage({
       <SecuritySettings />
     ) : section === 'mcp' ? (
       <McpSettings port={config.port} />
+    ) : section === 'skills' ? (
+      <SkillsSettings />
     ) : section === 'workspace' ? (
       <WorkspaceSettings libraryRoot={config.library_root ?? ''} />
     ) : (

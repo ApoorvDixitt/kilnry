@@ -26,10 +26,10 @@ import {
   type LlmRef,
   type LlmRegistryRow,
 } from '@kilnry/agent';
-import { installedSkillsRoot, loadConfig, loadRegistry } from '@kilnry/core';
+import { loadConfig, loadRegistry } from '@kilnry/core';
 import { assets as assetsTable, chatSessions, settings, spendLedger } from '@kilnry/db';
 import { adapters, detectOllama } from '@kilnry/providers';
-import { bundledSkillsRoot, promptLibraryRoot } from '@kilnry/skills';
+import { promptLibraryRoot } from '@kilnry/skills';
 import { validateUIMessages } from 'ai';
 import { eq, sql } from 'drizzle-orm';
 import { NextResponse } from 'next/server';
@@ -37,6 +37,7 @@ import * as z from 'zod';
 import { errorResponse, requireSession } from '../../../server/http';
 import { presetServices } from '../../../server/presets';
 import { ensureRuntimeEngine, runtimeServices } from '../../../server/runtime';
+import { skillRoots } from '../../../server/skills';
 
 export const maxDuration = 300;
 
@@ -147,7 +148,7 @@ export async function POST(request: Request): Promise<Response> {
         ...(engine ? { engine } : {}),
         ...(config.library_root ? { libraryRoot: config.library_root } : {}),
         ...(openrouterKey ? { openrouterKey } : {}),
-        skillsRoots: { bundled: bundledSkillsRoot(), installed: installedSkillsRoot(config.data_dir) },
+        skillsRoots: await skillRoots(services.database),
         presets: await presetServices(),
       },
       chatSessionId: session.id,

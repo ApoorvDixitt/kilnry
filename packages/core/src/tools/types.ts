@@ -51,7 +51,7 @@ export interface ToolServices {
   assetUrl?: (assetId: string) => string;
   // The bundled and installed skill roots for the kilnry_skills tool (F-SKL-01).
   // Absent means no skills are available and listing returns an empty set.
-  skillsRoots?: { bundled: string; installed?: string };
+  skillsRoots?: { bundled: string; installed?: string; disabled?: Set<string> };
   // The preset catalogue for the kilnry_presets tool (F-PRE-04). It is supplied
   // rather than imported because the preset package reads this one: the caller
   // passes the reader in, which also lets a test hand over a small catalogue.

@@ -103,10 +103,14 @@ async function loadOne(dir: string, source: 'bundled' | 'installed'): Promise<Lo
 }
 
 // Load every skill under the given roots. Later roots shadow earlier ones by
-// name, so an installed skill overrides a bundled skill with the same name.
+// name, so an installed skill overrides a bundled skill with the same name. A
+// name in `disabled` (the persisted enable state from the skills table) is
+// marked disabled so it drops out of the list and cannot be loaded, on top of
+// the validation check.
 export async function loadSkills(roots: {
   bundled: string;
   installed?: string;
+  disabled?: Set<string>;
 }): Promise<Map<string, LoadedSkill>> {
   const byName = new Map<string, LoadedSkill>();
   for (const [source, root] of [
@@ -119,17 +123,29 @@ export async function loadSkills(roots: {
       if (loaded) byName.set(loaded.entry.name, loaded);
     }
   }
+  if (roots.disabled) {
+    for (const skill of byName.values()) {
+      if (roots.disabled.has(skill.entry.name)) {
+        skill.entry.enabled = false;
+        if (skill.entry.error === undefined) skill.entry.error = 'Disabled in Settings.';
+      }
+    }
+  }
   return byName;
 }
 
 // The three reads the kilnry_skills tool performs.
-export async function listSkills(roots: { bundled: string; installed?: string }): Promise<SkillListEntry[]> {
+export async function listSkills(roots: {
+  bundled: string;
+  installed?: string;
+  disabled?: Set<string>;
+}): Promise<SkillListEntry[]> {
   const skills = await loadSkills(roots);
   return [...skills.values()].map((skill) => skill.entry).sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export async function loadSkill(
-  roots: { bundled: string; installed?: string },
+  roots: { bundled: string; installed?: string; disabled?: Set<string> },
   name: string,
 ): Promise<SkillDetail | null> {
   const skills = await loadSkills(roots);
@@ -144,7 +160,7 @@ export async function loadSkill(
 }
 
 export async function loadSkillFile(
-  roots: { bundled: string; installed?: string },
+  roots: { bundled: string; installed?: string; disabled?: Set<string> },
   name: string,
   relativePath: string,
 ): Promise<{ path: string; content: string } | null> {

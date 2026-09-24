@@ -137,4 +137,13 @@ describe('skill loader (F-SKL-01)', () => {
   it('returns an empty list for a missing skills root', async () => {
     expect(await listSkills({ bundled: join(tmpdir(), 'does-not-exist-kilnry') })).toEqual([]);
   });
+
+  it('marks a disabled skill not enabled and refuses to load it (F-SKL-04)', async () => {
+    const root = makeSkill('kilnry-ugc-ad', GOOD_SKILL, { 'references/board.md': BOARD });
+    const disabled = new Set(['kilnry-ugc-ad']);
+    const skills = await listSkills({ bundled: root, disabled });
+    expect(skills[0]?.enabled).toBe(false);
+    // A disabled skill cannot be loaded, so the agent never sees its body.
+    expect(await loadSkill({ bundled: root, disabled }, 'kilnry-ugc-ad')).toBeNull();
+  });
 });
