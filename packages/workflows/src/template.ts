@@ -387,7 +387,14 @@ const TEMPLATE = /\{\{([\s\S]*?)\}\}/g;
  */
 export function renderString(input: string, scope: Scope): unknown {
   const whole = /^\s*\{\{([\s\S]*?)\}\}\s*$/.exec(input);
-  if (whole && whole[1] !== undefined) return evaluateExpression(whole[1], scope);
+  // The whole-template branch keeps the expression's type, but only when the
+  // string is a single template: a captured body that itself contains `{{` means
+  // the string opened one template and closed a different one (e.g. a prompt that
+  // starts with `{{a}}` and ends with `{{b}}`), which must be interpolated, not
+  // evaluated as one expression.
+  if (whole && whole[1] !== undefined && !whole[1].includes('{{')) {
+    return evaluateExpression(whole[1], scope);
+  }
   return input.replace(TEMPLATE, (_all, expr: string) => {
     const value = evaluateExpression(expr, scope);
     if (value === null || value === undefined) return '';

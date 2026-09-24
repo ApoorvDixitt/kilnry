@@ -57,6 +57,15 @@ describe('shared template engine (TRD-12 §3)', () => {
     expect(renderString('duration {{ n }} s', scope)).toBe('duration 5 s');
   });
 
+  it('interpolates a string that both starts and ends with a template', () => {
+    // A prompt scaffold that opens with one placeholder and closes with another
+    // must be interpolated, not read as a single expression (regression: the
+    // whole-template shortcut must not span two adjacent templates).
+    const scope = { product: 'a bottle', extra: 'mint leaves' };
+    expect(renderString('{{product}} on ice. {{extra}}', scope)).toBe('a bottle on ice. mint leaves');
+    expect(renderString('{{product}} on ice.{{extra}}', { product: 'x', extra: '' })).toBe('x on ice.');
+  });
+
   it('renders nested objects and arrays deeply', () => {
     const scope = { inputs: { duration_s: 15 }, vars: { creator: 'c1' } };
     const rendered = renderDeep(
