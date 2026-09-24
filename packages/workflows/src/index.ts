@@ -57,3 +57,11 @@ export {
   type Effects,
   type RunOptions,
 } from './executor.js';
+
+export {
+  runFolder,
+  buildManifest,
+  MANIFEST_SCHEMA_VERSION,
+  type RunManifest,
+  type ManifestStep,
+} from './manifest.js';
