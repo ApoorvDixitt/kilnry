@@ -3,7 +3,13 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
-import { PlaceholderPage } from '../../../components/placeholder-page';
+import { Suspense } from 'react';
+import { WorkflowCatalogue } from '../../../components/workflow-catalogue';
+
 export default function WorkflowsPage(): React.ReactNode {
-  return <PlaceholderPage />;
+  return (
+    <Suspense fallback={null}>
+      <WorkflowCatalogue />
+    </Suspense>
+  );
 }

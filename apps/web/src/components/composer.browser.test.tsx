@@ -76,13 +76,14 @@ describe('generateState', () => {
 });
 
 describe('ModeSegment', () => {
-  it('disables Workflow with a reason and selects other modes', async () => {
+  it('links Workflow to the Workflows screen and selects other modes', async () => {
     const picked: string[] = [];
     const host = await render(<ModeSegment mode="image" onChange={(m) => picked.push(m)} />);
     const buttons = [...host.querySelectorAll('button')];
     const workflow = buttons.find((b) => b.textContent === 'Workflow');
-    expect(workflow?.disabled).toBe(true);
-    expect(workflow?.title).toBe('Workflows arrive in M6.');
+    // The Workflow mode now opens the Workflows screen; it is no longer disabled.
+    expect(workflow?.disabled).toBe(false);
+    expect(workflow?.title).toBe('Open Workflows to plan a multi-step run.');
     const video = buttons.find((b) => b.textContent === 'Video') as HTMLButtonElement;
     await act(async () => video.click());
     expect(picked).toEqual(['video']);

@@ -6311,3 +6311,177 @@ html[data-motion='reduced'] *::after {
   color: var(--text-muted);
   margin-top: 6px;
 }
+
+/* Workflows catalogue and intake drawer (F-WFL-01, F-WFL-02). */
+.workflow-screen {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px;
+  max-width: 960px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.workflow-header {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.workflow-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.workflow-tabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.workflow-tab {
+  border: 1px solid var(--border-control);
+  background: var(--surface-2);
+  color: var(--text);
+  padding: 5px 12px;
+  border-radius: var(--radius-md);
+  font: inherit;
+  cursor: pointer;
+}
+
+.workflow-tab[aria-selected='true'] {
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+.workflow-search {
+  border: 1px solid var(--border-control);
+  background: var(--surface);
+  color: var(--text);
+  padding: 7px 12px;
+  border-radius: var(--radius-md);
+  font: inherit;
+}
+
+.workflow-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.workflow-row {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--surface);
+}
+
+.workflow-row-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.workflow-name {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.workflow-category {
+  color: var(--text-muted);
+  font-size: 13px;
+  text-transform: capitalize;
+}
+
+.workflow-description {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+.workflow-row-meta {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.workflow-cost {
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+.workflow-row-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.workflow-run-button {
+  background: var(--accent);
+  color: var(--accent-foreground);
+  border: 1px solid var(--accent);
+  padding: 7px 16px;
+  border-radius: var(--radius-md);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.workflow-run-button:hover {
+  filter: brightness(1.05);
+}
+
+.workflow-empty {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+.workflow-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(520px, 100%);
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  box-shadow: var(--shadow-popover);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+  z-index: 40;
+}
+
+.workflow-drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.workflow-drawer-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.workflow-drawer-close {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.workflow-drawer-hint {
+  margin: 0;
+  color: var(--text-muted);
+}

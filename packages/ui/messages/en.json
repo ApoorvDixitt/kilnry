@@ -124,7 +124,7 @@
     "generate": "Generate",
     "generateDisabled": "Connect a provider before generating.",
     "plan": "Plan",
-    "workflowLater": "Workflows arrive in M6.",
+    "workflowLink": "Open Workflows to plan a multi-step run.",
     "generateDisabledReason": {
       "noKey": "Add a provider key or start the demo.",
       "empty": "Type a prompt first.",
@@ -886,6 +886,27 @@
     "saveFailed": "That preset could not be saved. Try again.",
     "saveCollides": "You already have a preset called {name}. Save as {next}?",
     "saveCopy2": "Save a copy of this preset"
+  },
+  "workflows": {
+    "title": "Workflows",
+    "searchLabel": "Search workflows",
+    "searchPlaceholder": "Search workflows by name or category",
+    "run": "Run",
+    "costRange": "≈ ${min} – ${max}",
+    "costUnknown": "Priced when you run it",
+    "durationLabel": "{count} step workflow",
+    "needsLabel": "Needs: {capabilities}",
+    "empty": "No workflows match {category}.",
+    "emptyAll": "No workflows are installed yet.",
+    "category": {
+      "all": "All",
+      "ads": "Ads",
+      "characters": "Characters",
+      "video": "Video",
+      "audio": "Audio",
+      "image": "Image",
+      "utility": "Utility"
+    }
   },
   "characters": {
     "title": "Characters",

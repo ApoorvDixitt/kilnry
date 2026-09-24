@@ -82,7 +82,9 @@ export function ModeSegment({
   return (
     <div className="mode-segment" role="tablist" aria-label={message('create.title')}>
       {MODES.map((option) => {
-        const disabled = option === 'workflow';
+        // The Workflows mode now opens the Workflows screen, where a run is
+        // planned and priced before anything is spent (F-WFL-01).
+        const isWorkflow = option === 'workflow';
         return (
           <button
             key={option}
@@ -90,9 +92,8 @@ export function ModeSegment({
             role="tab"
             aria-selected={mode === option}
             className={mode === option ? 'is-on' : ''}
-            disabled={disabled}
-            title={disabled ? message('create.workflowLater') : undefined}
-            onClick={() => onChange(option)}
+            title={isWorkflow ? message('create.workflowLink') : undefined}
+            onClick={() => (isWorkflow ? (window.location.href = '/workflows') : onChange(option))}
           >
             {message(MODE_LABEL[option])}
           </button>
