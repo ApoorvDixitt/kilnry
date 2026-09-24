@@ -7,11 +7,26 @@ import { parseArgs } from 'node:util';
 import { printDoctor, requestReindex, runDoctor } from './commands/doctor.js';
 import { startServer } from './commands/start.js';
 import { runMcpBridge } from './commands/mcp.js';
+import { runWorkflowsValidate } from './commands/workflows.js';
 
 const version = process.env.npm_package_version ?? '0.0.0';
 
 async function main(): Promise<void> {
   const command = process.argv[2] && !process.argv[2].startsWith('-') ? process.argv[2] : 'start';
+
+  // The workflows command takes a subcommand and file positionals, which do not
+  // go through the strict option parser used by the other commands.
+  if (command === 'workflows') {
+    const sub = process.argv[3];
+    if (sub === 'validate') {
+      process.exitCode = await runWorkflowsValidate(process.argv.slice(4));
+      return;
+    }
+    process.stderr.write('Usage: kilnry workflows validate <file.yaml> [more.yaml ...]\n');
+    process.exitCode = 2;
+    return;
+  }
+
   const argv =
     command === 'start' && process.argv[2] !== 'start' ? process.argv.slice(2) : process.argv.slice(3);
   const parsed = parseArgs({
@@ -34,7 +49,7 @@ async function main(): Promise<void> {
   }
   if (parsed.values.help) {
     process.stdout.write(
-      'Usage: kilnry [start] [--port 3123] [--no-open]\n       kilnry doctor [--json] [--reindex]\n       kilnry mcp\n',
+      'Usage: kilnry [start] [--port 3123] [--no-open]\n       kilnry doctor [--json] [--reindex]\n       kilnry mcp\n       kilnry workflows validate <file.yaml> [more.yaml ...]\n',
     );
     return;
   }

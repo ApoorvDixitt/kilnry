@@ -442,7 +442,11 @@ importers:
         specifier: 8.23.0
         version: 8.23.0
 
-  packages/launcher: {}
+  packages/launcher:
+    dependencies:
+      '@kilnry/workflows':
+        specifier: workspace:*
+        version: link:../workflows
 
   packages/mcp:
     dependencies:

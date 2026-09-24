@@ -36,3 +36,10 @@ export {
 } from './schema.js';
 
 export { parseWorkflow, canonicaliseId, WorkflowParseError } from './parse.js';
+
+export {
+  validateWorkflow,
+  validateWorkflowFile,
+  type WorkflowIssue,
+  type ValidationResult,
+} from './validate.js';
