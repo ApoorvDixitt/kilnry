@@ -25,6 +25,8 @@
     "test": "vitest run --passWithNoTests --exclude 'dist/**'"
   },
   "devDependencies": {
+    "@kilnry/core": "workspace:*",
+    "@kilnry/workflows": "workspace:*",
     "gpt-tokenizer": "4.0.0"
   }
 }

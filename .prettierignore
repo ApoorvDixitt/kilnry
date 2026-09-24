@@ -14,3 +14,8 @@ playwright-report/**
 # sent to the model (D-47a).
 **/*.prompt.md
 packages/skills/prompts/**
+# Shipped skill catalogue texts are verbatim product content (three flagship
+# SKILL.md files are PRD-13 §6 verbatim); reformatting would change the text.
+packages/skills/skills/**
+# Shipped workflow catalogue YAML is authored content kept as written.
+packages/workflows/catalogue/**

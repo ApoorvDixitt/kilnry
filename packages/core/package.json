@@ -20,6 +20,7 @@
     "./library/sidecar": "./dist/library/sidecar.js",
     "./providers/adapter": "./dist/providers/adapter.js",
     "./registry": "./dist/registry/store.js",
+    "./skills/loader": "./dist/skills/loader.js",
     "./security/key-store": "./dist/security/key-store.js",
     "./security/key-detection": "./dist/security/key-detection.js",
     "./security/redact": "./dist/security/redact.js",

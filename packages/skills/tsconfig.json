@@ -7,5 +7,6 @@
     "tsBuildInfoFile": "dist/.tsbuildinfo",
     "types": ["node"]
   },
+  "references": [{ "path": "../core" }, { "path": "../workflows" }],
   "include": ["src/**/*.ts"]
 }
