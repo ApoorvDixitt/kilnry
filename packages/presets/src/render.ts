@@ -14,6 +14,7 @@
 // one placeholder keeps the slot's type, so a duration stays the number five
 // rather than becoming the text "5".
 
+import { renderString, type Scope } from '@kilnry/workflows';
 import type { PresetJson, PresetSlot } from './schema.js';
 
 /** What the user chose for each slot, keyed by slot name. */
@@ -31,8 +32,6 @@ export interface RenderedPreset {
   /** Slots that were required and left empty. */
   missing: string[];
 }
-
-const WHOLE_PLACEHOLDER = /^\s*\{\{\s*([a-z][a-z0-9_]*)\s*\}\}\s*$/;
 
 /** A slot's effective value: what the user gave, else the preset's default. */
 export function slotValue(slot: PresetSlot, values: SlotValues): unknown {
@@ -52,15 +51,38 @@ function asPromptText(slot: PresetSlot, value: unknown): string {
 }
 
 /**
- * Render the prompt scaffold. Supports the placeholder `{{ slot }}` and the
- * conditional `{{#if slot}} … {{/if}}`, which drops its block when the slot is
- * empty so an optional note does not leave a dangling sentence.
+ * Build the evaluation scope a preset exposes to the shared template engine: one
+ * entry per slot name, mapped to the slot's prompt text (a character slot reads
+ * as its @handle). A bare `{{ slot }}` then resolves to that value through the
+ * same engine the workflows use (TRD-12 §3).
+ */
+function promptScope(preset: PresetJson, values: SlotValues): Scope {
+  const scope: Scope = {};
+  for (const slot of preset.slots) scope[slot.name] = asPromptText(slot, slotValue(slot, values));
+  return scope;
+}
+
+/** The raw-value scope used for parameters, where a slot keeps its own type. */
+function valueScope(preset: PresetJson, values: SlotValues): Scope {
+  const scope: Scope = {};
+  for (const slot of preset.slots) {
+    const value = slotValue(slot, values);
+    if (value !== undefined) scope[slot.name] = value;
+  }
+  return scope;
+}
+
+/**
+ * Render the prompt scaffold. The preset-only conditional `{{#if slot}} …
+ * {{/if}}` drops its block when the slot is empty (so an optional note leaves no
+ * dangling sentence), then the shared engine renders the `{{ slot }}`
+ * placeholders against the prompt scope.
  */
 export function renderPrompt(template: string, preset: PresetJson, values: SlotValues): string {
   const bySlot = new Map(preset.slots.map((slot) => [slot.name, slot] as const));
 
   // Conditionals first, so a dropped block takes its placeholders with it.
-  let text = template.replace(
+  const withoutConditionals = template.replace(
     /\{\{#if\s+([a-z][a-z0-9_]*)\s*\}\}([\s\S]*?)\{\{\/if\}\}/g,
     (_all, name: string, body: string) => {
       const slot = bySlot.get(name);
@@ -69,14 +91,10 @@ export function renderPrompt(template: string, preset: PresetJson, values: SlotV
     },
   );
 
-  text = text.replace(/\{\{\s*([a-z][a-z0-9_]*)\s*\}\}/g, (_all, name: string) => {
-    const slot = bySlot.get(name);
-    if (!slot) return '';
-    return asPromptText(slot, slotValue(slot, values));
-  });
+  const rendered = String(renderString(withoutConditionals, promptScope(preset, values)));
 
   // Tidy the spacing an emptied placeholder leaves behind.
-  return text
+  return rendered
     .replace(/[ \t]{2,}/g, ' ')
     .replace(/ +([.,;:!?])/g, '$1')
     .trim();
@@ -85,10 +103,10 @@ export function renderPrompt(template: string, preset: PresetJson, values: SlotV
 /**
  * Resolve the parameters. A value that is entirely one placeholder becomes the
  * slot's own value, keeping its type; a value with text around a placeholder is
- * rendered as text (TRD-12 §3).
+ * rendered as text (TRD-12 §3). Both go through the shared engine.
  */
 export function renderParams(preset: PresetJson, values: SlotValues): Record<string, unknown> {
-  const bySlot = new Map(preset.slots.map((slot) => [slot.name, slot] as const));
+  const scope = valueScope(preset, values);
   const out: Record<string, unknown> = {};
 
   for (const [key, value] of Object.entries(preset.params)) {
@@ -96,16 +114,9 @@ export function renderParams(preset: PresetJson, values: SlotValues): Record<str
       out[key] = value;
       continue;
     }
-    const whole = WHOLE_PLACEHOLDER.exec(value);
-    if (whole) {
-      const name = whole[1];
-      const slot = name === undefined ? undefined : bySlot.get(name);
-      const resolved = slot ? slotValue(slot, values) : undefined;
-      // An unfilled parameter is left out rather than sent as an empty string.
-      if (resolved !== undefined && resolved !== '') out[key] = resolved;
-      continue;
-    }
-    out[key] = renderPrompt(value, preset, values);
+    const resolved = renderString(value, scope);
+    // An unfilled parameter is left out rather than sent as an empty string.
+    if (resolved !== undefined && resolved !== '') out[key] = resolved;
   }
   return out;
 }

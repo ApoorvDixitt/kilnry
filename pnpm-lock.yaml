@@ -476,6 +476,9 @@ importers:
       '@kilnry/core':
         specifier: workspace:*
         version: link:../core
+      '@kilnry/workflows':
+        specifier: workspace:*
+        version: link:../workflows
       zod:
         specifier: 4.6.5
         version: 4.6.5
@@ -501,7 +504,11 @@ importers:
 
   packages/ui: {}
 
-  packages/workflows: {}
+  packages/workflows:
+    dependencies:
+      jsep:
+        specifier: 1.4.0
+        version: 1.4.0
 
 packages:
   '@ai-sdk/anthropic@4.0.57':
@@ -4147,6 +4154,13 @@ packages:
       {
         integrity: sha512-RdJUflcE3cUzKiMqQgsCu06FPu9UdIJO0beYbPhHN4k6apgJtifcoCtT9bcxOpYBtpD2kCM6Sbzg4CausW/PKQ==,
       }
+
+  jsep@1.4.0:
+    resolution:
+      {
+        integrity: sha512-B7qPcEVE3NVkmSJbaYxvv4cHkVW7DQsZz13pUMrfS8z8Q/BuShN+gcTXrUlPiGqM2/t/EEaI030bpxMqY8gMlw==,
+      }
+    engines: { node: '>= 10.16.0' }
 
   json-parse-better-errors@1.0.2:
     resolution:
@@ -8170,6 +8184,8 @@ snapshots:
   jose@6.2.12: {}
 
   js-tokens@4.0.0: {}
+
+  jsep@1.4.0: {}
 
   json-parse-better-errors@1.0.2: {}
 

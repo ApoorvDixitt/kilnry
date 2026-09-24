@@ -3,4 +3,11 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
-export {};
+export {
+  evaluateExpression,
+  renderString,
+  renderDeep,
+  TemplateError,
+  FUNCTION_NAMES,
+  type Scope,
+} from './template.js';
