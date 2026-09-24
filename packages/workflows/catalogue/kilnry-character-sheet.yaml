@@ -1,0 +1,350 @@
+# Kilnry — https://github.com/ApoorvDixitt/kilnry
+# Copyright (c) 2026 Apoorv Dixit. Licensed under the Sustainable Use License 1.0.
+# SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
+# See LICENSE.md in the repository root. You may not remove or obscure this notice.
+id: kilnry-character-sheet
+name: Character sheet
+version: 1.0.0
+description: >
+  Builds or extends a Character's reference sheet from its anchor: two turnaround row sheets (front, ¾ left, left profile, back · ¾ right, right profile),
+  one full-body shot, one 3×3 expression grid, optional outfit and state variants; cuts every panel into its own reference file, refreshes the appearance
+  descriptor, and registers everything on the Character. Pauses for approval after the turnaround.
+category: characters
+requires: [image_edit, text2image, vlm]
+inputs:
+  type: object
+  required: [character]
+  properties:
+    character: { type: string, description: '@handle', x-kilnry: { widget: character, kinds: [character] } }
+    views:
+      type: array
+      items:
+        {
+          type: string,
+          enum:
+            [front, three_quarter_left, three_quarter_right, profile_left, profile_right, back, full_body],
+        }
+      default: [front, three_quarter_left, three_quarter_right, profile_left, profile_right, back, full_body]
+      x-kilnry: { widget: tags, help: 'Defaults to every view the Character does not have yet' }
+    expressions:
+      { type: boolean, default: true, x-kilnry: { widget: toggle, label: Expression grid (9 cells) } }
+    outfits:
+      type: array
+      items:
+        {
+          type: object,
+          properties: { label: { type: string }, image: { type: string }, text: { type: string } },
+          required: [label],
+        }
+      default: []
+      maxItems: 6
+      x-kilnry: { widget: tags, help: 'label + a garment image or a text description' }
+    states:
+      type: array
+      items:
+        {
+          type: object,
+          properties: { label: { type: string }, text: { type: string } },
+          required: [label, text],
+        }
+      default: []
+      maxItems: 6
+      x-kilnry: { widget: tags }
+    look:
+      {
+        type: string,
+        enum: [photoreal, anime-2d, 3d-stylised, game-concept, illustration],
+        default: photoreal,
+        x-kilnry: { widget: select, help: "Defaults from the Character's look: tag" },
+      }
+    model:
+      {
+        type: string,
+        default: auto,
+        x-kilnry:
+          {
+            widget: select,
+            help: 'auto = GPT Image 2.5 (OpenRouter or direct) then Nano Banana Pro then Seedream 4.5 then Qwen edit',
+          },
+      }
+defaults:
+  sheet_a: [front, three_quarter_left, profile_left, back]
+  sheet_b: [three_quarter_right, profile_right]
+  exprs: [neutral, gentle smile, laughing, surprised, angry, sad, thoughtful, determined, shouting]
+  alternates: [google/gemini-3-pro-image, bytedance-seed/seedream-4.5, fal-ai/qwen-image-edit-2511]
+budget: { max_usd: 3, warn_usd: 1.5 }
+steps:
+  - id: char
+    kind: set
+    values:
+      c: '{{ characters[inputs.character] }}'
+      anchor_ref: "{{ (characters[inputs.character].references | filter('role','anchor') | first).asset_id | default(null) }}"
+      short: "{{ (characters[inputs.character].appearance.descriptor | split('.') | first) + '. ' + (characters[inputs.character].appearance.anchors | join(', ')) }}"
+      outfit: "{{ characters[inputs.character].appearance.outfit | default('the outfit in image 1') }}"
+      want_a: '{{ defaults.sheet_a | intersect(inputs.views) }}'
+      want_b: '{{ defaults.sheet_b | intersect(inputs.views) }}'
+      want_full: "{{ 'full_body' in inputs.views }}"
+
+  - id: anchor
+    kind: branch
+    when: '{{ !vars.anchor_ref }}'
+    then:
+      - id: anchor_gen
+        kind: generate
+        name: Clean anchor
+        capability: "{{ vars.c.source_photo ? 'image_edit' : 'text2image' }}"
+        model: '{{ inputs.model }}'
+        alternates: '{{ defaults.alternates }}'
+        prompt: "{{ vars.c.source_photo ? file('packages/core/src/characters/sheet-prompts.ts#T0') : file('packages/core/src/characters/sheet-prompts.ts#T0_TEXT') }}"
+        params: { aspect_ratio: '3:4', resolution: '1K', quality: high, look: '{{ inputs.look }}' }
+        medias: [{ role: reference, ref: '{{ vars.c.source_photo }}', when: '{{ vars.c.source_photo }}' }]
+        approval: soft
+        outputs: { asset: '{{ result.assets[0] }}' }
+      - id: anchor_reg
+        kind: export
+        files: [{ ref: '{{ steps.anchor_gen.outputs.asset }}', name: anchor.png, tags: [reference, anchor] }]
+        register_references: { character: '{{ inputs.character }}', role: anchor, view: front }
+    else: []
+  - id: anchor_id
+    kind: set
+    values: { anchor: '{{ vars.anchor_ref | default(steps.anchor_gen.outputs.asset) }}' }
+
+  - id: sheet_a
+    kind: generate
+    when: '{{ len(vars.want_a) > 0 }}'
+    name: "Turnaround sheet A · {{ vars.want_a | join(', ') }}"
+    capability: image_edit
+    model: '{{ inputs.model }}'
+    alternates: '{{ defaults.alternates }}'
+    prompt: "{{ file('packages/core/src/characters/sheet-prompts.ts#T1') | render({ n: len(vars.want_a), views: vars.want_a | view_phrases, outfit: vars.outfit, look: inputs.look }) }}"
+    params: { aspect_ratio: '3:2', resolution: '1K', quality: high }
+    medias: [{ role: reference, ref: '{{ vars.anchor }}', label: anchor }]
+    retry: { max: 1, on: [MODERATION_REJECTED, PROVIDER_ERROR], reword: true }
+    outputs: { sheet: '{{ result.assets[0] }}' }
+  - id: split_a
+    kind: assemble
+    when: '{{ len(vars.want_a) > 0 }}'
+    op: split_grid
+    inputs: ['{{ steps.sheet_a.outputs.sheet }}']
+    params:
+      {
+        columns: '{{ len(vars.want_a) }}',
+        rows: 1,
+        trim: true,
+        trim_threshold: 12,
+        pad_pct: 2,
+        labels: '{{ vars.want_a }}',
+        tag_source: grid,
+      }
+    outputs: { assets: '{{ result.assets }}' }
+
+  - id: sheet_b
+    kind: generate
+    when: '{{ len(vars.want_b) > 0 }}'
+    name: "Turnaround sheet B · {{ vars.want_b | join(', ') }}"
+    capability: image_edit
+    model: '{{ inputs.model }}'
+    alternates: '{{ defaults.alternates }}'
+    prompt: "{{ file('packages/core/src/characters/sheet-prompts.ts#T1') | render({ n: len(vars.want_b), views: vars.want_b | view_phrases, outfit: vars.outfit, look: inputs.look }) }}"
+    params: { aspect_ratio: '3:2', resolution: '1K', quality: high }
+    medias: [{ role: reference, ref: '{{ vars.anchor }}', label: anchor }]
+    outputs: { sheet: '{{ result.assets[0] }}' }
+  - id: split_b
+    kind: assemble
+    when: '{{ len(vars.want_b) > 0 }}'
+    op: split_grid
+    inputs: ['{{ steps.sheet_b.outputs.sheet }}']
+    params:
+      {
+        columns: '{{ len(vars.want_b) }}',
+        rows: 1,
+        trim: true,
+        trim_threshold: 12,
+        pad_pct: 2,
+        labels: '{{ vars.want_b }}',
+        tag_source: grid,
+      }
+    outputs: { assets: '{{ result.assets }}' }
+
+  - id: full_body
+    kind: generate
+    when: '{{ vars.want_full }}'
+    name: Full body
+    capability: image_edit
+    model: '{{ inputs.model }}'
+    alternates: '{{ defaults.alternates }}'
+    prompt: "{{ file('packages/core/src/characters/sheet-prompts.ts#T1_FULL') | render({ outfit: vars.outfit, look: inputs.look }) }}"
+    params: { aspect_ratio: '9:16', resolution: '1K', quality: high }
+    medias: [{ role: reference, ref: '{{ vars.anchor }}' }]
+    outputs: { asset: '{{ result.assets[0] }}' }
+
+  - id: check_turnaround
+    kind: analyze
+    task: consistency_check
+    when: "{{ settings.consistency_check && inputs.look == 'photoreal' }}"
+    character: '{{ inputs.character }}'
+    refs: '{{ steps.split_a.outputs.assets | concat(steps.split_b.outputs.assets | default([])) }}'
+    on_fail: continue
+
+  - id: approve_turnaround
+    kind: approval
+    mode: soft
+    title: 'Approve the turnaround for @{{ inputs.character }}'
+    message: "{{ len(inputs.views) }} views · {{ steps.check_turnaround.badge | default('no consistency check') }}. Deny to stop before the expression grid."
+    show:
+      [
+        '{{ steps.split_a.outputs.assets }}',
+        '{{ steps.split_b.outputs.assets }}',
+        '{{ steps.full_body.outputs.asset }}',
+      ]
+
+  - id: expressions
+    kind: generate
+    when: '{{ inputs.expressions }}'
+    name: Expression grid
+    capability: image_edit
+    model: '{{ inputs.model }}'
+    alternates: '{{ defaults.alternates }}'
+    prompt: "{{ file('packages/core/src/characters/sheet-prompts.ts#T2') | render({ exprs: defaults.exprs, anchors: vars.c.appearance.anchors | join(', '), look: inputs.look }) }}"
+    params: { aspect_ratio: '1:1', resolution: '1K', quality: high }
+    medias: [{ role: reference, ref: '{{ vars.anchor }}' }]
+    retry: { max: 1, on: [MODERATION_REJECTED, PROVIDER_ERROR], reword: true }
+    outputs: { sheet: '{{ result.assets[0] }}' }
+  - id: split_expr
+    kind: assemble
+    when: '{{ inputs.expressions }}'
+    op: split_grid
+    inputs: ['{{ steps.expressions.outputs.sheet }}']
+    params:
+      {
+        columns: 3,
+        rows: 3,
+        trim: true,
+        trim_threshold: 12,
+        pad_pct: 2,
+        labels: '{{ defaults.exprs }}',
+        tag_source: grid,
+      }
+    outputs: { assets: '{{ result.assets }}' }
+
+  - id: outfits
+    kind: foreach
+    when: '{{ len(inputs.outfits) > 0 }}'
+    over: '{{ inputs.outfits }}'
+    as: outfit
+    concurrency: 2
+    steps:
+      - id: outfit_gen
+        kind: generate
+        name: 'Outfit · {{ outfit.label }}'
+        capability: image_edit
+        model: '{{ inputs.model }}'
+        alternates: '{{ defaults.alternates }}'
+        prompt: "{{ outfit.image ? file('packages/core/src/characters/sheet-prompts.ts#T3_IMAGE') : (file('packages/core/src/characters/sheet-prompts.ts#T3_TEXT') | render({ outfit: outfit.text })) }}"
+        params: { aspect_ratio: '3:4', resolution: '1K', quality: high }
+        medias:
+          - { role: reference, ref: '{{ vars.anchor }}', label: anchor }
+          - { role: reference, ref: '{{ outfit.image }}', when: '{{ outfit.image }}', label: garment }
+        outputs: { asset: '{{ result.assets[0] }}', label: '{{ outfit.label }}' }
+
+  - id: states
+    kind: foreach
+    when: '{{ len(inputs.states) > 0 }}'
+    over: '{{ inputs.states }}'
+    as: state
+    concurrency: 2
+    steps:
+      - id: state_gen
+        kind: generate
+        name: 'State · {{ state.label }}'
+        capability: image_edit
+        model: '{{ inputs.model }}'
+        alternates: '{{ defaults.alternates }}'
+        prompt: "{{ file('packages/core/src/characters/sheet-prompts.ts#T3_STATE') | render({ state_description: state.text }) }}"
+        params: { aspect_ratio: '3:4', resolution: '1K', quality: high }
+        medias: [{ role: reference, ref: '{{ vars.anchor }}' }]
+        outputs: { asset: '{{ result.assets[0] }}', label: '{{ state.label }}' }
+
+  - id: descriptor
+    kind: analyze
+    name: Refresh appearance descriptor
+    task: describe
+    model: auto
+    refs: '{{ [vars.anchor] | concat(steps.split_a.outputs.assets | default([]) | take(2)) }}'
+    instructions: "{{ file('packages/core/src/characters/descriptor.prompt.md') }}"
+    schema:
+      {
+        type: object,
+        required: [descriptor, anchors, negative_traits],
+        properties:
+          {
+            descriptor: { type: string },
+            anchors: { type: array, items: { type: string } },
+            negative_traits: { type: array, items: { type: string } },
+            palette_hex: { type: array, items: { type: string } },
+            gendered_noun: { type: string },
+          },
+      }
+    on_fail: continue
+    outputs: { appearance: '{{ result.structured }}' }
+
+  - id: register
+    kind: export
+    files:
+      - {
+          ref: '{{ steps.split_a.outputs.assets }}',
+          name: 'turnaround_{{ vars.want_a[index] }}.png',
+          tags: [reference, turnaround, 'view:{{ vars.want_a[index] }}'],
+        }
+      - {
+          ref: '{{ steps.split_b.outputs.assets }}',
+          name: 'turnaround_{{ vars.want_b[index] }}.png',
+          tags: [reference, turnaround, 'view:{{ vars.want_b[index] }}'],
+        }
+      - {
+          ref: '{{ steps.full_body.outputs.asset }}',
+          name: turnaround_full_body.png,
+          tags: [reference, turnaround, 'view:full_body'],
+        }
+      - {
+          ref: '{{ steps.split_expr.outputs.assets }}',
+          name: 'expression_{{ index + 1 | pad(2) }}_{{ defaults.exprs[index] | slug }}.png',
+          tags: [reference, expression],
+        }
+      - {
+          ref: '{{ steps.outfits.assets }}',
+          name: 'outfit_{{ steps.outfits.outputs[index].label | slug }}.png',
+          tags: [reference, outfit],
+        }
+      - {
+          ref: '{{ steps.states.assets }}',
+          name: 'state_{{ steps.states.outputs[index].label | slug }}.png',
+          tags: [reference, state],
+        }
+      - { ref: '{{ steps.sheet_a.outputs.sheet }}', name: sheets/turnaround_a.png, tags: [sheet, grid] }
+      - { ref: '{{ steps.sheet_b.outputs.sheet }}', name: sheets/turnaround_b.png, tags: [sheet, grid] }
+      - {
+          ref: '{{ steps.expressions.outputs.sheet }}',
+          name: sheets/expressions_grid.png,
+          tags: [sheet, grid],
+        }
+    register_references:
+      {
+        character: '{{ inputs.character }}',
+        role: '{{ file.tags[1] }}',
+        view: "{{ file.tags | find_prefix('view:') }}",
+        label: '{{ file.meta.label | default(defaults.exprs[index]) }}',
+        appearance: '{{ steps.descriptor.outputs.appearance }}',
+        skip_tags: [grid],
+      }
+outputs:
+  final: '{{ vars.anchor }}'
+  extras:
+    [
+      '{{ steps.split_a.outputs.assets }}',
+      '{{ steps.split_b.outputs.assets }}',
+      '{{ steps.full_body.outputs.asset }}',
+      '{{ steps.split_expr.outputs.assets }}',
+      '{{ steps.outfits.assets }}',
+      '{{ steps.states.assets }}',
+    ]

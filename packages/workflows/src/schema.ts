@@ -23,7 +23,10 @@ import { CapabilitySchema, KindSchema, MediaRoleSchema } from '@kilnry/core/type
 // A workflow id: lower-case, digits, dots and hyphens. Shipped ids are written
 // `kilnry-<name>`; PRD-10 also writes some `kilnry.<name>`. The loader
 // canonicalises `kilnry.` → `kilnry-` so both resolve; the regex admits both.
-export const Id = z.string().regex(/^[a-z0-9][a-z0-9.-]{1,63}$/);
+// Underscores are allowed because the step ids in the shipped workflows
+// (TRD-12 §8–10, e.g. sheet_a, split_grid, full_body) use them; the file-name
+// workflow id itself uses hyphens.
+export const Id = z.string().regex(/^[a-z0-9][a-z0-9._-]{1,63}$/);
 
 // Any string may contain {{ }} templates; the engine (template.ts) evaluates them.
 export const Expr = z.string();
@@ -152,7 +155,7 @@ export const GenerateStep = z.object({
   constraints: RouteConstraintsSchema.partial().optional(),
   prompt: Expr,
   negative_prompt: Expr.optional(),
-  params: z.record(z.string(), z.unknown()).default({}),
+  params: z.union([z.record(z.string(), z.unknown()), Expr]).default({}),
   medias: z.union([z.array(MediaItem), Expr]).default([]),
   characters: z.array(Expr).default([]),
   count: z.union([z.number().int().min(1).max(4), Expr]).default(1),
@@ -263,7 +266,7 @@ interface ForeachStepValue {
   over: string;
   as: string;
   index_as: string;
-  expect?: string;
+  expect?: string | number;
   concurrency: number;
   steps: Step[];
   depends_on: string[];
@@ -300,7 +303,7 @@ export const ForeachStep = z.object({
   over: Expr,
   as: z.string().default('item'),
   index_as: z.string().default('index'),
-  expect: Expr.optional(),
+  expect: z.union([z.number(), Expr]).optional(),
   concurrency: z.number().int().min(1).max(12).default(4),
   get steps() {
     return z.array(StepSchema).min(1);

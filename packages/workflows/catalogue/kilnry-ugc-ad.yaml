@@ -1,0 +1,398 @@
+# Kilnry — https://github.com/ApoorvDixitt/kilnry
+# Copyright (c) 2026 Apoorv Dixit. Licensed under the Sustainable Use License 1.0.
+# SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
+# See LICENSE.md in the repository root. You may not remove or obscure this notice.
+id: kilnry-ugc-ad
+name: UGC ad
+version: 1.2.0
+description: >
+  One finished 9:16 creator-style ad. Modes: review (talking head), product-only (hands/POV, voice-over only),
+  unboxing, try-on, tutorial (on-screen step captions), website (site screenshots as overlay cards).
+  Product optional except for product-only/unboxing/try-on/tutorial. Truthful-claims gate: only approved_claims may be spoken as claims.
+category: ads
+requires: [text2image, image_edit, reference2video, vlm, stt]
+inputs:
+  type: object
+  required: [duration_s, mode]
+  properties:
+    mode:
+      {
+        type: string,
+        enum: [review, product-only, unboxing, try-on, tutorial, website],
+        default: review,
+        x-kilnry: { widget: segment },
+      }
+    product:
+      {
+        type: string,
+        description: 'Product photo, Library asset, @element or product URL',
+        x-kilnry: { widget: media, accept: [image], roles: [product], allow_url: true, allow_element: true },
+      }
+    site_url: { type: string, format: uri, x-kilnry: { widget: text, show_when: "inputs.mode == 'website'" } }
+    site_shots:
+      type: array
+      items: { type: string }
+      maxItems: 3
+      default: []
+      description: "Up to 3 screenshots of the site (drop or pick). V1 has no page-capture tool; the drawer offers 'Open site and screenshot' in the OS browser."
+      x-kilnry: { widget: media, accept: [image], roles: [reference], show_when: "inputs.mode == 'website'" }
+    duration_s:
+      {
+        type: integer,
+        minimum: 4,
+        maximum: 60,
+        default: 15,
+        x-kilnry: { widget: chips, options: [10, 15, 30, 45], unit: s },
+      }
+    creator:
+      {
+        type: string,
+        description: '@handle; empty = generate an adult creator',
+        x-kilnry: { widget: character, kinds: [character], allow_empty: true },
+      }
+    creator_brief:
+      {
+        type: string,
+        default: 'adult, 25–35, natural everyday look, warm and direct',
+        x-kilnry: { widget: text, show_when: '!inputs.creator' },
+      }
+    approved_claims: { type: array, items: { type: string }, default: [], x-kilnry: { widget: tags } }
+    tone: { type: string, default: 'casual, specific, no hype', x-kilnry: { widget: text } }
+    language: { type: string, default: en, x-kilnry: { widget: language } }
+    captions:
+      {
+        type: string,
+        enum: [none, subtitles],
+        default: subtitles,
+        x-kilnry:
+          {
+            widget: segment,
+            help: "A burned hook title plate arrives in V1.x once TRD-09's ASS spec has a title cue",
+          },
+      }
+    video_model:
+      {
+        type: string,
+        default: auto,
+        x-kilnry:
+          {
+            widget: select,
+            help: 'auto = cheapest reference2video with audio and >= 3 refs (Seedance 2.5 on OpenRouter today)',
+          },
+      }
+defaults:
+  slots_per_board: { review: 8, website: 8, tutorial: 6, 'try-on': 6, 'product-only': 4, unboxing: 4 }
+  realism: 'phone-camera realism: true skin texture, even daylight, slight sensor noise, deep focus, no beauty-filter smoothing, no HDR glow, no cinematic grade'
+budget: { max_usd: 8, warn_usd: 4 }
+steps:
+  - id: plan
+    kind: set
+    values:
+      needs_product: "{{ inputs.mode in ['product-only','unboxing','try-on','tutorial'] }}"
+      n_boards: '{{ inputs.duration_s <= 15 ? 1 : (inputs.duration_s <= 30 ? 2 : ceil(inputs.duration_s / 15)) }}'
+      clip_len: '{{ inputs.duration_s <= 15 ? inputs.duration_s : 15 }}'
+      last_len: '{{ inputs.duration_s <= 15 ? inputs.duration_s : max(4, inputs.duration_s - 15 * (vars.n_boards - 1)) }}'
+      slots: '{{ defaults.slots_per_board[inputs.mode] }}'
+      on_camera: "{{ inputs.mode != 'product-only' }}"
+
+  - id: gate
+    kind: analyze
+    name: Truth and safety gate
+    task: describe
+    model: auto
+    instructions: >
+      You are a compliance check for an ad brief. Inputs: mode={{ inputs.mode }}, product={{ inputs.product | default('none') }},
+      approved_claims={{ inputs.approved_claims | json }}, creator={{ inputs.creator | default('generated') }}.
+      Return JSON {ok:boolean, reasons:string[]}. ok=false if: the product is a prohibited or age-restricted category
+      (adult, gambling, drugs, tobacco/nicotine, weapons, counterfeit, deceptive finance, surveillance), the brief asks to impersonate
+      a real public person, or the copy would need claims outside approved_claims. Never invent claims.
+    schema:
+      {
+        type: object,
+        required: [ok, reasons],
+        properties: { ok: { type: boolean }, reasons: { type: array, items: { type: string } } },
+      }
+    outputs: { ok: '{{ result.structured.ok }}', reasons: '{{ result.structured.reasons }}' }
+
+  - id: gate_stop
+    kind: branch
+    when: '{{ !steps.gate.outputs.ok }}'
+    then:
+      - id: gate_fail
+        kind: approval
+        mode: hard
+        skippable: false
+        title: 'This brief cannot run as an ad'
+        message: "{{ steps.gate.outputs.reasons | join(' · ') }}"
+        options: [{ id: deny, label: Stop }]
+    else: []
+
+  - id: product
+    kind: branch
+    when: '{{ inputs.product }}'
+    then:
+      - id: product_norm
+        kind: analyze
+        task: describe
+        refs: ['{{ inputs.product }}']
+        instructions: >
+          Describe this product for a director: name if legible, category, materials, colours, size cues, how it opens or is used,
+          and the label side that should face camera. 60 words. Then list any text visible on it verbatim. Return JSON {description, visible_text, tier: luxury|premium|everyday}.
+        schema:
+          {
+            type: object,
+            required: [description, tier],
+            properties:
+              { description: { type: string }, visible_text: { type: string }, tier: { type: string } },
+          }
+        outputs: { desc: '{{ result.structured.description }}', tier: '{{ result.structured.tier }}' }
+    else: []
+
+  - id: creator
+    kind: branch
+    when: '{{ vars.on_camera && !inputs.creator }}'
+    then:
+      - id: creator_gen
+        kind: generate
+        name: Generate creator
+        capability: text2image
+        model: auto
+        constraints: { quality: standard, tags: [] }
+        alternates: [fal-ai/bytedance/seedream/v4.5/text-to-image, fal-ai/flux-2-pro]
+        prompt: >
+          Candid phone photo of a creator: {{ inputs.creator_brief }}. Front-facing, mid-shot, plain daylight room, looking into the lens
+          as if mid-sentence. Fixed wardrobe that will be kept in every scene. {{ defaults.realism }}. No text, no logos.
+        params: { aspect_ratio: '3:4', resolution: '1K' }
+        count: 1
+        approval: soft
+        outputs: { asset: '{{ result.assets[0] }}' }
+    else: []
+
+  - id: refs
+    kind: set
+    values:
+      creator_ref: "{{ inputs.creator ? (characters[inputs.creator].references | filter('role','anchor') | first).asset_id : (vars.on_camera ? steps.creator_gen.outputs.asset : null) }}"
+      creator_mention: "{{ inputs.creator ? '@' + inputs.creator : 'the person in image 1' }}"
+
+  - id: script
+    kind: analyze
+    name: Write the script
+    task: describe
+    model: auto
+    instructions: >
+      Write the spoken script for a {{ inputs.duration_s }} s {{ inputs.mode }} ad in {{ inputs.language }}. Tone: {{ inputs.tone }}.
+      Product: {{ steps.product_norm.outputs.desc | default('none; make it creator-led about the scenario, no product') }}.
+      Speaker: {{ vars.on_camera ? 'on-camera creator' : 'off-camera voice-over' }}; the creator is a host or demonstrator, never a customer:
+      no invented ownership, results, ratings or before/after. Claims allowed verbatim and only these: {{ inputs.approved_claims | json }}.
+      Structure: hook in the first 2 s, then {{ vars.n_boards == 1 ? 'main and close' : 'setup, payoff, close' }}.
+      {{ inputs.mode == 'tutorial' ? 'Number the steps: "Step 1 — …" through at most 5 steps.' : '' }}
+      {{ inputs.mode == 'unboxing' ? 'The reveal of the product is the climax; do not name it before the box opens.' : '' }}
+      {{ inputs.mode == 'website' ? 'Refer to what the site shows on screen ("this page", "here") — real screenshots will be overlaid.' : '' }}
+      Return JSON {segments: string[{{ vars.n_boards }}], hook: string}. Each segment <= {{ 2.4 * vars.clip_len }} words.
+    schema:
+      {
+        type: object,
+        required: [segments, hook],
+        properties: { segments: { type: array, items: { type: string } }, hook: { type: string } },
+      }
+    outputs: { segments: '{{ result.structured.segments }}', hook: '{{ result.structured.hook }}' }
+
+  - id: boards
+    kind: foreach
+    over: '{{ range(0, vars.n_boards) }}'
+    as: k
+    concurrency: 1
+    steps:
+      - id: board_gen
+        kind: generate
+        name: 'Storyboard {{ k + 1 }}/{{ vars.n_boards }}'
+        capability: image_edit
+        model: auto
+        constraints:
+          { quality: premium, refs_count: '{{ 1 + (vars.creator_ref ? 1 : 0) + (inputs.product ? 1 : 0) }}' }
+        alternates: [openai/gpt-image-2.5-sunburst, fal-ai/nano-banana-pro/edit]
+        prompt: >
+          A single 21:9 storyboard sheet of {{ vars.slots }} vertical 9:16 panels in one row, thin white gutters, no labels, no text.
+          Each panel is a distinct shot of the same scene, varying shot size and angle (wide, medium, close, detail, over-shoulder only when a person is in frame).
+          {{ vars.on_camera ? vars.creator_mention + ' is the only person; same face, hair and wardrobe in every panel.' : 'No people; hands and POV only.' }}
+          {{ inputs.product ? 'The product in image ' + (vars.creator_ref ? '2' : '1') + ' appears exactly once per panel where the script needs it, label facing camera, scale true to a hand.' : 'No product, package or sales prop.' }}
+          Scene beats for this board: {{ steps.script.outputs.segments[k] }}.
+          {{ k > 0 ? 'Continue mid-thought from the previous board (image ' + (1 + (vars.creator_ref ? 1 : 0) + (inputs.product ? 1 : 0)) + '); do not reintroduce the product.' : '' }}
+          Everyday interior, natural daylight. {{ defaults.realism }}.
+        params: { aspect_ratio: '21:9', resolution: '2K', quality: high }
+        medias:
+          - { role: reference, ref: '{{ vars.creator_ref }}', when: '{{ vars.creator_ref }}', label: creator }
+          - { role: product, ref: '{{ inputs.product }}', when: '{{ inputs.product }}', label: product }
+          - {
+              role: reference,
+              ref: '{{ k > 0 ? steps.boards.outputs[k-1].clean : null }}',
+              when: '{{ k > 0 }}',
+              label: previous board,
+            }
+        characters: ['{{ inputs.creator }}']
+        retry: { max: 1, on: [MODERATION_REJECTED], reword: true }
+        outputs: { raw: '{{ result.assets[0] }}' }
+      - id: board_clean
+        kind: generate
+        name: 'Realism pass {{ k + 1 }}'
+        capability: image_edit
+        model: fal-ai/bytedance/seedream/v4.5/edit
+        alternates: [fal-ai/bytedance/seedream/v5/lite/edit]
+        prompt: >
+          Keep exactly the layout, framing, poses, faces, product and panel order of this storyboard sheet. Change only surface realism,
+          identically in every panel: {{ defaults.realism }}. Do not reshape any face, do not add text, keep the product unbranded and unchanged.
+        params: { aspect_ratio: '21:9', resolution: '2K' }
+        medias: [{ role: reference, ref: '{{ steps.board_gen.outputs.raw }}' }]
+        on_fail: continue
+        outputs: { clean: '{{ result.assets[0] | default(steps.board_gen.outputs.raw) }}' }
+
+  - id: approve_boards
+    kind: approval
+    mode: soft
+    title: "Approve {{ vars.n_boards }} storyboard{{ vars.n_boards > 1 ? 's' : '' }} before rendering video"
+    message: 'Rendering costs ≈ {{ plan.remaining_estimate_usd | money }} for {{ inputs.duration_s }} s. Deny to stop here.'
+    show: ["{{ steps.boards.outputs | map('clean') }}"]
+
+  - id: clips
+    kind: foreach
+    over: '{{ range(0, vars.n_boards) }}'
+    as: k
+    concurrency: 3
+    steps:
+      - id: clip_gen
+        kind: generate
+        name: 'Clip {{ k + 1 }}/{{ vars.n_boards }}'
+        capability: reference2video
+        model: '{{ inputs.video_model }}'
+        constraints:
+          {
+            needs_audio: true,
+            refs_count: '{{ 1 + (vars.creator_ref ? 1 : 0) + (inputs.product ? 1 : 0) }}',
+            duration_s: '{{ k == vars.n_boards - 1 ? vars.last_len : vars.clip_len }}',
+            min_resolution: 1080p,
+          }
+        alternates:
+          [bytedance/seedance-2.5, fal-ai/kling-video/v3/pro/image-to-video, minimax/h3/reference-to-video]
+        prompt: >
+          Vertical 9:16 clip cut from the storyboard in image 1: {{ vars.slots }} hard cuts, one per panel, in panel order, each about {{ (vars.clip_len / vars.slots) | round(1) }} s.
+          {{ vars.on_camera ? vars.creator_mention + ' speaks to camera, natural gestures, this exact text and nothing else: "' + steps.script.outputs.segments[k] + '"' : 'Off-camera voice-over says exactly: "' + steps.script.outputs.segments[k] + '". Hands and product only.' }}
+          {{ inputs.product ? 'One hero product only, as in the reference; no duplicates; label readable.' : '' }}
+          Same location, light and wardrobe across cuts. No on-screen text, no subtitles, no captions baked in. {{ defaults.realism }}.
+        params:
+          {
+            aspect_ratio: '9:16',
+            resolution: '1080p',
+            duration_s: '{{ k == vars.n_boards - 1 ? vars.last_len : vars.clip_len }}',
+            audio: true,
+            language: '{{ inputs.language }}',
+          }
+        medias:
+          - { role: reference, ref: '{{ steps.boards.outputs[k].clean }}', label: storyboard }
+          - { role: reference, ref: '{{ vars.creator_ref }}', when: '{{ vars.creator_ref }}', label: creator }
+          - { role: product, ref: '{{ inputs.product }}', when: '{{ inputs.product }}', label: product }
+        characters: ['{{ inputs.creator }}']
+        retry: { max: 1, on: [MODERATION_REJECTED, PROVIDER_ERROR, TIMEOUT], reword: true }
+        outputs: { asset: '{{ result.assets[0] }}' }
+      - id: clip_qa
+        kind: analyze
+        task: qa_check
+        refs: ['{{ steps.clip_gen.outputs.asset }}']
+        instructions: >
+          Sample 6 evenly spaced frames plus 2 mid-word frames. Fail if: more than one hero product, extra hands, gibberish or mirrored labels,
+          face drift versus image 2, baked text or subtitles, doubled lip edges. Return {pass:boolean, issues:string[]}.
+        schema:
+          {
+            type: object,
+            required: [pass, issues],
+            properties: { pass: { type: boolean }, issues: { type: array, items: { type: string } } },
+          }
+        on_fail: continue
+        outputs: { pass: '{{ result.structured.pass }}', issues: '{{ result.structured.issues }}' }
+
+  - id: qa_gate
+    kind: approval
+    mode: soft
+    when: "{{ steps.clips.outputs | map('pass') | some(false) }}"
+    title: "QA flagged {{ steps.clips.outputs | map('pass') | count(false) }} clip(s)"
+    message: "{{ steps.clips.outputs | map('issues') | flatten | join(' · ') }}. Approve to keep them, or use Retry step on the flagged clip."
+    show: ['{{ steps.clips.assets }}']
+
+  - id: assemble
+    kind: assemble
+    op: concat
+    inputs: '{{ steps.clips.assets }}'
+    params: { reencode: false, target: { width: 1080, height: 1920, fps: source } }
+    output_name: final.mp4
+    outputs: { asset: '{{ result.asset_id }}' }
+
+  - id: overlay_site
+    kind: foreach
+    when: "{{ inputs.mode == 'website' && len(inputs.site_shots) > 0 }}"
+    over: '{{ inputs.site_shots }}'
+    as: shot
+    concurrency: 1
+    steps:
+      - id: overlay_one
+        kind: assemble
+        op: overlay_image
+        inputs:
+          [
+            '{{ index == 0 ? steps.assemble.outputs.asset : steps.overlay_site.outputs[index - 1].asset }}',
+            '{{ shot }}',
+          ]
+        params:
+          position: top
+          width_pct: 82
+          margin_px: 48
+          opacity: 1
+          start: '{{ inputs.duration_s * 0.15 + index * (inputs.duration_s * 0.70 / len(inputs.site_shots)) }}'
+          end: '{{ inputs.duration_s * 0.15 + (index + 1) * (inputs.duration_s * 0.70 / len(inputs.site_shots)) - 0.3 }}'
+        output_name: 'final_site_{{ index + 1 }}.mp4'
+        outputs: { asset: '{{ result.asset_id }}' }
+
+  - id: cut
+    kind: set
+    values:
+      {
+        master: '{{ len(steps.overlay_site.outputs | default([])) > 0 ? (steps.overlay_site.outputs | last).asset : steps.assemble.outputs.asset }}',
+      }
+
+  - id: captions
+    kind: branch
+    when: "{{ inputs.captions == 'subtitles' }}"
+    then:
+      - id: transcribe
+        kind: transform
+        op: transcribe
+        source: '{{ vars.master }}'
+        params: { language: '{{ inputs.language }}' }
+        outputs: { transcript: '{{ result.assets[0] }}' }
+      - id: burn
+        kind: assemble
+        op: burn_captions
+        inputs: ['{{ vars.master }}']
+        params:
+          {
+            transcript: '{{ steps.transcribe.outputs.transcript }}',
+            look: clean,
+            max_words: 4,
+            max_chars: 22,
+            safe_zone: reels,
+            language: '{{ inputs.language | slice(0, 2) }}',
+          }
+        output_name: final_captioned.mp4
+        outputs: { asset: '{{ result.asset_id }}' }
+    else: []
+
+  - id: export
+    kind: export
+    files:
+      - { ref: '{{ vars.master }}', name: final.mp4, tags: [master] }
+      - { ref: '{{ steps.burn.outputs.asset }}', name: final_captioned.mp4, tags: [deliverable] }
+      - {
+          ref: "{{ steps.boards.outputs | map('clean') }}",
+          name: 'board_{{ index + 1 | pad(2) }}.png',
+          tags: [board],
+        }
+outputs:
+  final: '{{ steps.burn.outputs.asset | default(vars.master) }}'

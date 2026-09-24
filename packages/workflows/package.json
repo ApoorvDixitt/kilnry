@@ -9,6 +9,7 @@
   "exports": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "files": [
+    "catalogue",
     "dist"
   ],
   "scripts": {
@@ -17,6 +18,7 @@
     "test": "vitest run --passWithNoTests --exclude 'dist/**'"
   },
   "dependencies": {
+    "@jsep-plugin/object": "1.2.2",
     "@kilnry/core": "workspace:*",
     "jsep": "1.4.0",
     "yaml": "2.9.1",

@@ -184,7 +184,10 @@ function expand(
         known = false;
       }
       if (!known && step.expect !== undefined) {
-        const expected = evaluateExpression(step.expect.replace(/^\{\{|\}\}$/g, '').trim(), scope);
+        const expected =
+          typeof step.expect === 'number'
+            ? step.expect
+            : evaluateExpression(step.expect.replace(/^\{\{|\}\}$/g, '').trim(), scope);
         n = typeof expected === 'number' ? expected : Number(expected) || 1;
       }
       if (!known && step.expect === undefined) n = 1;

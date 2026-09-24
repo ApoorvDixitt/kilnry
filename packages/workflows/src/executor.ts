@@ -145,7 +145,7 @@ function truthy(value: unknown): boolean {
 function impliedDependencies(step: Step): string[] {
   const deps = new Set<string>(step.depends_on);
   const text = JSON.stringify(step);
-  for (const match of text.matchAll(/steps\.([a-z0-9][a-z0-9-]*)/g)) {
+  for (const match of text.matchAll(/steps\.([a-z0-9][a-z0-9_-]*)/g)) {
     if (match[1] !== undefined) deps.add(match[1]);
   }
   return [...deps];

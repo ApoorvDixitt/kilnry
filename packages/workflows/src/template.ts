@@ -19,6 +19,11 @@
 // be called — an identifier is never resolved to a JavaScript function.
 
 import jsep from 'jsep';
+import jsepObject from '@jsep-plugin/object';
+
+// Register the object-literal plugin so `{ a: 1, b: x }` parses (used as the
+// argument to render() in the shipped workflows, TRD-12 §8–10).
+jsep.plugins.register(jsepObject);
 
 // Register the pipe `|` as a low-precedence binary operator so `x | f(a)` parses
 // as a binary expression we rewrite into a call. `in` is registered too.
@@ -263,6 +268,21 @@ function evaluate(node: Node, scope: Scope): unknown {
     }
     case 'ArrayExpression':
       return (node.elements as Node[]).map((element) => evaluate(element, scope));
+    case 'ObjectExpression': {
+      // The object plugin emits { type:'ObjectExpression', properties:[{ type:'Property', key, value, computed }] }.
+      const out: Record<string, unknown> = {};
+      for (const property of node.properties as Node[]) {
+        const keyNode = property.key as Node;
+        const key = property.computed
+          ? String(evaluate(keyNode, scope))
+          : keyNode.type === 'Identifier'
+            ? (keyNode.name as string)
+            : String(keyNode.value);
+        if (BANNED_KEYS.has(key)) throw new TemplateError(`property "${key}" is not allowed`);
+        out[key] = evaluate(property.value as Node, scope);
+      }
+      return out;
+    }
     case 'UnaryExpression': {
       const value = evaluate(node.argument as Node, scope);
       if (node.operator === '!') return !truthy(value);

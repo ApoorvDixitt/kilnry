@@ -1,0 +1,424 @@
+# Kilnry — https://github.com/ApoorvDixitt/kilnry
+# Copyright (c) 2026 Apoorv Dixit. Licensed under the Sustainable Use License 1.0.
+# SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
+# See LICENSE.md in the repository root. You may not remove or obscure this notice.
+id: kilnry-faceless-video
+name: Faceless narrated video
+version: 1.1.0
+description: >
+  A narrator-led channel video in a locked non-photoreal style: explainer, history, kids, picture story, or myth.
+  Animated mode renders 10 s blocks of hard-cut shots from an asset roster; stills mode holds one image per spoken line.
+  One voice throughout, optional music bed, burned subtitles, optional thumbnail. Characters never lip-sync; the voice is added in post.
+category: video
+requires: [text2image, image2video, tts, stt, vlm]
+inputs:
+  type: object
+  required: [channel_type, topic]
+  properties:
+    channel_type:
+      {
+        type: string,
+        enum: [explainer, history, kids, picture_story, myth],
+        default: explainer,
+        x-kilnry: { widget: segment },
+      }
+    motion_mode:
+      {
+        type: string,
+        enum: [animated, stills],
+        default: animated,
+        x-kilnry: { widget: segment, labels: { animated: Moving shots, stills: One picture per line } },
+      }
+    style:
+      {
+        type: string,
+        default: editorial-motion,
+        x-kilnry:
+          {
+            widget: select,
+            options_from: presets.category.styles,
+            help: 'A Styles preset, or paste up to 3 style images below',
+          },
+      }
+    style_refs:
+      {
+        type: array,
+        items: { type: string },
+        default: [],
+        maxItems: 3,
+        x-kilnry: { widget: media, accept: [image], roles: [style] },
+      }
+    topic:
+      {
+        type: string,
+        description: 'One line, or paste a full script (kept verbatim)',
+        x-kilnry: { widget: textarea },
+      }
+    duration_s: { type: integer, enum: [60, 120, 180], default: 60, x-kilnry: { widget: chips, unit: s } }
+    aspect: { type: string, enum: ['16:9', '9:16'], default: '16:9', x-kilnry: { widget: segment } }
+    voice:
+      {
+        type: string,
+        description: 'provider:voice_id or @character with a bound voice',
+        x-kilnry: { widget: voice },
+      }
+    subtitles: { type: boolean, default: true, x-kilnry: { widget: toggle } }
+    music: { type: boolean, default: false, x-kilnry: { widget: toggle } }
+    thumbnail: { type: boolean, default: true, x-kilnry: { widget: toggle } }
+    language: { type: string, default: en, x-kilnry: { widget: language } }
+defaults:
+  block_s: 10
+  cuts_per_block: { explainer: 5, history: 5, kids: 4, picture_story: 5, myth: 5 }
+  tone:
+    explainer: 'casual second person, deadpan, a hook then a promise'
+    history: 'witty storyteller, chronological, one anachronistic aside per minute'
+    kids: 'warm teacher, direct address, a question first, characters react to the narrator with gestures'
+    picture_story: 'gentle picture-book narrator, short sentences'
+    myth: 'hushed, unhurried, mythic; no jokes'
+  banned_words: ['child', 'kid', 'childlike']
+budget: { max_usd: 12, warn_usd: 6 }
+steps:
+  - id: plan
+    kind: set
+    values:
+      n_blocks: '{{ max(3, round(inputs.duration_s / defaults.block_s)) }}'
+      cuts: '{{ defaults.cuts_per_block[inputs.channel_type] }}'
+      is_script: '{{ len(inputs.topic) > 400 }}'
+      style_prompt: "{{ presets[inputs.style].prompt | default('flat editorial motion-graphics look, bold shapes, limited palette, paper texture') }}"
+
+  - id: style_key
+    kind: generate
+    name: Style key
+    capability: "{{ len(inputs.style_refs) > 0 ? 'image_edit' : 'text2image' }}"
+    model: auto
+    constraints: { quality: standard, refs_count: '{{ len(inputs.style_refs) }}' }
+    alternates: [fal-ai/bytedance/seedream/v4.5/edit, fal-ai/nano-banana-2/edit]
+    prompt: >
+      Style sample only, no subject in particular: a wide establishing frame in this exact look — {{ vars.style_prompt }}.
+      {{ len(inputs.style_refs) > 0 ? 'Match the palette, line quality and texture of the reference images exactly.' : '' }}
+      Non-photoreal. No text, no logos, no real brands.
+    params: { aspect_ratio: '{{ inputs.aspect }}', resolution: '1K' }
+    medias: "{{ inputs.style_refs | map_role('style') }}"
+    approval: soft
+    outputs: { asset: '{{ result.assets[0] }}' }
+
+  - id: script
+    kind: analyze
+    name: "{{ vars.is_script ? 'Split the script' : 'Write the script' }}"
+    task: describe
+    model: auto
+    instructions: >
+      {{ vars.is_script ? 'Split this script into ' + vars.n_blocks + ' blocks at sentence boundaries without changing a word:' : 'Write a ' + inputs.duration_s + ' s narration on: ' }} {{ inputs.topic }}
+      Language {{ inputs.language }}. Tone: {{ defaults.tone[inputs.channel_type] }}. Exactly {{ vars.n_blocks }} blocks, one spoken line each,
+      20–24 words per line (7.8–9.5 s of speech). Never use these words: {{ defaults.banned_words | join(', ') }}. No real brand or studio names.
+      For each block also give a shot list of {{ vars.cuts }} shots (<= {{ (defaults.block_s / vars.cuts) | round(1) }} s each) that vary size and angle
+      (wide, medium, close, detail, low, high), plus the roster of recurring locations, characters and props across the whole video (<= 7 items total).
+      Return JSON {title, blocks:[{line, shots:[string]}], roster:[{kind:'location'|'character'|'prop', name, description}], sources:[string]}.
+    schema:
+      {
+        type: object,
+        required: [title, blocks, roster],
+        properties:
+          {
+            title: { type: string },
+            blocks: { type: array },
+            roster: { type: array },
+            sources: { type: array, items: { type: string } },
+          },
+      }
+    approval: soft
+    outputs:
+      {
+        title: '{{ result.structured.title }}',
+        blocks: '{{ result.structured.blocks }}',
+        roster: '{{ result.structured.roster }}',
+      }
+
+  - id: assets
+    kind: foreach
+    over: '{{ steps.script.outputs.roster }}'
+    as: item
+    expect: 7
+    concurrency: 4
+    steps:
+      - id: asset_gen
+        kind: generate
+        name: 'Asset · {{ item.name }}'
+        capability: image_edit
+        model: auto
+        constraints: { quality: standard, refs_count: 1 }
+        alternates: [fal-ai/bytedance/seedream/v4.5/edit, fal-ai/nano-banana-2/edit]
+        prompt: >
+          In exactly the style of image 1: a {{ item.kind }} reference — {{ item.name }}: {{ item.description }}.
+          {{ item.kind == 'character' ? 'Full figure, front view, neutral pose, single figure, clear silhouette.' : (item.kind == 'location' ? 'Wide establishing view, empty of people.' : 'Isolated on the style background, three-quarter view.') }}
+          Same palette and texture as image 1. No text.
+        params: { aspect_ratio: "{{ item.kind == 'location' ? inputs.aspect : '1:1' }}", resolution: '1K' }
+        medias: [{ role: style, ref: '{{ steps.style_key.outputs.asset }}' }]
+        outputs: { asset: '{{ result.assets[0] }}', kind: '{{ item.kind }}', name: '{{ item.name }}' }
+
+  - id: approve_assets
+    kind: approval
+    mode: soft
+    title: 'Approve the style and {{ len(steps.script.outputs.roster) }} assets'
+    message: 'Blocks will be composed only from these. Rendering ≈ {{ plan.remaining_estimate_usd | money }}.'
+    show: ['{{ steps.style_key.outputs.asset }}', '{{ steps.assets.assets }}']
+
+  - id: narration
+    kind: foreach
+    over: '{{ steps.script.outputs.blocks }}'
+    as: block
+    expect: '{{ vars.n_blocks }}'
+    concurrency: 4
+    steps:
+      - id: vo
+        kind: generate
+        name: 'Voice · block {{ index + 1 }}'
+        capability: tts
+        model: auto
+        constraints: { quality: standard }
+        prompt: '{{ block.line }}'
+        params: { voice: '{{ inputs.voice }}', language: '{{ inputs.language }}', format: wav }
+        outputs: { asset: '{{ result.assets[0] }}' }
+      - id: vo_probe
+        kind: assemble
+        op: probe
+        inputs: ['{{ steps.vo.outputs.asset }}']
+        outputs: { dur: '{{ result.duration_s }}' }
+      - id: vo_fit
+        kind: branch
+        when: '{{ steps.vo_probe.outputs.dur > 9.5 }}'
+        then:
+          - id: shorten
+            kind: analyze
+            task: describe
+            instructions: 'Rewrite this line to at most 20 words, same meaning and tone, no new facts: {{ block.line }}'
+            outputs: { line: '{{ result.text }}' }
+          - id: vo2
+            kind: generate
+            capability: tts
+            model: auto
+            prompt: '{{ steps.shorten.outputs.line }}'
+            params: { voice: '{{ inputs.voice }}', language: '{{ inputs.language }}', format: wav }
+            outputs: { asset: '{{ result.assets[0] }}' }
+        else: []
+      - id: vo_final
+        kind: set
+        values:
+          {
+            asset: '{{ steps.vo2.outputs.asset | default(steps.vo.outputs.asset) }}',
+            line: '{{ steps.shorten.outputs.line | default(block.line) }}',
+          }
+      - id: vo_probe2
+        kind: assemble
+        when: '{{ steps.vo2.outputs.asset }}'
+        op: probe
+        inputs: ['{{ steps.vo2.outputs.asset }}']
+        outputs: { dur: '{{ result.duration_s }}' }
+      - id: vo_dur
+        kind: set
+        values: { dur: '{{ steps.vo_probe2.outputs.dur | default(steps.vo_probe.outputs.dur) }}' }
+
+  - id: blocks
+    kind: foreach
+    when: "{{ inputs.motion_mode == 'animated' }}"
+    over: '{{ steps.script.outputs.blocks }}'
+    as: block
+    expect: '{{ vars.n_blocks }}'
+    concurrency: 3
+    steps:
+      - id: block_gen
+        kind: generate
+        name: 'Block {{ index + 1 }}/{{ vars.n_blocks }}'
+        capability: reference2video
+        model: auto
+        constraints:
+          {
+            needs_audio: false,
+            refs_count: '{{ min(7, len(steps.assets.assets)) }}',
+            duration_s: 10,
+            min_resolution: 1080p,
+          }
+        alternates:
+          [
+            minimax/h3/reference-to-video,
+            bytedance/seedance-2.0/reference-to-video,
+            alibaba/wan-3.0/reference-to-video,
+          ]
+        prompt: >
+          {{ vars.cuts }} hard-cut shots in 10 s, motion from the first frame, no shot longer than {{ (defaults.block_s / vars.cuts + 0.5) | round(1) }} s:
+          {{ block.shots | map_index('SHOT {i} ({t0}–{t1} s): {shot}', defaults.block_s / vars.cuts) | join(' ') }}
+          Compose only from the references: location first, then characters, then props. Characters emote and gesture; they do not talk; mouths closed.
+          {{ inputs.channel_type == 'kids' ? 'Characters react to an unseen narrator: wave, nod, look into the lens.' : '' }}
+          Keep the exact style, palette and background treatment of the references. No text, no captions, no logos.
+        params: { aspect_ratio: '{{ inputs.aspect }}', resolution: '1080p', duration_s: 10, audio: false }
+        medias: "{{ steps.assets.outputs | sort_by_kind(['location','character','prop']) | map('asset') | take(7) | map_role('reference') }}"
+        retry: { max: 2, on: [MODERATION_REJECTED, PROVIDER_ERROR, TIMEOUT], reword: true }
+        outputs: { asset: '{{ result.assets[0] }}' }
+      - id: cut_check
+        kind: assemble
+        op: extract_frames
+        inputs: ['{{ steps.block_gen.outputs.asset }}']
+        params: { mode: scene, scene_threshold: 0.3, format: jpg, max_width: 320 }
+        on_fail: continue
+        outputs: { cuts: '{{ len(result.assets) }}' }
+      - id: cut_retry
+        kind: branch
+        when: '{{ steps.cut_check.outputs.cuts < vars.cuts - 1 }}'
+        then:
+          - id: block_gen2
+            kind: generate
+            capability: reference2video
+            model: '{{ steps.block_gen.route.model }}'
+            prompt: '{{ steps.block_gen.resolved_prompt }} Cut exactly {{ vars.cuts }} times; every shot listed above is a separate hard cut.'
+            params: '{{ steps.block_gen.params }}'
+            medias: '{{ steps.block_gen.medias }}'
+            outputs: { asset: '{{ result.assets[0] }}' }
+        else: []
+      - id: block_final
+        kind: set
+        values: { asset: '{{ steps.block_gen2.outputs.asset | default(steps.block_gen.outputs.asset) }}' }
+
+  - id: stills
+    kind: foreach
+    when: "{{ inputs.motion_mode == 'stills' }}"
+    over: '{{ steps.script.outputs.blocks }}'
+    as: block
+    expect: '{{ vars.n_blocks }}'
+    concurrency: 4
+    steps:
+      - id: still_gen
+        kind: generate
+        name: 'Still {{ index + 1 }}'
+        capability: image_edit
+        model: auto
+        constraints: { quality: standard, refs_count: '{{ min(7, len(steps.assets.assets)) }}' }
+        prompt: 'One held frame for this line, full staged scene from the references, same style as image 1: {{ block.line }}. No text.'
+        params: { aspect_ratio: '{{ inputs.aspect }}', resolution: '2K' }
+        medias: "{{ [steps.style_key.outputs.asset] | concat(steps.assets.assets | take(6)) | map_role('reference') }}"
+        outputs: { asset: '{{ result.assets[0] }}' }
+
+  - id: music
+    kind: generate
+    when: '{{ inputs.music }}'
+    name: Music bed
+    capability: music
+    model: auto
+    constraints: { quality: draft }
+    prompt: "Instrumental only, {{ inputs.channel_type == 'kids' ? 'playful, light percussion, major key' : 'mysterious, calm, sparse strings' }}, steady, no vocals, loopable, {{ inputs.duration_s }} s."
+    params: { duration_s: '{{ inputs.duration_s }}' }
+    outputs: { asset: '{{ result.assets[0] }}' }
+
+  - id: voiced
+    kind: foreach
+    over: '{{ range(0, vars.n_blocks) }}'
+    as: k
+    concurrency: 4
+    steps:
+      - id: still_clip
+        kind: assemble
+        when: "{{ inputs.motion_mode == 'stills' }}"
+        op: concat
+        inputs: ['{{ steps.stills.outputs[k].asset }}']
+        params:
+          {
+            image_hold_s: '{{ steps.narration.outputs[k].dur + 0.4 }}',
+            target: { resolution: 1080p, aspect: '{{ inputs.aspect }}', fps: 24 },
+          }
+        outputs: { asset: '{{ result.asset_id }}' }
+      - id: src
+        kind: set
+        values:
+          video: "{{ inputs.motion_mode == 'animated' ? steps.blocks.outputs[k].asset : steps.still_clip.outputs.asset }}"
+          video_s: "{{ inputs.motion_mode == 'animated' ? defaults.block_s : steps.narration.outputs[k].dur + 0.4 }}"
+      - id: mux
+        kind: assemble
+        op: mux_audio
+        inputs: ['{{ vars.video }}', '{{ steps.narration.outputs[k].asset }}']
+        params:
+          {
+            mode: replace,
+            offset_s: '{{ max(0, (vars.video_s - steps.narration.outputs[k].dur) / 2) }}',
+            fit: video,
+          }
+        output_name: 'block_{{ k + 1 | pad(2) }}_voiced.mp4'
+        outputs: { asset: '{{ result.asset_id }}' }
+
+  - id: concat
+    kind: assemble
+    op: concat
+    inputs: "{{ steps.voiced.outputs | map('asset') }}"
+    params: { mode: auto, target: { resolution: 1080p, aspect: '{{ inputs.aspect }}' }, transition: none }
+    output_name: cut.mp4
+    outputs: { asset: '{{ result.asset_id }}' }
+
+  - id: bed
+    kind: assemble
+    when: '{{ inputs.music }}'
+    op: mux_audio
+    inputs: ['{{ steps.concat.outputs.asset }}', '{{ steps.music.outputs.asset }}']
+    params: { mode: mix, audio_gain_db: -18, video_gain_db: 0, fit: video }
+    output_name: cut_bed.mp4
+    outputs: { asset: '{{ result.asset_id }}' }
+
+  - id: assemble
+    kind: assemble
+    op: normalize_audio
+    inputs: ['{{ steps.bed.outputs.asset | default(steps.concat.outputs.asset) }}']
+    params: { target_lufs: -16, true_peak_dbtp: -1.5 }
+    output_name: final.mp4
+    outputs: { asset: '{{ result.asset_id }}' }
+
+  - id: subtitles
+    kind: branch
+    when: '{{ inputs.subtitles }}'
+    then:
+      - id: transcribe
+        kind: transform
+        op: transcribe
+        source: '{{ steps.assemble.outputs.asset }}'
+        params: { language: '{{ inputs.language }}' }
+        outputs: { transcript: '{{ result.assets[0] }}' }
+      - id: burn
+        kind: assemble
+        op: burn_captions
+        inputs: ['{{ steps.assemble.outputs.asset }}']
+        params:
+          {
+            transcript: '{{ steps.transcribe.outputs.transcript }}',
+            look: "{{ inputs.channel_type == 'kids' ? 'bold' : 'clean' }}",
+            max_words: 5,
+            max_chars: 32,
+            safe_zone: "{{ inputs.aspect == '9:16' ? 'reels' : 'landscape' }}",
+            language: '{{ inputs.language | slice(0, 2) }}',
+          }
+        output_name: final_captioned.mp4
+        outputs: { asset: '{{ result.asset_id }}' }
+    else: []
+
+  - id: thumbnail
+    kind: generate
+    when: '{{ inputs.thumbnail }}'
+    name: Thumbnail
+    capability: image_edit
+    model: auto
+    constraints: { quality: premium, refs_count: 2 }
+    prompt: >
+      A {{ inputs.aspect }} thumbnail in exactly the style of image 1 using the main subject from image 2: one clear focal element,
+      high contrast, readable at 200 px wide, space on the {{ inputs.aspect == '16:9' ? 'left third' : 'top third' }} for a title. No text yet.
+    params: { aspect_ratio: '{{ inputs.aspect }}', resolution: '2K' }
+    medias:
+      [
+        { role: style, ref: '{{ steps.style_key.outputs.asset }}' },
+        { role: reference, ref: '{{ steps.assets.assets | first }}' },
+      ]
+    outputs: { asset: '{{ result.assets[0] }}' }
+
+  - id: export
+    kind: export
+    files:
+      - { ref: '{{ steps.assemble.outputs.asset }}', name: final.mp4, tags: [master] }
+      - { ref: '{{ steps.burn.outputs.asset }}', name: final_captioned.mp4, tags: [deliverable] }
+      - { ref: '{{ steps.thumbnail.outputs.asset }}', name: thumbnail.png, tags: [thumbnail] }
+      - { ref: '{{ steps.style_key.outputs.asset }}', name: style_key.png, tags: [style] }
+outputs:
+  final: '{{ steps.burn.outputs.asset | default(steps.assemble.outputs.asset) }}'

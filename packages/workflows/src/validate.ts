@@ -198,7 +198,7 @@ export function validateWorkflow(workflow: WorkflowFile, fileName?: string): Wor
 
   // Rule 9: outputs.final must resolve to an asset-producing step.
   if (workflow.outputs.final !== undefined) {
-    const referenced = [...workflow.outputs.final.matchAll(/steps\.([a-z0-9][a-z0-9-]*)/g)].map(
+    const referenced = [...workflow.outputs.final.matchAll(/steps\.([a-z0-9][a-z0-9_-]*)/g)].map(
       (match) => match[1],
     );
     const assetProducers = new Set<string>();
