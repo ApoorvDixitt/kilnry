@@ -36,13 +36,26 @@ jobs:
         run: corepack install --global pnpm@12.4.2
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-      - name: Install FFmpeg 7
-        # The release static build lives at johnvansickle.com, a third-party host
-        # that occasionally times out; that read, not any GitHub rate limit, is
-        # what intermittently failed the setup-ffmpeg action and turned an
-        # otherwise-green run red. Wrapping the download in nick-fields/retry
-        # (pinned by full commit SHA) retries the timeout up to three times and
-        # installs the FFmpeg 7 static build the doctor and media tests need.
+      - name: Cache FFmpeg 7.0.2 static build
+        id: ffmpeg-cache
+        # The FFmpeg 7.0.2 binaries rarely change, so cache the two installed
+        # files across runs; a hit skips the third-party download entirely.
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: |
+            /usr/local/bin/ffmpeg
+            /usr/local/bin/ffprobe
+          key: ffmpeg-static-7.0.2-${{ runner.os }}
+      - name: Install FFmpeg 7.0.2
+        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        # johnvansickle.com serves the version-pinned FFmpeg 7.0.2 amd64 static
+        # build the doctor and media tests need; it is a third-party host that
+        # occasionally times out on the read, which is what intermittently turned
+        # an otherwise-green run red, so the download is wrapped in
+        # nick-fields/retry (pinned by full commit SHA) and runs only on a cache
+        # miss. The archive is checked against the MD5 the publisher published for
+        # this build before anything is installed, so a corrupt or swapped file
+        # fails the step instead of installing.
         uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
         with:
           max_attempts: 3
@@ -52,12 +65,20 @@ jobs:
             set -euo pipefail
             tmp="$(mktemp -d)"
             curl -fsSL --retry 3 --retry-delay 5 -o "$tmp/ffmpeg.tar.xz" \
-              https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz
+              https://johnvansickle.com/ffmpeg/releases/ffmpeg-7.0.2-amd64-static.tar.xz
+            # MD5 published by johnvansickle for the 7.0.2 amd64 static build,
+            # verified against ffmpeg-release-amd64-static.tar.xz.md5 while 7.0.2
+            # was the current release.
+            echo "7fa72b652e19bf84c9461e332ea1cdf3  $tmp/ffmpeg.tar.xz" | md5sum -c -
             tar -xf "$tmp/ffmpeg.tar.xz" -C "$tmp"
-            dir="$(find "$tmp" -maxdepth 1 -type d -name 'ffmpeg-*-static' | head -n1)"
+            dir="$tmp/ffmpeg-7.0.2-amd64-static"
             sudo install -m755 "$dir/ffmpeg" /usr/local/bin/ffmpeg
             sudo install -m755 "$dir/ffprobe" /usr/local/bin/ffprobe
-            ffmpeg -version | head -n1
+      - name: Verify FFmpeg 7.0.2
+        run: |
+          set -euo pipefail
+          ffmpeg -version | head -n1
+          ffprobe -version | head -n1
       - name: Check licence headers
         run: pnpm check:headers
       - name: Check provenance
