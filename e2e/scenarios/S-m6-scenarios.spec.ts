@@ -146,6 +146,9 @@ function findRunFolder(project: string, slugPrefix: string): string | undefined 
 }
 
 interface RunManifest {
+  estimate_usd?: number;
+  spent_usd?: number;
+  status?: string;
   steps?: Array<{ step_id?: string; kind?: string; actual_usd?: number; status?: string }>;
 }
 
@@ -448,5 +451,31 @@ test.describe('M6 workflows acceptance', () => {
     for (const step of manifest.steps ?? []) expect(typeof step.actual_usd).toBe('number');
     // The transcribe transform is the one spending step; burn is a local assemble.
     expect((manifest.steps ?? []).some((s) => s.kind === 'transform' && s.status === 'completed')).toBe(true);
+  });
+
+  test('@m6 kilnry-ugc-ad actual cost is within 15 percent of its plan estimate', async ({ page }) => {
+    test.setTimeout(240_000);
+    await ensureProvider(page, 'fal', FAL_KEY);
+    await ensureProvider(page, 'openrouter', OPENROUTER_KEY);
+    const product = await seedProduct(page, 'Cost_A', 'serum.png');
+    expect(product).not.toBe('');
+    const { manifest } = await driveRun(page, {
+      workflowId: 'kilnry-ugc-ad',
+      folder: 'Cost_A',
+      slugPrefix: 'UGC_ad_',
+      inputs: { mode: 'product-only', product, duration_s: 15 },
+    });
+    // The manifest records the plan estimate and the actual spend; on fixtures a
+    // full UGC run's actual cost is within ±15 percent of its plan estimate
+    // (MILESTONES M6 Done-when; the plan prices every routed step).
+    const estimate = manifest.estimate_usd ?? 0;
+    const spent = manifest.spent_usd ?? 0;
+    expect(estimate).toBeGreaterThan(0);
+    expect(spent).toBeGreaterThan(0);
+    // The summed per-step actual equals the run's spent total.
+    const summed = (manifest.steps ?? []).reduce((total, step) => total + (step.actual_usd ?? 0), 0);
+    expect(Math.abs(summed - spent)).toBeLessThanOrEqual(0.01);
+    // Actual within ±15 percent of the plan estimate.
+    expect(Math.abs(spent - estimate)).toBeLessThanOrEqual(0.15 * estimate);
   });
 });
