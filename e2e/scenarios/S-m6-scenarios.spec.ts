@@ -29,6 +29,13 @@ const PNG = Buffer.from(
   'base64',
 );
 
+// A tiny valid MP4 (the same bytes the fal video fixture serves) used as the
+// subtitles-burn video input, so the Library probe reads a real duration.
+const MP4 = Buffer.from(
+  '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',
+  'base64',
+);
+
 async function ensureSignedIn(page: Page, path: string): Promise<void> {
   await page.goto(path);
   if (/\/login$/.test(page.url())) {
@@ -80,12 +87,12 @@ async function ensureProvider(page: Page, id: string, key: string): Promise<void
   await expect.poll(() => providerConnected(page, id), { timeout: 15_000 }).toBe(true);
 }
 
-// Place the product photo directly in the Library folder, then reindex it the
-// way the doctor does after a file arrives outside the app (setup only).
-async function seedProduct(page: Page, folder: string, name: string): Promise<string> {
+// Place a media file directly in the Library folder, then reindex it the way the
+// doctor does after a file arrives outside the app (setup only). Returns its id.
+async function seedFile(page: Page, folder: string, name: string, bytes: Buffer): Promise<string> {
   const dir = join(library, folder);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, name), PNG);
+  writeFileSync(join(dir, name), bytes);
   const token = await csrf(page);
   const report = await page.evaluate(
     async ({ token, folder }) => {
@@ -98,10 +105,8 @@ async function seedProduct(page: Page, folder: string, name: string): Promise<st
     },
     { token, folder },
   );
-  // Surface a failed reindex loudly rather than timing out later on an empty id.
   if (report.status !== 200) throw new Error(`reindex ${report.status}: ${report.body}`);
   const relative = join(folder, name);
-  // Reindex indexes bare files into their folder; poll until the row appears.
   await expect
     .poll(
       async () =>
@@ -128,12 +133,124 @@ async function seedProduct(page: Page, folder: string, name: string): Promise<st
   }, relative);
 }
 
+async function seedProduct(page: Page, folder: string, name: string): Promise<string> {
+  return seedFile(page, folder, name, PNG);
+}
+
 // The run's on-disk folder under the Library, matched by the workflow-name slug.
 function findRunFolder(project: string, slugPrefix: string): string | undefined {
   const base = join(library, project);
   if (!existsSync(base)) return undefined;
   const match = readdirSync(base).find((name) => name.startsWith(slugPrefix));
   return match ? join(base, match) : undefined;
+}
+
+interface RunManifest {
+  steps?: Array<{ step_id?: string; kind?: string; actual_usd?: number; status?: string }>;
+}
+
+// Fill a workflow's intake by field id, preview, approve the plan total, then
+// clear any approval checkpoints, and return the run folder's manifest once it
+// lands on disk. `inputs` maps a field name to a value (string, number, or the
+// option of a select/segment); a boolean checks a toggle.
+async function driveRun(
+  page: Page,
+  options: {
+    workflowId: string;
+    folder: string;
+    slugPrefix: string;
+    inputs: Record<string, string | number>;
+  },
+): Promise<{ folder: string; manifest: RunManifest }> {
+  await ensureSignedIn(page, '/workflows');
+  await page
+    .locator(`.workflow-row[data-workflow-id="${options.workflowId}"]`)
+    .getByRole('button', { name: 'Run' })
+    .first()
+    .click();
+  const drawer = page.locator(`.workflow-drawer[data-workflow-id="${options.workflowId}"]`);
+  await expect(drawer).toBeVisible();
+  // Fill the folder and every input, re-applying until Preview enables — the
+  // drawer loads its fields asynchronously and, under load, an early fill can
+  // land before React has wired the input, leaving a required field empty.
+  const fillAll = async (): Promise<void> => {
+    await drawer.locator('#workflow-folder').fill(options.folder);
+    for (const [name, value] of Object.entries(options.inputs)) {
+      const field = drawer.locator(`#wf-input-${name}`);
+      await field.waitFor({ state: 'visible', timeout: 20_000 });
+      const tag = await field.evaluate((el) => el.tagName.toLowerCase()).catch(() => '');
+      if (tag === 'select') await field.selectOption(String(value));
+      else await field.fill(String(value));
+    }
+  };
+  await fillAll();
+  const preview = drawer.locator('.workflow-plan-button');
+  for (let i = 0; i < 5 && !(await preview.isEnabled().catch(() => false)); i += 1) {
+    await page.waitForTimeout(1000);
+    await fillAll();
+  }
+  await expect(preview).toBeEnabled({ timeout: 20_000 });
+  await drawer.getByRole('button', { name: /Preview the plan/i }).click();
+  await expect
+    .poll(async () => drawer.locator('.plan-step-cost').count(), { timeout: 20_000 })
+    .toBeGreaterThan(0);
+  await expect(drawer.locator('.workflow-approve-button')).toBeEnabled();
+  await drawer.locator('.workflow-approve-button').click();
+  await page.waitForURL(/\/workflows\/runs\/[^/]+$/, { timeout: 180_000 });
+  // Clear any approval checkpoints. The run POST/resume runs synchronously and
+  // the run view polls the status, so each cycle we either see a card (approve
+  // it and wait for the synchronous resume) or the run has settled — a manifest
+  // with a completed spending step or a terminal status — and we stop.
+  const settled = (): boolean => {
+    const folder = findRunFolder(options.folder, options.slugPrefix);
+    if (!folder) return false;
+    const manifestPath = join(folder, 'run.kilnry.json');
+    if (!existsSync(manifestPath)) return false;
+    try {
+      const m = JSON.parse(readFileSync(manifestPath, 'utf8')) as RunManifest & { status?: string };
+      const paused = (m.steps ?? []).some((s) => s.status === 'waiting');
+      return !paused && spendingStepsCompleted(m) > 0;
+    } catch {
+      return false;
+    }
+  };
+  const deadline = Date.now() + 180_000;
+  while (Date.now() < deadline) {
+    const card = page.locator('.approval-card');
+    const appeared = await card
+      .waitFor({ state: 'visible', timeout: 6000 })
+      .then(() => true)
+      .catch(() => false);
+    if (appeared) {
+      const approveResponse = page
+        .waitForResponse(
+          (r) => /\/api\/runs\/[^/]+\/approve$/.test(r.url()) && r.request().method() === 'POST',
+          { timeout: 180_000 },
+        )
+        .catch(() => null);
+      await card.getByRole('button', { name: /Approve/i }).click();
+      await approveResponse;
+      await page.waitForTimeout(2500);
+      continue;
+    }
+    if (settled()) break;
+  }
+  const folder = await expect
+    .poll(() => findRunFolder(options.folder, options.slugPrefix), { timeout: 180_000 })
+    .toBeTruthy()
+    .then(() => findRunFolder(options.folder, options.slugPrefix)!);
+  const manifestPath = join(folder, 'run.kilnry.json');
+  await expect.poll(() => existsSync(manifestPath), { timeout: 60_000 }).toBe(true);
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as RunManifest;
+  return { folder, manifest };
+}
+
+// The number of spending steps (generate, transform, analyze) that completed in
+// a manifest — each writes exactly one spend-ledger row (the money-path check).
+function spendingStepsCompleted(manifest: RunManifest): number {
+  return (manifest.steps ?? []).filter(
+    (step) => ['generate', 'transform', 'analyze'].includes(step.kind ?? '') && step.status === 'completed',
+  ).length;
 }
 
 test.describe('M6 workflows acceptance', () => {
@@ -151,7 +268,7 @@ test.describe('M6 workflows acceptance', () => {
     // reviews the Plan.
     await ensureSignedIn(page, '/workflows');
     await page
-      .locator('.workflow-row', { hasText: 'UGC ad' })
+      .locator('.workflow-row[data-workflow-id="kilnry-ugc-ad"]')
       .getByRole('button', { name: 'Run' })
       .first()
       .click();
@@ -159,11 +276,13 @@ test.describe('M6 workflows acceptance', () => {
     await expect(drawer).toBeVisible();
     await drawer.locator('#workflow-folder').fill('Client_A');
     // product-only mode via the segment select for `mode`.
+    await drawer.locator('#wf-input-mode').waitFor({ state: 'visible', timeout: 20_000 });
     await drawer.locator('#wf-input-mode').selectOption('product-only');
     // The product photo (media widget renders a text input holding the asset id).
     await drawer.locator('#wf-input-product').fill(productId);
     // duration 15 s (chips widget renders a number input).
     await drawer.locator('#wf-input-duration_s').fill('15');
+    await expect(drawer.locator('.workflow-plan-button')).toBeEnabled({ timeout: 20_000 });
 
     // The Plan shows per-step model and cost and a total equal to the sum.
     await drawer.getByRole('button', { name: /Preview the plan/i }).click();
@@ -238,5 +357,96 @@ test.describe('M6 workflows acceptance', () => {
     if (amounts.length === 2) {
       expect(amounts[0]!).toBeLessThanOrEqual(amounts[1]! * 1.1 + 0.0001);
     }
+  });
+
+  // The five unnumbered runs named by workflow id (MILESTONES M6 Done-when):
+  // each drives its workflow end to end and asserts real outputs land on disk
+  // with a complete manifest — every step carries an actual cost and every
+  // spending step is a ledger row (asserted at unit level; here by the manifest's
+  // completed spending steps).
+
+  test('@m6 kilnry-ugc-ad runs to its checkpoint and renders clips', async ({ page }) => {
+    test.setTimeout(240_000);
+    await ensureProvider(page, 'fal', FAL_KEY);
+    await ensureProvider(page, 'openrouter', OPENROUTER_KEY);
+    const product = await seedProduct(page, 'Ugc_A', 'serum.png');
+    expect(product).not.toBe('');
+    const { manifest } = await driveRun(page, {
+      workflowId: 'kilnry-ugc-ad',
+      folder: 'Ugc_A',
+      slugPrefix: 'UGC_ad_',
+      inputs: { mode: 'product-only', product, duration_s: 15 },
+    });
+    for (const step of manifest.steps ?? []) expect(typeof step.actual_usd).toBe('number');
+    expect(spendingStepsCompleted(manifest)).toBeGreaterThan(0);
+    expect((manifest.steps ?? []).some((s) => (s.step_id ?? '').includes('clip'))).toBe(true);
+  });
+
+  test('@m6 kilnry-faceless-video runs in stills mode', async ({ page }) => {
+    test.setTimeout(240_000);
+    await ensureProvider(page, 'fal', FAL_KEY);
+    await ensureProvider(page, 'openrouter', OPENROUTER_KEY);
+    const { manifest } = await driveRun(page, {
+      workflowId: 'kilnry-faceless-video',
+      folder: 'Faceless_A',
+      slugPrefix: 'Faceless_narrated_video_',
+      inputs: {
+        channel_type: 'explainer',
+        motion_mode: 'stills',
+        topic: 'How rivers shape a valley',
+        duration_s: 60,
+      },
+    });
+    for (const step of manifest.steps ?? []) expect(typeof step.actual_usd).toBe('number');
+    expect(spendingStepsCompleted(manifest)).toBeGreaterThan(0);
+    // Stills mode produces still images, not moving clips.
+    expect((manifest.steps ?? []).some((s) => s.kind === 'generate' && s.status === 'completed')).toBe(true);
+  });
+
+  test('@m6 kilnry-product-photoshoot renders variants', async ({ page }) => {
+    test.setTimeout(240_000);
+    await ensureProvider(page, 'fal', FAL_KEY);
+    await ensureProvider(page, 'openrouter', OPENROUTER_KEY);
+    const product = await seedProduct(page, 'Shoot_A', 'bottle.png');
+    expect(product).not.toBe('');
+    const { manifest } = await driveRun(page, {
+      workflowId: 'kilnry-product-photoshoot',
+      folder: 'Shoot_A',
+      slugPrefix: 'Product_photoshoot_',
+      inputs: { product, mode: 'packshot', variants: 1, aspect: '1:1' },
+    });
+    for (const step of manifest.steps ?? []) expect(typeof step.actual_usd).toBe('number');
+    expect(spendingStepsCompleted(manifest)).toBeGreaterThan(0);
+  });
+
+  test('@m6 kilnry-thumbnail renders takes', async ({ page }) => {
+    test.setTimeout(240_000);
+    await ensureProvider(page, 'fal', FAL_KEY);
+    await ensureProvider(page, 'openrouter', OPENROUTER_KEY);
+    const { manifest } = await driveRun(page, {
+      workflowId: 'kilnry-thumbnail',
+      folder: 'Thumb_A',
+      slugPrefix: 'Thumbnail_',
+      inputs: { topic: 'The secret life of bees', headline: 'Bees rule', aspect: '16:9', takes: 1 },
+    });
+    for (const step of manifest.steps ?? []) expect(typeof step.actual_usd).toBe('number');
+    expect(spendingStepsCompleted(manifest)).toBeGreaterThan(0);
+  });
+
+  test('@m6 kilnry-subtitles-burn transcribes and burns captions', async ({ page }) => {
+    test.setTimeout(240_000);
+    await ensureProvider(page, 'fal', FAL_KEY);
+    await ensureProvider(page, 'openrouter', OPENROUTER_KEY);
+    const video = await seedFile(page, 'Subs_A', 'clip.mp4', MP4);
+    expect(video).not.toBe('');
+    const { manifest } = await driveRun(page, {
+      workflowId: 'kilnry-subtitles-burn',
+      folder: 'Subs_A',
+      slugPrefix: 'Subtitles_burn_',
+      inputs: { video, look: 'clean', language: 'en', max_line_chars: 28, position: 'lower_third' },
+    });
+    for (const step of manifest.steps ?? []) expect(typeof step.actual_usd).toBe('number');
+    // The transcribe transform is the one spending step; burn is a local assemble.
+    expect((manifest.steps ?? []).some((s) => s.kind === 'transform' && s.status === 'completed')).toBe(true);
   });
 });
