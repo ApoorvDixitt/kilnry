@@ -19,6 +19,7 @@ import {
   isLive,
   progress,
   statusGlyph,
+  statusLabel,
   type RunStepView,
   type RunView,
 } from './workflow-run-view-logic';
@@ -32,7 +33,7 @@ export function RunHeader({ run, onCancel }: { run: RunView; onCancel: () => voi
   return (
     <header className="run-header">
       <div className="run-header-top">
-        <span className={`run-status-pill run-status-${run.status}`}>{run.status}</span>
+        <span className={`run-status-pill run-status-${run.status}`}>{statusLabel(run.status)}</span>
         <span className="run-progress-count">
           {message('workflows.runView.progress').replace('{n}', String(done)).replace('{m}', String(total))}
         </span>

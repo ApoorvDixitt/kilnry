@@ -931,6 +931,8 @@
     "planSteps": "{n} of {m} steps",
     "checkpoint": "Checkpoint",
     "planPreview": "Preview the plan",
+    "folderLabel": "Project folder",
+    "folderPlaceholder": "e.g. Client_A",
     "total": "Total",
     "approveTotal": "Approve · {total}",
     "loadFailed": "That workflow could not be loaded. Try again.",

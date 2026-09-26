@@ -62,3 +62,23 @@ export function costSoFarLabel(run: RunView): string {
 export function isLive(status: string): boolean {
   return status === 'running' || status === 'awaiting_approval';
 }
+
+/** A friendly, human status for the header pill (wireframes §9). */
+export function statusLabel(status: string): string {
+  switch (status) {
+    case 'awaiting_approval':
+      return 'Waiting';
+    case 'running':
+      return 'Running';
+    case 'completed':
+      return 'Completed';
+    case 'failed':
+      return 'Failed';
+    case 'cancelled':
+      return 'Cancelled';
+    case 'planning':
+      return 'Planning';
+    default:
+      return status;
+  }
+}

@@ -36,7 +36,7 @@ import { dirname } from 'node:path';
 import { and, eq } from 'drizzle-orm';
 import { KilnryError, loadConfig, ulid } from '@kilnry/core';
 import { CanonicalRequestSchema, type CanonicalRequest, type RouteConstraints } from '@kilnry/core';
-import { analyzeTool, type ToolServices } from '@kilnry/core';
+import { analyzeTool, capabilityFor, type ToolServices } from '@kilnry/core';
 import { assets, assetTags, runSteps, runs, type DatabaseState } from '@kilnry/db';
 import {
   buildManifest,
@@ -60,7 +60,6 @@ import {
   type WorkflowFile,
 } from '@kilnry/workflows';
 import type { JobEngine } from '@kilnry/core/jobs';
-import { canonicalGeneration, GenerationInput } from './generation-input';
 
 // ── catalogue ────────────────────────────────────────────────────────────────
 
@@ -182,7 +181,19 @@ async function pricePlan(
     try {
       const wfStep = findStep(workflow.steps, step.step_id);
       if (!wfStep) continue;
-      const scope = { inputs: base.inputs, defaults: workflow.defaults, vars: base.vars } as Scope;
+      // Price against a lenient scope: the estimate depends on the capability,
+      // model, resolution and reference count, not on the prompt text, so bind
+      // empty stand-ins for the runtime-only namespaces (`steps`, the foreach
+      // index `k`) a leaf inside a loop references, so rendering them does not
+      // throw before the routing fields are read.
+      const scope = {
+        inputs: base.inputs,
+        defaults: workflow.defaults,
+        vars: base.vars,
+        steps: {},
+        k: 0,
+        result: {},
+      } as unknown as Scope;
       const canonical = canonicalRequestForStep(wfStep, scope);
       const prepared = await engine.estimate(canonical.request, canonical.constraints);
       step.estimate_usd = prepared.estimate.estimate_usd;
@@ -386,25 +397,64 @@ function canonicalRequestForStep(step: Step, scope: Scope): CanonicalForStep {
     else extra[key] = value;
   }
   if (Object.keys(extra).length > 0) params.extra = extra;
-  const canonical = canonicalGeneration(
-    GenerationInput.parse({
-      kind: generate.kind_of ?? 'image',
-      prompt: String(generate.prompt || 'workflow step'),
-      ...(generate.negative_prompt === undefined
-        ? {}
-        : { negative_prompt: String(generate.negative_prompt) }),
-      model: typeof generate.model === 'string' ? generate.model : 'auto',
-      params,
-      medias,
-      count: typeof generate.count === 'number' ? generate.count : 1,
-      target_folder: 'inbox',
-      source: 'ui',
-    }),
-  );
-  return {
-    request: { ...canonical.request, source: 'workflow', target_folder: 'inbox' },
-    constraints: canonical.constraints,
+  // Honour the step's explicit capability (reference2video, image_edit, …) and
+  // the media kind it implies, rather than inferring from kind alone: a clip
+  // step is reference2video with audio, not a plain image. The step's own
+  // constraints (needs_audio, refs_count, duration, resolution) route it.
+  const KIND_FOR_CAPABILITY: Record<string, 'image' | 'video' | 'audio' | '3d'> = {
+    text2image: 'image',
+    image_edit: 'image',
+    text2video: 'video',
+    image2video: 'video',
+    reference2video: 'video',
+    text2audio: 'audio',
+    text2speech: 'audio',
+    text2threed: '3d',
   };
+  const capability = typeof generate.capability === 'string' ? generate.capability : undefined;
+  const kind = capability
+    ? (KIND_FOR_CAPABILITY[capability] ?? generate.kind_of ?? 'image')
+    : (generate.kind_of ?? 'image');
+  const stepConstraints =
+    generate.constraints !== null && typeof generate.constraints === 'object'
+      ? (generate.constraints as Record<string, unknown>)
+      : {};
+  const request = CanonicalRequestSchema.parse({
+    kind,
+    capability:
+      capability ??
+      capabilityFor(
+        kind,
+        medias.map((m) => ({ role: m.role as never })),
+      ),
+    prompt: String(generate.prompt || 'workflow step'),
+    ...(generate.negative_prompt === undefined ? {} : { negative_prompt: String(generate.negative_prompt) }),
+    model: typeof generate.model === 'string' && generate.model !== 'auto' ? generate.model : undefined,
+    params,
+    medias,
+    injections: [],
+    count: typeof generate.count === 'number' ? generate.count : 1,
+    target_folder: 'inbox',
+    source: 'workflow',
+  }) as CanonicalForStep['request'];
+  const refsCount = medias.filter((media) => ['reference', 'product'].includes(media.role)).length;
+  const constraints: RouteConstraints = {
+    refs_count: refsCount,
+    ...(typeof generate.model === 'string' && generate.model !== 'auto'
+      ? { pinned_model: generate.model }
+      : {}),
+    ...(typeof stepConstraints.needs_audio === 'boolean' ? { needs_audio: stepConstraints.needs_audio } : {}),
+    ...(typeof stepConstraints.quality === 'string'
+      ? { quality: stepConstraints.quality as 'draft' | 'standard' | 'premium' }
+      : {}),
+    ...(typeof stepConstraints.duration_s === 'number' ? { duration_s: stepConstraints.duration_s } : {}),
+    ...(typeof params.duration_s === 'number' ? { duration_s: params.duration_s as number } : {}),
+    ...(typeof stepConstraints.min_resolution === 'string'
+      ? { min_resolution: stepConstraints.min_resolution as NonNullable<RouteConstraints['min_resolution']> }
+      : {}),
+    ...(typeof params.aspect_ratio === 'string' ? { aspect_ratio: params.aspect_ratio as string } : {}),
+  };
+  return { request, constraints };
 }
 
 // The exact createJob input for a spending step: source 'workflow', the run and
@@ -931,7 +981,20 @@ async function spendThroughEngine(
   scope: Scope,
 ): Promise<StepResult> {
   const planStep = run.plan.steps.find((step) => step.step_id === node.step_id);
-  const confirmedCost = planStep?.estimate_usd ?? 0;
+  const canonical = canonicalRequestForStep(rendered, scope);
+  // The plan total was confirmed at Approve, so a step confirms at the engine's
+  // own estimate for it rather than the plan step figure (which may be zero when
+  // the plan could not route the step before its runtime inputs existed). This
+  // keeps the money path — estimate, confirm, reserve, ledger — while honouring
+  // the single approval the user already gave for the whole run.
+  let confirmedCost = planStep?.estimate_usd ?? 0;
+  try {
+    const prepared = await engine.estimate(canonical.request, canonical.constraints);
+    const engineEstimate = prepared.estimate.authoritative_usd ?? prepared.estimate.estimate_usd;
+    if (engineEstimate > confirmedCost) confirmedCost = engineEstimate;
+  } catch {
+    // If the engine cannot estimate here, createJob will surface the same error.
+  }
   const jobInput = buildSpendInput(run.runId, run.folder, node, rendered, scope, confirmedCost);
   const created = await engine.createJob(jobInput);
   await db.db

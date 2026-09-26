@@ -157,6 +157,7 @@ export function WorkflowIntakeDrawer({
 }): React.ReactNode {
   const [fields, setFields] = useState<WorkflowInputField[]>([]);
   const [values, setValues] = useState<Record<string, unknown>>({});
+  const [folder, setFolder] = useState('');
   const [description, setDescription] = useState('');
   const [plan, setPlan] = useState<PlanView | null>(null);
   const [runId, setRunId] = useState<string>();
@@ -207,7 +208,11 @@ export function WorkflowIntakeDrawer({
       const response = await apiFetch(`/api/workflows/${encodeURIComponent(workflowId)}/run`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ run_id: runId, confirm_cost_usd: plan.total_estimate_usd }),
+        body: JSON.stringify({
+          run_id: runId,
+          confirm_cost_usd: plan.total_estimate_usd,
+          ...(folder.trim() === '' ? {} : { target_folder: folder.trim() }),
+        }),
       });
       if (!response.ok) throw new Error('run failed');
       window.location.href = `/workflows/runs/${runId}`;
@@ -215,7 +220,7 @@ export function WorkflowIntakeDrawer({
       setError(message('workflows.runFailed'));
       setBusy(false);
     }
-  }, [workflowId, plan, runId]);
+  }, [workflowId, plan, runId, folder]);
 
   return (
     <aside className="workflow-drawer" role="dialog" aria-label={name} data-workflow-id={workflowId}>
@@ -233,6 +238,18 @@ export function WorkflowIntakeDrawer({
       {description ? <p className="workflow-drawer-hint">{description}</p> : null}
 
       <form className="workflow-form" onSubmit={(event) => event.preventDefault()}>
+        <label className="workflow-field" htmlFor="workflow-folder">
+          <span className="workflow-field-label">{message('workflows.folderLabel')}</span>
+          <input
+            id="workflow-folder"
+            type="text"
+            className="workflow-field-input"
+            data-widget="folder"
+            placeholder={message('workflows.folderPlaceholder')}
+            value={folder}
+            onChange={(event) => setFolder(event.target.value)}
+          />
+        </label>
         {fields.map((field) => (
           <Field
             key={field.name}
