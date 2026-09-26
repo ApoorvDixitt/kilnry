@@ -617,6 +617,7 @@
     "noKeyProviders": "Open Providers",
     "noKeyOllama": "Get Ollama",
     "ollamaFree": "Ollama available, free",
+    "offlineChip": "Offline · Ollama",
     "resizeLabel": "Resize the conversation and workspace panes",
     "you": "You",
     "agent": "Agent",

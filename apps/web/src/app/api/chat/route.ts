@@ -153,6 +153,7 @@ export async function POST(request: Request): Promise<Response> {
         presets: await presetServices(),
       },
       chatSessionId: session.id,
+      offline: llm.local === true,
     });
 
     // Attachments arrive as ids; the agent reads them through the Library and,

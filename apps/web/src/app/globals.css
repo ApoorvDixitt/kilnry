@@ -7127,3 +7127,15 @@ html[data-motion='reduced'] *::after {
   content: '✕';
   color: var(--danger, #c0392b);
 }
+
+/* Chat › Offline mode chip (F-CHT-11) */
+.chat-offline-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  background: var(--sand, #e8e0d0);
+  color: var(--text, #2e2a26);
+  font-size: 0.8em;
+}

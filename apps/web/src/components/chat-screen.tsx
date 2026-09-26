@@ -450,6 +450,9 @@ export function ChatScreen({
             ))}
           </select>
         </label>
+        {selected.startsWith('ollama:') ? (
+          <span className="chat-offline-chip">{message('chat.offlineChip')}</span>
+        ) : null}
         {ollamaDetected ? <span className="chat-ollama-chip">{message('chat.ollamaFree')}</span> : null}
         <label className="chat-session-control">
           <span>{message('chat.sessionAutonomy')}</span>

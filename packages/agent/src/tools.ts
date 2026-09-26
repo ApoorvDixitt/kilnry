@@ -78,6 +78,12 @@ export interface ChatToolContext {
   services: ToolServices;
   /** The session these calls belong to, reported with each tool result. */
   chatSessionId?: string;
+  /**
+   * Offline mode (F-CHT-11): only a local Ollama model is reachable. The tools
+   * that spend at a cloud provider are disabled with a reason so the model does
+   * not call them and can explain why; the local tools stay available.
+   */
+  offline?: boolean;
   /** Called after each tool call so the Steps and Cost panes can update. */
   onToolResult?: (event: {
     name: string;
@@ -86,6 +92,19 @@ export interface ChatToolContext {
     structured: Record<string, unknown>;
   }) => void;
 }
+
+// The tools that reach a cloud provider and therefore cannot run offline
+// (TRD-11 §10). The local tools — Library, characters read, ffmpeg, local
+// analyze tasks, skills, jobs, budget, presets/workflows list and plan — stay on.
+const OFFLINE_DISABLED_TOOLS = new Set([
+  'kilnry_generate',
+  'kilnry_transform',
+  'kilnry_voices',
+  'kilnry_publish',
+]);
+
+const OFFLINE_REASON =
+  'Unavailable offline: this needs a cloud provider. Generation resumes when a provider is reachable.';
 
 /**
  * Wrap the twenty Kilnry tools as AI SDK tools for one chat request (TRD-11
@@ -98,11 +117,26 @@ export function registerChatTools(ctx: ChatToolContext, tools: KilnryTool[] = KI
 }
 
 function wrapTool(definition: KilnryTool, ctx: ChatToolContext) {
+  const disabledOffline = ctx.offline === true && OFFLINE_DISABLED_TOOLS.has(definition.name);
   return tool({
-    description: definition.description,
+    description: disabledOffline ? `${definition.description}\n\n${OFFLINE_REASON}` : definition.description,
     inputSchema: z.object(definition.inputSchema),
     execute: async (input, options): Promise<Record<string, unknown>> => {
       const callId = options?.toolCallId ?? '';
+      if (disabledOffline) {
+        // Do not spend offline: return the reason as a value the model reads.
+        const offlineResult = {
+          error: { code: 'NO_PROVIDER', message: OFFLINE_REASON, retryable: false },
+          _summary: OFFLINE_REASON,
+        };
+        ctx.onToolResult?.({
+          name: definition.name,
+          tool_call_id: callId,
+          summary: OFFLINE_REASON,
+          structured: offlineResult,
+        });
+        return offlineResult;
+      }
       try {
         const result = await definition.execute(input as Record<string, unknown>, ctx.services);
         ctx.onToolResult?.({

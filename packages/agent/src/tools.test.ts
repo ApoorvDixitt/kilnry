@@ -66,6 +66,29 @@ describe('registerChatTools (TRD-11 §4)', () => {
     expect(chatToolNames()).toHaveLength(20);
     expect(chatToolNames()).toContain('kilnry_generate');
   });
+
+  it('disables a spend tool offline with a reason and never runs it (F-CHT-11)', async () => {
+    const execute = vi.fn(async () => ({ text: 'made', structuredContent: {} }));
+    const registered = registerChatTools({ services, offline: true }, [
+      fakeTool({ name: 'kilnry_generate', description: 'Generate media.', execute }),
+    ]);
+    expect(registered['kilnry_generate']?.description).toContain('Unavailable offline');
+    const result = (await callTool(registered, 'kilnry_generate', {})) as {
+      error: { code: string };
+    };
+    expect(execute).not.toHaveBeenCalled();
+    expect(result.error.code).toBe('NO_PROVIDER');
+  });
+
+  it('keeps a local tool available offline', async () => {
+    const execute = vi.fn(async () => ({ text: 'listed', structuredContent: { assets: [] } }));
+    const registered = registerChatTools({ services, offline: true }, [
+      fakeTool({ name: 'kilnry_library', description: 'Read the Library.', execute }),
+    ]);
+    expect(registered['kilnry_library']?.description).not.toContain('Unavailable offline');
+    await callTool(registered, 'kilnry_library', {});
+    expect(execute).toHaveBeenCalledOnce();
+  });
 });
 
 describe('compactForModel (TRD-11 §4)', () => {
