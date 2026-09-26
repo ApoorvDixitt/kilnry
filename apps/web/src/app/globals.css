@@ -7050,3 +7050,80 @@ html[data-motion='reduced'] *::after {
   font-size: 0.85em;
   margin: 0.5rem 0;
 }
+
+/* Chat › Visible thinking and step list (F-CHT-08) */
+.chat-thinking {
+  border-left: 2px solid var(--border);
+  margin: 0.35rem 0;
+  padding-left: 0.5rem;
+}
+.chat-thinking-head {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.85em;
+  cursor: pointer;
+  padding: 0.15rem 0;
+}
+.chat-thinking.is-streaming .chat-thinking-label {
+  animation: chat-thinking-pulse 1.4s ease-in-out infinite;
+}
+.chat-thinking-body {
+  color: var(--text-muted);
+  font-size: 0.85em;
+  white-space: pre-wrap;
+  padding: 0.25rem 0 0.5rem;
+}
+@keyframes chat-thinking-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chat-thinking.is-streaming .chat-thinking-label {
+    animation: none;
+  }
+}
+.chat-step-list {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.5rem 0.75rem;
+  margin: 0.35rem 0;
+  font-size: 0.85em;
+}
+.chat-step-progress {
+  font-weight: 600;
+  margin: 0 0 0.35rem;
+}
+.chat-step-list ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.chat-step {
+  display: flex;
+  gap: 0.5rem;
+  align-items: baseline;
+}
+.chat-step::before {
+  content: '◌';
+  color: var(--text-muted);
+}
+.chat-step.is-running::before {
+  content: '◐';
+}
+.chat-step.is-done::before {
+  content: '✓';
+  color: var(--accent);
+}
+.chat-step.is-failed::before {
+  content: '✕';
+  color: var(--danger, #c0392b);
+}

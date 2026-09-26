@@ -10,8 +10,11 @@ import {
   ApprovalCard,
   BudgetReachedCard,
   groupToolCalls,
+  StepList,
   summariseArguments,
+  ThinkingStep,
   ToolCallCard,
+  type StepListItem,
   type ToolCallState,
 } from './message-parts';
 
@@ -242,5 +245,44 @@ describe('BudgetReachedCard (F-CHT-02)', () => {
     expect(host.querySelector('h3')?.textContent).toBe('Budget reached');
     expect(host.querySelector('p')?.textContent).toBe('Session cap $1.00 reached');
     expect(host.querySelector('button')).toBeNull();
+  });
+});
+
+describe('ThinkingStep (F-CHT-08)', () => {
+  it('renders a collapsed thinking row that expands on click', async () => {
+    const host = await render(<ThinkingStep text="Weighing two models by price." streaming={false} />);
+    const head = host.querySelector<HTMLButtonElement>('.chat-thinking-head')!;
+    expect(head.getAttribute('aria-expanded')).toBe('false');
+    expect(host.querySelector('.chat-thinking-body')).toBeNull();
+    await act(async () => {
+      head.click();
+      await Promise.resolve();
+    });
+    expect(host.querySelector('.chat-thinking-body')?.textContent).toContain('Weighing two models');
+  });
+
+  it('marks a streaming summary so reduced motion can quiet it', async () => {
+    const host = await render(<ThinkingStep text="…" streaming={true} />);
+    expect(host.querySelector('.chat-thinking')?.className).toContain('is-streaming');
+  });
+});
+
+describe('StepList (F-CHT-08)', () => {
+  const steps: StepListItem[] = [
+    { toolName: 'kilnry_skills', summary: 'list', state: 'output-available' },
+    { toolName: 'kilnry_estimate', summary: 'estimate', state: 'output-available' },
+    { toolName: 'kilnry_generate', summary: 'three clips', state: 'input-available' },
+  ];
+
+  it('shows a checklist with progress for a multi-step task', async () => {
+    const host = await render(<StepList steps={steps} />);
+    expect(host.querySelector('.chat-step-progress')?.textContent).toBe('Plan · 2 of 3');
+    expect(host.querySelectorAll('.chat-step')).toHaveLength(3);
+    expect(host.querySelector('.chat-step.is-running code')?.textContent).toBe('kilnry_generate');
+  });
+
+  it('renders nothing for fewer than three steps', async () => {
+    const host = await render(<StepList steps={steps.slice(0, 2)} />);
+    expect(host.querySelector('.chat-step-list')).toBeNull();
   });
 });

@@ -278,3 +278,82 @@ export function BudgetReachedCard({ capUsd }: { capUsd: number }): React.ReactNo
     </article>
   );
 }
+
+/**
+ * A streamed reasoning summary (F-CHT-08). It renders as a collapsed "Thinking…"
+ * row above the assistant text, expandable on click; while it streams it shows a
+ * live label, and reduced motion is handled in CSS (no pulsing).
+ */
+export function ThinkingStep({
+  text,
+  streaming = false,
+}: {
+  text: string;
+  streaming?: boolean;
+}): React.ReactNode {
+  const [open, setOpen] = useState(false);
+  return (
+    <article className={`chat-thinking${streaming ? ' is-streaming' : ''}`}>
+      <button
+        type="button"
+        className="chat-thinking-head"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+      >
+        <span className="chat-thinking-label">
+          {streaming ? message('chat.thinkingStreaming') : message('chat.thinking')}
+        </span>
+      </button>
+      {open ? <div className="chat-thinking-body">{text}</div> : null}
+    </article>
+  );
+}
+
+/** One step in the multi-step checklist, with the glyph its state shows. */
+export interface StepListItem {
+  toolName: string;
+  summary: string;
+  state: ToolCallState;
+}
+
+function stepGlyph(state: ToolCallState): string {
+  switch (state) {
+    case 'output-available':
+      return 'done';
+    case 'output-error':
+    case 'denied':
+      return 'failed';
+    case 'input-available':
+    case 'approval-requested':
+      return 'running';
+    default:
+      return 'queued';
+  }
+}
+
+/**
+ * The step list a multi-step task shows (F-CHT-08): a mini-checklist of the
+ * planned tool calls with "N of M" done and a glyph per step. Only shown when a
+ * task planned at least three tool calls (TRD-11 §11).
+ */
+export function StepList({ steps }: { steps: StepListItem[] }): React.ReactNode {
+  if (steps.length < 3) return null;
+  const done = steps.filter((step) => step.state === 'output-available').length;
+  return (
+    <section className="chat-step-list" aria-label={message('chat.stepsLabel')}>
+      <p className="chat-step-progress">
+        {message('chat.stepsProgress')
+          .replace('{done}', String(done))
+          .replace('{total}', String(steps.length))}
+      </p>
+      <ol>
+        {steps.map((step, index) => (
+          <li key={`${step.toolName}-${index}`} className={`chat-step is-${stepGlyph(step.state)}`}>
+            <code>{step.toolName}</code>
+            <span>{step.summary}</span>
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}

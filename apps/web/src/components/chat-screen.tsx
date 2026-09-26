@@ -25,6 +25,9 @@ import {
   ApprovalCard,
   BudgetReachedCard,
   groupToolCalls,
+  StepList,
+  summariseArguments,
+  ThinkingStep,
   ToolCallCard,
   type PlannedCall,
   type ToolCallState,
@@ -107,9 +110,31 @@ export function renderParts(parts: MessagePart[], handlers: PartHandlers): React
   );
 
   let groupIndex = 0;
+  // A multi-step task (three or more planned tool calls) shows a step list at
+  // the top of the message (F-CHT-08). A call awaiting approval is a checkpoint,
+  // not a planned step, so it does not count toward the threshold.
+  const stepItems = toolParts
+    .filter((part) => part.state !== 'approval-requested')
+    .map((part) => ({
+      toolName:
+        part.type === 'dynamic-tool' ? ((part as { toolName?: string }).toolName ?? '') : part.type.slice(5),
+      summary: summariseArguments((part as { input?: unknown }).input),
+      state: part.state ?? ('input-available' as ToolCallState),
+    }));
+  if (stepItems.length >= 3) {
+    nodes.push(<StepList key="step-list" steps={stepItems} />);
+  }
   for (const [index, part] of parts.entries()) {
     if (part.type === 'text') {
       nodes.push(<p key={`t-${index}`}>{(part as { text: string }).text}</p>);
+      continue;
+    }
+    if (part.type === 'reasoning') {
+      // Visible thinking (F-CHT-08): a collapsed "Thinking…" row above the text.
+      const reasoning = part as { text: string; state?: string };
+      nodes.push(
+        <ThinkingStep key={`r-${index}`} text={reasoning.text} streaming={reasoning.state === 'streaming'} />,
+      );
       continue;
     }
     if (part.type === 'step-start') {

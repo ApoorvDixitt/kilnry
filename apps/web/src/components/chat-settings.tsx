@@ -237,11 +237,6 @@ export function ChatSettings(): React.ReactNode {
         {memoryStatus === '' ? null : <p role="status">{memoryStatus}</p>}
       </section>
 
-      <section className="chat-later" aria-label={message('settings.chat.laterTitle')}>
-        <h3>{message('settings.chat.laterTitle')}</h3>
-        <p>{message('settings.chat.laterReasoning')}</p>
-      </section>
-
       <button type="submit" disabled={pending}>
         {message('settings.chat.save')}
       </button>
