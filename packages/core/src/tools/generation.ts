@@ -14,10 +14,18 @@ import * as z from 'zod';
 import { basename, join } from 'node:path';
 import { FFMPEG_OPS, isSupportedFfmpegOp, runFfmpegOp } from '@kilnry/media';
 import { probeMedia } from '@kilnry/media';
+import { auditEvents, spendLedger } from '@kilnry/db';
 import { confirmationDecision } from '../budget/confirmation.js';
-import { ANALYZE_TASKS, CHEAPEST_VLM, analyzeMedia, isSupportedAnalyzeTask } from '../characters/analyze.js';
+import { reserveBudget } from '../budget/enforcer.js';
+import {
+  ANALYZE_TASKS,
+  DEFAULT_ANALYZE_MODEL,
+  analyzeMedia,
+  isSupportedAnalyzeTask,
+} from '../characters/analyze.js';
 import { loadRegistry, providerRouteStates } from '../registry/store.js';
 import { capabilityFor, type Capability, type Kind } from '../types.js';
+import { ulid } from '../ids.js';
 import { getAssetDetail } from '../library/assets.js';
 import { indexAsset } from '../library/index.js';
 import { resolveInRoot } from '../library/containment.js';
@@ -400,55 +408,162 @@ export const ffmpegTool: KilnryTool = {
 export const analyzeTool: KilnryTool = {
   name: 'kilnry_analyze',
   description:
-    'Look at media and describe, caption, read text, check consistency against a character, extract a palette, detect faces, or compare. Give one to eight references and an optional instruction. A vision-language task costs a small amount and estimates first; local tasks are free. Returns text and an optional structured result with a confidence badge.',
+    'Look at media and describe, caption, read text, tag, or judge it against an instruction, or reason over text alone. With references it is a vision-language task; with no references and an instruction it is a text-only language call. A schema forces a structured JSON reply. Every call estimates first and, once confirmed, charges one metered amount and returns text plus an optional structured result with a score and a confidence badge.',
   inputSchema: {
-    task: z.enum([
-      'describe',
-      'caption',
-      'ocr',
-      'transcribe_local',
-      'qa_check',
-      'consistency_check',
-      'extract_palette',
-      'detect_faces',
-      'compare',
-    ]),
-    refs: z.array(MediaRef).min(1).max(8),
+    task: z.enum(['describe', 'caption', 'tag', 'ocr', 'qa_check', 'consistency_check', 'score']),
+    refs: z.array(MediaRef).max(8).default([]),
     instructions: z.string().optional(),
+    schema: z.record(z.string(), z.unknown()).optional(),
     model: z.string().optional(),
     confirm_cost_usd: z.number().optional(),
+    // A folder for the ledger row and, for a workflow step, the run and step id
+    // that carry into the audit event. Absent means the inbox and no run link.
+    folder: z.string().optional(),
+    run_id: z.string().optional(),
+    step_id: z.string().optional(),
   },
   outputSchema: {
     text: z.string().optional(),
     model: z.string().optional(),
+    structured: z.unknown().optional(),
+    score: z.number().optional(),
+    badge: z.string().optional(),
+    estimate_usd: z.number().optional(),
+    actual_usd: z.number().optional(),
+    needs_confirmation: z.boolean().optional(),
     error: z.record(z.string(), z.unknown()).optional(),
   },
-  annotations: { readOnlyHint: true, openWorldHint: true },
+  annotations: { readOnlyHint: false, openWorldHint: true },
   async execute(input, services: ToolServices): Promise<ToolResult> {
     const task = typeof input.task === 'string' ? input.task : '';
     if (!isSupportedAnalyzeTask(task)) {
       return toolError(
         'NO_PROVIDER',
-        `The ${task || 'requested'} task is not available yet. Supported now: ${ANALYZE_TASKS.join(', ')}. The rest arrive in a later milestone.`,
+        `The ${task || 'requested'} task is not available yet. Supported now: ${ANALYZE_TASKS.join(', ')}.`,
       );
     }
-    if (!services.openrouterKey || !services.assetUrl) {
+    if (!services.openrouterKey) {
       return toolError('NO_PROVIDER', 'Analysis needs an OpenRouter key; add one in Settings › Providers.');
     }
+    if (!services.engine) {
+      return toolError('NO_PROVIDER', 'Analysis is unavailable because the engine is not running.');
+    }
     const refs = Array.isArray(input.refs) ? (input.refs as string[]) : [];
-    if (refs.length === 0) return toolError('INVALID_INPUT', 'Give at least one reference to analyze.');
-    const assetUrl = services.assetUrl;
+    const assetUrl = services.assetUrl ?? ((id: string) => id);
     const imageUrls = refs.map((ref) => (ref.startsWith('http') ? ref : assetUrl(ref)));
-    const model = typeof input.model === 'string' ? input.model : CHEAPEST_VLM;
+    const instructions = typeof input.instructions === 'string' ? input.instructions : '';
+    if (imageUrls.length === 0 && instructions.trim() === '') {
+      return toolError('INVALID_INPUT', 'Give at least one reference or an instruction to analyze.');
+    }
+    const model = typeof input.model === 'string' && input.model !== '' ? input.model : DEFAULT_ANALYZE_MODEL;
+    // With references the call is a vision-language-model task; without them it
+    // is a text-only large-language-model call. Both price through the registry
+    // on the same road every spend uses (TRD-12 §4).
+    const capability: Capability = imageUrls.length > 0 ? 'vlm' : 'llm';
+    const folder = typeof input.folder === 'string' && input.folder !== '' ? input.folder : 'inbox';
+    const confirm = typeof input.confirm_cost_usd === 'number' ? input.confirm_cost_usd : undefined;
+
+    // Price the call, then either auto-approve a small spend or require the
+    // caller's acknowledged cost, exactly as kilnry_generate does.
+    let prepared: Awaited<ReturnType<NonNullable<ToolServices['engine']>['estimate']>>;
+    try {
+      prepared = await services.engine.estimate(
+        {
+          kind: 'image',
+          capability,
+          prompt: `${task}${instructions === '' ? '' : `: ${instructions}`}`.slice(0, 20_000) || task,
+          params: input.schema === undefined ? {} : { extra: { schema: input.schema } },
+          medias: imageUrls.map((url) => ({ role: 'reference', asset_id: url })),
+          count: 1,
+          injections: [],
+        } as never,
+        input.model === undefined || input.model === ''
+          ? { refs_count: imageUrls.length }
+          : { pinned_model: model, refs_count: imageUrls.length },
+      );
+    } catch (error) {
+      const code =
+        error && typeof error === 'object' && 'code' in error ? String(error.code) : 'PROVIDER_ERROR';
+      return toolError(code, error instanceof Error ? error.message : 'Could not price the analysis.');
+    }
+    const estimateUsd = prepared.estimate.estimate_usd;
+    const requiredUsd = prepared.estimate.authoritative_usd ?? estimateUsd;
+    const decision = confirmationDecision({
+      estimateUsd: requiredUsd,
+      confirmCostUsd: confirm,
+      autoApproveBelowUsd: services.autoApproveBelowUsd,
+    });
+    if (!decision.proceed) {
+      return {
+        text: `About $${requiredUsd.toFixed(4)} to analyze. Confirm to run.`,
+        structuredContent: {
+          needs_confirmation: true,
+          estimate_usd: Number(estimateUsd.toFixed(6)),
+          model: prepared.estimate.route.model,
+        },
+      };
+    }
+
+    // Reserve against the caps before the provider call, refusing when a cap is
+    // hit so nothing is charged (F-PRV-05). Then run the analysis and record one
+    // spend-ledger row and one audit event — no job, so keyed by its own id.
+    const provider = prepared.estimate.route.provider;
+    try {
+      await reserveBudget(services.db.db, { estimate_usd: requiredUsd, provider, folder });
+    } catch (error) {
+      const code =
+        error && typeof error === 'object' && 'code' in error ? String(error.code) : 'BUDGET_EXCEEDED';
+      return toolError(code, error instanceof Error ? error.message : 'The budget cap was reached.');
+    }
     try {
       const result = await analyzeMedia({
         task,
         imageUrls,
         apiKey: services.openrouterKey,
         model,
-        ...(typeof input.instructions === 'string' ? { instructions: input.instructions } : {}),
+        ...(instructions === '' ? {} : { instructions }),
+        ...(input.schema === undefined ? {} : { schema: input.schema as Record<string, unknown> }),
       });
-      return { text: result.text, structuredContent: { text: result.text, model: result.model } };
+      const chargedUsd = requiredUsd;
+      const rowId = ulid();
+      await services.db.db.insert(spendLedger).values({
+        id: rowId,
+        providerId: provider,
+        modelId: result.model,
+        folder,
+        kind: capability,
+        estimateUsd: estimateUsd.toFixed(6),
+        actualUsd: chargedUsd.toFixed(6),
+        currencyNote: `analyze ${task}`,
+        occurredAt: new Date(),
+      });
+      await services.db.db.insert(auditEvents).values({
+        id: ulid(),
+        actor: resolveConfirmer(services, analyzeTool.name, input),
+        action: 'analyze.run',
+        target: task,
+        meta: {
+          provider,
+          model: result.model,
+          estimate_usd: estimateUsd,
+          actual_usd: chargedUsd,
+          capability,
+          ...(typeof input.run_id === 'string' ? { run_id: input.run_id } : {}),
+          ...(typeof input.step_id === 'string' ? { step_id: input.step_id } : {}),
+        },
+      });
+      return {
+        text: result.text,
+        structuredContent: {
+          text: result.text,
+          model: result.model,
+          ...(result.structured === undefined ? {} : { structured: result.structured }),
+          ...(result.score === undefined ? {} : { score: result.score }),
+          ...(result.badge === undefined ? {} : { badge: result.badge }),
+          estimate_usd: Number(estimateUsd.toFixed(6)),
+          actual_usd: Number(chargedUsd.toFixed(6)),
+        },
+      };
     } catch (error) {
       const code =
         error && typeof error === 'object' && 'code' in error ? String(error.code) : 'PROVIDER_ERROR';

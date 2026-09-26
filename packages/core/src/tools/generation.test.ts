@@ -221,7 +221,7 @@ describe('generation tools (F-MCP-02 §3.2, §3.6)', () => {
   it('kilnry_analyze refuses unsupported tasks and a missing key precisely', async () => {
     const state = await db();
     const unsupported = await analyzeTool.execute(
-      { task: 'ocr', refs: ['a1'] },
+      { task: 'detect_faces', refs: ['a1'] },
       { db: state, scope: 'full' },
     );
     const one = unsupported.structuredContent.error as { code: string; message: string };
@@ -230,5 +230,94 @@ describe('generation tools (F-MCP-02 §3.2, §3.6)', () => {
 
     const noKey = await analyzeTool.execute({ task: 'describe', refs: ['a1'] }, { db: state, scope: 'full' });
     expect((noKey.structuredContent.error as { code: string }).code).toBe('NO_PROVIDER');
+  });
+
+  it('kilnry_analyze meters one ledger row per call and returns structured output', async () => {
+    const state = await db();
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ choices: [{ message: { content: '{"ok": true, "score": 0.9}' } }] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })) as unknown as typeof fetch;
+    const engine = {
+      estimate(request: Record<string, unknown>) {
+        return Promise.resolve({
+          request,
+          estimate: {
+            estimate_usd: 0.001,
+            authoritative_usd: 0.001,
+            route: { provider: 'openrouter', model: 'google/gemini-3.1-flash-lite' },
+            eta_s: 5,
+          },
+        });
+      },
+    };
+    const { spendLedger } = await import('@kilnry/db');
+    try {
+      const result = await analyzeTool.execute(
+        {
+          task: 'qa_check',
+          refs: ['http://127.0.0.1:3123/api/media/a1'],
+          instructions: 'Is the label legible?',
+          schema: {
+            type: 'object',
+            required: ['ok', 'score'],
+            properties: { ok: { type: 'boolean' }, score: { type: 'number' } },
+          },
+          confirm_cost_usd: 0.001,
+          folder: 'Client_A',
+        },
+        {
+          db: state,
+          scope: 'full',
+          engine: engine as never,
+          openrouterKey: 'sk-test',
+          assetUrl: (id) => `http://127.0.0.1:3123/api/media/${id}`,
+        },
+      );
+      expect(result.structuredContent.error).toBeUndefined();
+      expect((result.structuredContent.structured as { ok: boolean }).ok).toBe(true);
+      expect(result.structuredContent.score).toBeCloseTo(0.9);
+      const rows = await state.db.select().from(spendLedger);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.kind).toBe('vlm');
+      expect(rows[0]!.folder).toBe('Client_A');
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  it('kilnry_analyze writes no ledger row when the budget cap refuses it', async () => {
+    const state = await db();
+    const { budgets, spendLedger } = await import('@kilnry/db');
+    await state.db.insert(budgets).values({ scope: 'daily', capUsd: '0.10', behavior: 'block' });
+    await state.db.insert(spendLedger).values({
+      id: 'seed-spend',
+      folder: 'inbox',
+      kind: 'llm',
+      actualUsd: '0.099999',
+      occurredAt: new Date(),
+    });
+    const engine = {
+      estimate(request: Record<string, unknown>) {
+        return Promise.resolve({
+          request,
+          estimate: {
+            estimate_usd: 0.05,
+            authoritative_usd: 0.05,
+            route: { provider: 'openrouter', model: 'google/gemini-3.1-flash-lite' },
+            eta_s: 5,
+          },
+        });
+      },
+    };
+    const result = await analyzeTool.execute(
+      { task: 'describe', instructions: 'Summarise the brand.', confirm_cost_usd: 0.05 },
+      { db: state, scope: 'full', engine: engine as never, openrouterKey: 'sk-test' },
+    );
+    expect((result.structuredContent.error as { code: string }).code).toBe('BUDGET_EXCEEDED');
+    const rows = await state.db.select().from(spendLedger);
+    expect(rows).toHaveLength(1); // only the seed row; the refused call wrote none
   });
 });
