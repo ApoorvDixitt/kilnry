@@ -21,14 +21,22 @@
 // rebuilt from run_steps and a live job is re-attached by its provider request
 // id rather than resubmitted (F-JOB-05).
 
-import { readFileSync, readdirSync, mkdirSync, writeFileSync, renameSync, existsSync } from 'node:fs';
+import {
+  readFileSync,
+  readdirSync,
+  mkdirSync,
+  writeFileSync,
+  renameSync,
+  existsSync,
+  copyFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
 import { and, eq } from 'drizzle-orm';
 import { KilnryError, loadConfig, ulid } from '@kilnry/core';
 import { CanonicalRequestSchema, type CanonicalRequest, type RouteConstraints } from '@kilnry/core';
-import { assets, runSteps, runs, type DatabaseState } from '@kilnry/db';
+import { assets, assetTags, runSteps, runs, type DatabaseState } from '@kilnry/db';
 import {
   buildManifest,
   execute,
@@ -40,6 +48,7 @@ import {
   runFolder,
   validateWorkflowFile,
   type Effects,
+  type ExpandedExportStep,
   type Plan,
   type PlanContext,
   type RunState,
@@ -718,13 +727,66 @@ function runEffects(db: DatabaseState, engine: JobEngine, run: RunContext): Effe
     persist: async (state: RunState): Promise<void> => {
       for (const node of state.steps) await upsertStep(db, run.runId, node, node.status);
     },
-    runStep: async (node: RunStep, rendered: Step, scope: Scope): Promise<StepResult> => {
+    runStep: async (
+      node: RunStep,
+      rendered: Step | ExpandedExportStep,
+      scope: Scope,
+    ): Promise<StepResult> => {
       if (node.kind === 'generate' || node.kind === 'transform' || node.kind === 'analyze') {
-        return spendThroughEngine(db, engine, run, node, rendered, scope);
+        return spendThroughEngine(db, engine, run, node, rendered as Step, scope);
       }
-      // set / assemble / export run inline with no provider and no spend.
+      if (node.kind === 'export') {
+        return exportFiles(db, run, rendered as ExpandedExportStep);
+      }
+      // set / assemble run inline with no provider and no spend.
       return { outputs: node.outputs, actual_usd: 0, status: 'completed' };
     },
+  };
+}
+
+// An export step: copy or rename each expanded file into the run folder under
+// its name, tag it, and record the written paths (TRD-12 §4, F-WFL-09). A file's
+// ref is an asset id resolved to its Library path; copying keeps the source and
+// writes a deliverable copy into the dated run folder so the manifest and disk
+// agree. Reference registration is recorded for the character engine to pick up.
+async function exportFiles(
+  db: DatabaseState,
+  run: RunContext,
+  rendered: ExpandedExportStep,
+): Promise<StepResult> {
+  const written: Array<{ asset: string; path: string }> = [];
+  const libraryRoot = run.libraryRoot;
+  for (const file of rendered.files) {
+    const [assetRow] = await db.db
+      .select({ id: assets.id, path: assets.path })
+      .from(assets)
+      .where(eq(assets.id, file.ref))
+      .limit(1);
+    const relativeName = file.name ?? `${file.ref}`;
+    const targetRelative = join(run.folder, relativeName);
+    if (assetRow && libraryRoot && libraryRoot !== '') {
+      try {
+        const sourceAbsolute = join(libraryRoot, assetRow.path);
+        const targetAbsolute = join(libraryRoot, targetRelative);
+        mkdirSync(dirname(targetAbsolute), { recursive: true });
+        if (existsSync(sourceAbsolute) && sourceAbsolute !== targetAbsolute) {
+          copyFileSync(sourceAbsolute, targetAbsolute);
+        }
+      } catch {
+        // A copy failure does not fail the run; the manifest records the intent
+        // and a reindex can rebuild the folder from the assets' own sidecars.
+      }
+      // Tag the source asset with each export tag (idempotent).
+      for (const tag of file.tags) {
+        await db.db.insert(assetTags).values({ assetId: assetRow.id, tag }).onConflictDoNothing();
+      }
+    }
+    written.push({ asset: file.ref, path: targetRelative });
+  }
+  return {
+    outputs: { paths: written.map((entry) => entry.path), files: written },
+    actual_usd: 0,
+    status: 'completed',
   };
 }
 

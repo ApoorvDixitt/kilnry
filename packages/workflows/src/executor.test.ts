@@ -5,7 +5,15 @@
 
 import { describe, expect, it } from 'vitest';
 import { parseWorkflow } from './parse.js';
-import { execute, resetFrom, type Effects, type RunStep, type StepResult } from './executor.js';
+import {
+  execute,
+  expandExportStep,
+  resetFrom,
+  type Effects,
+  type ExpandedExportStep,
+  type RunStep,
+  type StepResult,
+} from './executor.js';
 
 const WF = `
 id: kilnry-exec-demo
@@ -118,5 +126,79 @@ steps:
     resetFrom(state, 'approve', 'new/model');
     expect(state.status).toBe('running');
     expect(state.steps.find((step) => step.step_id === 'clip')?.status).toBe('pending');
+  });
+});
+
+describe('export step array expansion (F-WFL-09, TRD-12 §4)', () => {
+  const EXPORT_WF = `
+id: kilnry-export-demo
+name: Export demo
+version: 1.0.0
+category: image
+steps:
+  - id: boards
+    kind: foreach
+    over: "{{ [0, 1, 2] }}"
+    steps:
+      - id: board
+        kind: generate
+        capability: text2image
+        prompt: "board {{ index }}"
+        outputs: { clean: "asset-{{ index }}" }
+  - id: export
+    kind: export
+    files:
+      - { ref: "{{ steps.boards.outputs }}", name: "board_{{ index + 1 | pad(2) }}.png", tags: [board] }
+outputs:
+  final: "{{ steps.boards.assets }}"
+`;
+
+  it('expands a foreach-produced array to one file per element with index bound', async () => {
+    const workflow = parseWorkflow(EXPORT_WF);
+    let exported: ExpandedExportStep | undefined;
+    const effects: Effects = {
+      decide: async (): Promise<'approve' | 'deny' | 'wait'> => 'approve',
+      runStep: async (node: RunStep, rendered): Promise<StepResult> => {
+        if (node.kind === 'export') {
+          exported = rendered as ExpandedExportStep;
+          return { outputs: { paths: [] }, actual_usd: 0, status: 'completed' };
+        }
+        const index = typeof node.scope_extra.index === 'number' ? node.scope_extra.index : 0;
+        return {
+          outputs: { clean: `asset-${index}`, result: { assets: [`asset-${index}`] } },
+          actual_usd: 0,
+          status: 'completed',
+        };
+      },
+    };
+    const state = await execute(workflow, { inputs: {}, defaults: {}, vars: {} }, effects, {
+      automatic: true,
+      skipApprovals: true,
+    });
+    expect(state.status).toBe('completed');
+    expect(exported?.files).toHaveLength(3);
+    expect(exported?.files.map((file) => file.name)).toEqual([
+      'board_01.png',
+      'board_02.png',
+      'board_03.png',
+    ]);
+    expect(exported?.files.map((file) => file.ref)).toEqual(['asset-0', 'asset-1', 'asset-2']);
+    for (const file of exported?.files ?? []) expect(file.tags).toEqual(['board']);
+  });
+
+  it('expandExportStep treats a scalar ref as a single file', () => {
+    const step = {
+      kind: 'export' as const,
+      id: 'export',
+      files: [{ ref: '{{ vars.master }}', name: 'final.mp4', tags: ['deliverable'] }],
+      outputs: {},
+    };
+    const expanded = expandExportStep(step as never, {
+      inputs: {},
+      defaults: {},
+      vars: { master: 'asset-final' },
+    });
+    expect(expanded.files).toHaveLength(1);
+    expect(expanded.files[0]).toEqual({ ref: 'asset-final', name: 'final.mp4', tags: ['deliverable'] });
   });
 });

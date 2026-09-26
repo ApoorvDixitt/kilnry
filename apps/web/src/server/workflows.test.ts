@@ -17,6 +17,7 @@ import {
   plan,
   renderStep,
   type Effects,
+  type ExpandedExportStep,
   type PlanContext,
   type RunStep,
   type Scope,
@@ -85,14 +86,14 @@ describe('workflow host runner money path (F-WFL-01/02/03)', () => {
     };
 
     const effects: Effects = {
-      runStep: async (node: RunStep, rendered: Step): Promise<StepResult> => {
+      runStep: async (node: RunStep, rendered: Step | ExpandedExportStep): Promise<StepResult> => {
         if (node.kind === 'generate') {
           const planStep = priced.steps.find((step) => step.step_id === node.step_id);
           const jobInput = buildSpendInput(
             'run_1',
             'Client_A/Money_demo_2026-09-18_1120',
             node,
-            rendered,
+            rendered as Step,
             scope,
             planStep?.estimate_usd ?? 0,
           );
@@ -232,14 +233,14 @@ describe('every spending step of every kind reaches the engine once (F-WFL-06)',
     const effects: Effects = {
       // Answer every checkpoint immediately so a fixture run reaches the end.
       decide: async (): Promise<'approve' | 'deny' | 'wait'> => 'approve',
-      runStep: async (node: RunStep, rendered: Step): Promise<StepResult> => {
+      runStep: async (node: RunStep, rendered: Step | ExpandedExportStep): Promise<StepResult> => {
         if (node.kind === 'generate' || node.kind === 'transform' || node.kind === 'analyze') {
           const planStep = priced.steps.find((step) => step.step_id === node.step_id);
           const jobInput = buildSpendInput(
             'run_fixture',
             'Client_A/Run_2026-09-18_1120',
             node,
-            rendered,
+            rendered as Step,
             scope,
             planStep?.estimate_usd ?? 0,
           );

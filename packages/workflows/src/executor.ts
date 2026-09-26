@@ -77,7 +77,7 @@ export interface RunOptions {
 
 export interface Effects {
   /** Run one spending or assemble/export/set step; return its result. */
-  runStep: (step: RunStep, rendered: Step, scope: Scope) => Promise<StepResult>;
+  runStep: (step: RunStep, rendered: Step | ExpandedExportStep, scope: Scope) => Promise<StepResult>;
   /** Persist the run after a state change (checkpoint; atomic tmp+rename). */
   persist?: (state: RunState) => Promise<void> | void;
   /**
@@ -165,6 +165,92 @@ function unwrap(expr: string): string {
 function truthy(value: unknown): boolean {
   if (Array.isArray(value)) return value.length > 0;
   return Boolean(value);
+}
+
+/** One concrete file an export step writes, after array expansion (TRD-12 §4). */
+export interface ExpandedExportFile {
+  ref: string;
+  name?: string;
+  tags: string[];
+}
+
+/** An export step whose files are expanded to concrete per-file descriptors. */
+export interface ExpandedExportStep {
+  kind: 'export';
+  id: string;
+  files: ExpandedExportFile[];
+  register_references?: {
+    character: string;
+    role: string;
+    view?: string;
+    label?: string;
+    appearance?: string;
+    skip_tags: string[];
+  };
+  outputs: Record<string, string>;
+}
+
+// Expand an export step against a scope (TRD-12 §4 export table). A files[].ref
+// that evaluates to an array expands to one file per element, with `index` and
+// `file` (the matching element, whose `tags`/`meta` a foreach iteration carries)
+// bound inside `name`, `tags` and `register_references`; a scalar ref is one
+// file. Templates are rendered per file so `board_{{ index + 1 }}.png` resolves.
+export function expandExportStep(step: Step, scope: Scope): ExpandedExportStep {
+  if (step.kind !== 'export') throw new Error('expandExportStep expects an export step.');
+  const out: ExpandedExportFile[] = [];
+  for (const file of step.files) {
+    const value = evaluateRef(file.ref, scope);
+    const elements = Array.isArray(value) ? value : [value];
+    elements.forEach((element, index) => {
+      const perFile: Scope = { ...scope, index, file: element };
+      const ref = refString(element);
+      if (ref === undefined) return;
+      const name = file.name === undefined ? undefined : String(renderString(file.name, perFile));
+      const tags = file.tags
+        .map((tag) => renderString(tag, perFile))
+        .filter((tag): tag is string => typeof tag === 'string' && tag !== '');
+      out.push({ ref, ...(name === undefined ? {} : { name }), tags });
+    });
+  }
+  let register: ExpandedExportStep['register_references'];
+  if (step.register_references) {
+    const registration = step.register_references;
+    register = {
+      character: String(renderString(registration.character, scope)),
+      role: String(renderString(registration.role, scope)),
+      ...(registration.view === undefined ? {} : { view: String(renderString(registration.view, scope)) }),
+      ...(registration.label === undefined ? {} : { label: String(renderString(registration.label, scope)) }),
+      ...(registration.appearance === undefined
+        ? {}
+        : { appearance: String(renderString(registration.appearance, scope)) }),
+      skip_tags: registration.skip_tags,
+    };
+  }
+  return {
+    kind: 'export',
+    id: step.id,
+    files: out,
+    ...(register ? { register_references: register } : {}),
+    outputs: step.outputs,
+  };
+}
+
+// Evaluate a MediaRef that may be a template resolving to a string or an array.
+function evaluateRef(ref: string, scope: Scope): unknown {
+  return renderString(ref, scope);
+}
+
+// The asset id or path a resolved ref element denotes: a bare string, or the
+// `asset`/`clean`/`asset_id` field of a foreach iteration's outputs object.
+function refString(element: unknown): string | undefined {
+  if (typeof element === 'string') return element === '' ? undefined : element;
+  if (element && typeof element === 'object') {
+    const record = element as Record<string, unknown>;
+    for (const key of ['asset', 'clean', 'asset_id', 'raw']) {
+      if (typeof record[key] === 'string' && record[key] !== '') return record[key] as string;
+    }
+  }
+  return undefined;
 }
 
 // The explicit and implicit dependencies of a step: explicit depends_on plus any
@@ -289,7 +375,10 @@ export async function execute(
       // Run the step (set/generate/transform/assemble/analyze/export).
       node.status = 'running';
       await checkpoint();
-      const rendered = renderDeep(node.step, scope) as Step;
+      const rendered =
+        node.step.kind === 'export'
+          ? expandExportStep(node.step, scope)
+          : (renderDeep(node.step, scope) as Step);
       const result = await runWithRetry(node, rendered, scope, effects);
       // The step's declared `outputs` are templates over its result (e.g.
       // `ok: '{{ result.structured.ok }}'`, `transcript: '{{ result.assets[0] }}'`).
@@ -346,7 +435,7 @@ export async function execute(
 // Retry a spending step up to retry.max, then try alternates as a model swap.
 async function runWithRetry(
   node: RunStep,
-  rendered: Step,
+  rendered: Step | ExpandedExportStep,
   scope: Scope,
   effects: Effects,
 ): Promise<StepResult> {
@@ -373,7 +462,12 @@ async function runWithRetry(
   return result;
 }
 
-async function attempt(node: RunStep, rendered: Step, scope: Scope, effects: Effects): Promise<StepResult> {
+async function attempt(
+  node: RunStep,
+  rendered: Step | ExpandedExportStep,
+  scope: Scope,
+  effects: Effects,
+): Promise<StepResult> {
   node.attempts += 1;
   return effects.runStep(node, rendered, scope);
 }

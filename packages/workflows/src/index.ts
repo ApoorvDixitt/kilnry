@@ -50,6 +50,7 @@ export {
   execute,
   resetFrom,
   expandRunState,
+  expandExportStep,
   type RunState,
   type RunStep,
   type RunStatus,
@@ -57,6 +58,8 @@ export {
   type StepResult,
   type Effects,
   type RunOptions,
+  type ExpandedExportStep,
+  type ExpandedExportFile,
 } from './executor.js';
 
 export {
