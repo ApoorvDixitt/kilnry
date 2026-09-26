@@ -27,7 +27,7 @@ import {
   type LlmRegistryRow,
 } from '@kilnry/agent';
 import { loadConfig, loadRegistry } from '@kilnry/core';
-import { assets as assetsTable, chatSessions, settings, spendLedger } from '@kilnry/db';
+import { assets as assetsTable, chatMessages, chatSessions, settings, spendLedger } from '@kilnry/db';
 import { adapters, detectOllama } from '@kilnry/providers';
 import { promptLibraryRoot } from '@kilnry/skills';
 import { validateUIMessages } from 'ai';
@@ -38,6 +38,7 @@ import { errorResponse, requireSession } from '../../../server/http';
 import { presetServices } from '../../../server/presets';
 import { ensureRuntimeEngine, runtimeServices } from '../../../server/runtime';
 import { projectMemoryBody } from '../../../server/project-memory';
+import { firstMessageText } from '../../../server/chat-transcript';
 import { skillRoots } from '../../../server/skills';
 
 export const maxDuration = 300;
@@ -192,6 +193,29 @@ export async function POST(request: Request): Promise<Response> {
       approvalDescriptor: (name, value) => planned.get(planKey(name, value)),
       ...(attached.parts.length > 0 ? { attachmentParts: attached.parts } : {}),
       generateMessageId: () => randomUUID(),
+      onMessages: async (turnMessages) => {
+        // Persist the thread so the session survives a reload and can be exported
+        // (F-CHT-12). Each UIMessage is stored with its parts as-is, upserted by
+        // id so a regenerated message replaces its row.
+        for (const turnMessage of turnMessages) {
+          const parts = (turnMessage as { parts?: unknown[] }).parts ?? [];
+          await services.database.db
+            .insert(chatMessages)
+            .values({ id: turnMessage.id, sessionId: session.id, role: turnMessage.role, parts })
+            .onConflictDoUpdate({ target: chatMessages.id, set: { parts } });
+        }
+        // Title the session from its first user message the first time.
+        if (!session.title) {
+          const firstUser = turnMessages.find((entry) => entry.role === 'user');
+          const text = firstUser ? firstMessageText(firstUser) : '';
+          if (text !== '') {
+            await services.database.db
+              .update(chatSessions)
+              .set({ title: text.slice(0, 80), updatedAt: new Date() })
+              .where(eq(chatSessions.id, session.id));
+          }
+        }
+      },
       onStepEnd: async ({ usage }) => {
         await meterStep(
           {
@@ -233,6 +257,7 @@ export async function POST(request: Request): Promise<Response> {
 interface LoadedSession {
   id: string;
   folder?: string;
+  title?: string;
   autonomy: 'ask_first' | 'run_automatically';
   budget_usd?: number;
   spent_usd: number;
@@ -249,6 +274,7 @@ async function loadOrCreateSession(
     return {
       id: row.id,
       ...(row.folder ? { folder: row.folder } : {}),
+      ...(row.title ? { title: row.title } : {}),
       autonomy: row.autonomy === 'run_automatically' ? 'run_automatically' : 'ask_first',
       ...(row.budgetUsd ? { budget_usd: Number(row.budgetUsd) } : {}),
       spent_usd: Number(row.spentUsd ?? '0'),

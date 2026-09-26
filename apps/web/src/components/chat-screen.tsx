@@ -486,6 +486,9 @@ export function ChatScreen({
         <span className="chat-budget">
           {message('chat.sessionBudget')}: ${budgetUsd.toFixed(2)}
         </span>
+        <a className="chat-export" href={`/api/chat/${encodeURIComponent(sessionId)}/export.md`} download>
+          {message('chat.exportMarkdown')}
+        </a>
         {controlError ? (
           <span className="chat-control-error" role="alert">
             {controlError}
