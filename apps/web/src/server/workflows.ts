@@ -36,6 +36,7 @@ import { dirname } from 'node:path';
 import { and, eq } from 'drizzle-orm';
 import { KilnryError, loadConfig, ulid } from '@kilnry/core';
 import { CanonicalRequestSchema, type CanonicalRequest, type RouteConstraints } from '@kilnry/core';
+import { analyzeTool, type ToolServices } from '@kilnry/core';
 import { assets, assetTags, runSteps, runs, type DatabaseState } from '@kilnry/db';
 import {
   buildManifest,
@@ -466,7 +467,12 @@ export async function startRun(
   dataDir: string,
   runId: string,
   confirmCostUsd: number,
-  options: { automatic?: boolean; skipApprovals?: boolean; targetFolder?: string } = {},
+  options: {
+    automatic?: boolean;
+    skipApprovals?: boolean;
+    targetFolder?: string;
+    analyze?: WorkflowAnalyzeServices;
+  } = {},
 ): Promise<RunState> {
   const [run] = await db.db.select().from(runs).where(eq(runs.id, runId)).limit(1);
   if (!run) throw new KilnryError('NOT_FOUND', 'Run not found.');
@@ -496,6 +502,7 @@ export async function startRun(
     folder,
     startedAt,
     libraryRoot: config.library_root ?? '',
+    ...(options.analyze ? { analyze: options.analyze } : {}),
   });
 
   const state = await execute(entry.workflow, baseScope, effects, options);
@@ -558,7 +565,7 @@ async function driveResumed(
   engine: JobEngine,
   dataDir: string,
   runId: string,
-  options: { automatic?: boolean; skipApprovals?: boolean } = {},
+  options: { automatic?: boolean; skipApprovals?: boolean; analyze?: WorkflowAnalyzeServices } = {},
 ): Promise<RunState> {
   const [run] = await db.db.select().from(runs).where(eq(runs.id, runId)).limit(1);
   if (!run) throw new KilnryError('NOT_FOUND', 'Run not found.');
@@ -577,6 +584,7 @@ async function driveResumed(
     folder,
     startedAt,
     libraryRoot: config.library_root ?? '',
+    ...(options.analyze ? { analyze: options.analyze } : {}),
   });
   const state = await execute(entry.workflow, baseScope, effects, options, existing);
   await persistRun(
@@ -599,6 +607,7 @@ export async function approveRun(
   engine: JobEngine,
   dataDir: string,
   runId: string,
+  analyze?: WorkflowAnalyzeServices,
 ): Promise<RunState> {
   const waiting = await db.db
     .select()
@@ -617,7 +626,7 @@ export async function approveRun(
       .where(and(eq(runSteps.runId, runId), eq(runSteps.stepId, step.stepId)));
   }
   await db.db.update(runs).set({ status: 'running' }).where(eq(runs.id, runId));
-  return driveResumed(db, engine, dataDir, runId);
+  return driveResumed(db, engine, dataDir, runId, analyze ? { analyze } : {});
 }
 
 /** Deny the waiting checkpoint; the run stops, completed outputs stay (F-WFL-04). */
@@ -676,6 +685,7 @@ export async function retryStep(
   runId: string,
   stepId: string,
   modelOverride?: string,
+  analyze?: WorkflowAnalyzeServices,
 ): Promise<RunState> {
   const [runRow] = await db.db.select().from(runs).where(eq(runs.id, runId)).limit(1);
   if (!runRow) throw new KilnryError('NOT_FOUND', 'Run not found.');
@@ -702,7 +712,7 @@ export async function retryStep(
     }
   }
   await db.db.update(runs).set({ status: 'running' }).where(eq(runs.id, runId));
-  return driveResumed(db, engine, dataDir, runId);
+  return driveResumed(db, engine, dataDir, runId, analyze ? { analyze } : {});
 }
 
 interface RunContext {
@@ -712,10 +722,37 @@ interface RunContext {
   folder: string;
   startedAt: string;
   libraryRoot: string;
+  // What an analyze step needs to run through the metered analyze tool: an
+  // OpenRouter key and a way to turn an asset id into a loopback media URL.
+  // Absent means analyze steps cannot run (no key configured).
+  analyze?: WorkflowAnalyzeServices;
+}
+
+/** The services a workflow analyze step needs, supplied by the calling route. */
+export interface WorkflowAnalyzeServices {
+  openrouterKey?: string;
+  assetUrl: (assetId: string) => string;
+  autoApproveBelowUsd?: number;
+}
+
+// Build the analyze services a run needs from a resolved OpenRouter key and the
+// running port, so the run, approve and retry routes wire analyze steps the same
+// way. Analyze steps auto-approve within the run because the plan total was
+// already confirmed at Approve (F-WFL-02); the ledger row is still written.
+export function buildAnalyzeServices(
+  openrouterKey: string | undefined,
+  port: number,
+): WorkflowAnalyzeServices {
+  return {
+    ...(openrouterKey ? { openrouterKey } : {}),
+    assetUrl: (assetId: string) => `http://127.0.0.1:${port}/api/media/${assetId}`,
+    autoApproveBelowUsd: Number.POSITIVE_INFINITY,
+  };
 }
 
 // The executor's effects, bound to the engine and the database. runStep is where
-// the money path lives: a spending step is a createJob call, never an adapter.
+// the money path lives: a generate or transform step is a createJob call, an
+// analyze step is a metered analyze-tool call, never an adapter.
 function runEffects(db: DatabaseState, engine: JobEngine, run: RunContext): Effects {
   return {
     decide: async (node: RunStep): Promise<'approve' | 'deny' | 'wait'> => {
@@ -732,7 +769,10 @@ function runEffects(db: DatabaseState, engine: JobEngine, run: RunContext): Effe
       rendered: Step | ExpandedExportStep,
       scope: Scope,
     ): Promise<StepResult> => {
-      if (node.kind === 'generate' || node.kind === 'transform' || node.kind === 'analyze') {
+      if (node.kind === 'analyze') {
+        return analyzeThroughTool(db, engine, run, node, rendered as Extract<Step, { kind: 'analyze' }>);
+      }
+      if (node.kind === 'generate' || node.kind === 'transform') {
         return spendThroughEngine(db, engine, run, node, rendered as Step, scope);
       }
       if (node.kind === 'export') {
@@ -741,6 +781,94 @@ function runEffects(db: DatabaseState, engine: JobEngine, run: RunContext): Effe
       // set / assemble run inline with no provider and no spend.
       return { outputs: node.outputs, actual_usd: 0, status: 'completed' };
     },
+  };
+}
+
+// Run an analyze step through the metered kilnry_analyze tool (F-WFL-06). With
+// references it is a vision-language-model task; without them a text-only
+// large-language-model call. The tool prices, confirms against the plan step's
+// estimate, reserves the budget, writes one spend-ledger row and one audit
+// event, and returns the text and — when a schema or a scored task asks for it —
+// a structured object with a score and a badge. The step's outputs expose these
+// under result.{text,structured,score,badge} so a later branch can read them.
+async function analyzeThroughTool(
+  db: DatabaseState,
+  engine: JobEngine,
+  run: RunContext,
+  node: RunStep,
+  rendered: Extract<Step, { kind: 'analyze' }>,
+): Promise<StepResult> {
+  const planStep = run.plan.steps.find((step) => step.step_id === node.step_id);
+  const confirmedCost = planStep?.estimate_usd ?? 0;
+  const analyze = run.analyze;
+  if (!analyze || !analyze.openrouterKey) {
+    return {
+      outputs: {},
+      actual_usd: 0,
+      status: 'failed',
+      error: 'no_openrouter_key',
+      retryable: false,
+    };
+  }
+  const refs = Array.isArray(rendered.refs)
+    ? (rendered.refs as unknown[]).map(String).filter((id) => id !== '')
+    : [];
+  const services: ToolServices = {
+    db,
+    scope: 'full',
+    engine,
+    openrouterKey: analyze.openrouterKey,
+    assetUrl: analyze.assetUrl,
+    autoApproveBelowUsd: analyze.autoApproveBelowUsd ?? Number.POSITIVE_INFINITY,
+    confirmedBy: () => 'user',
+  };
+  const result = await analyzeTool.execute(
+    {
+      task: rendered.task,
+      refs,
+      ...(typeof rendered.instructions === 'string' ? { instructions: rendered.instructions } : {}),
+      ...(rendered.schema === undefined ? {} : { schema: rendered.schema }),
+      ...(rendered.model && rendered.model !== 'auto' ? { model: rendered.model } : {}),
+      confirm_cost_usd: confirmedCost,
+      folder: run.folder,
+      run_id: run.runId,
+      step_id: node.step_id,
+    },
+    services,
+  );
+  const structured = result.structuredContent as {
+    error?: { code?: string };
+    text?: string;
+    model?: string;
+    structured?: unknown;
+    score?: number;
+    badge?: string;
+    actual_usd?: number;
+  };
+  if (structured.error) {
+    return {
+      outputs: {},
+      actual_usd: 0,
+      status: 'failed',
+      error: structured.error.code ?? 'analyze_failed',
+      retryable: false,
+    };
+  }
+  const actual = typeof structured.actual_usd === 'number' ? structured.actual_usd : confirmedCost;
+  // Expose the analysis under `result` so the step's own outputs templates and a
+  // later branch's `when` can read result.structured, result.text, result.score.
+  const resultNamespace: Record<string, unknown> = {
+    text: structured.text ?? '',
+    ...(structured.structured === undefined ? {} : { structured: structured.structured }),
+    ...(structured.score === undefined ? {} : { score: structured.score }),
+    ...(structured.badge === undefined ? {} : { badge: structured.badge }),
+  };
+  return {
+    outputs: { result: resultNamespace },
+    actual_usd: actual,
+    ...(structured.model === undefined ? {} : { model: structured.model }),
+    provider: 'openrouter',
+    status: 'completed',
   };
 }
 

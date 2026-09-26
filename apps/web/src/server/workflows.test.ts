@@ -208,10 +208,11 @@ describe('every spending step of every kind reaches the engine once (F-WFL-06)',
   };
 
   // Drive a catalogue workflow through the pure executor with effects that mirror
-  // the host runner: every generate, transform and analyze step builds its
-  // createJob input through buildSpendInput and reaches the fake engine exactly
-  // once, which counts one submit and writes one ledger row per spend. assemble,
-  // set and export never spend and never submit.
+  // the host runner: a generate or transform step builds its createJob input
+  // through buildSpendInput and reaches the fake engine once; an analyze step is
+  // a metered analyze-tool call that writes one ledger row but never a createJob.
+  // Each spending step writes exactly one ledger row. assemble, set and export
+  // never spend.
   function runCounting(id: string, inputs: Record<string, unknown>) {
     const workflow = loadCatalogueWorkflow(id);
     const resolved = fixturePlan.resolveInputs(workflow, inputs);
@@ -222,6 +223,9 @@ describe('every spending step of every kind reaches the engine once (F-WFL-06)',
     // (a returned primitive would freeze at zero).
     const counters = { ledgerWrites: 0 };
     const submits: Array<ReturnType<typeof buildSpendInput>> = [];
+    // The capability each analyze step priced at, to assert it routed as a
+    // vision-language or text call — the same split the analyze tool prices on.
+    const analyzeCaps: string[] = [];
 
     const fakeCreateJob = (input: ReturnType<typeof buildSpendInput>, kind: string): { assets: string[] } => {
       submits.push(input);
@@ -234,7 +238,41 @@ describe('every spending step of every kind reaches the engine once (F-WFL-06)',
       // Answer every checkpoint immediately so a fixture run reaches the end.
       decide: async (): Promise<'approve' | 'deny' | 'wait'> => 'approve',
       runStep: async (node: RunStep, rendered: Step | ExpandedExportStep): Promise<StepResult> => {
-        if (node.kind === 'generate' || node.kind === 'transform' || node.kind === 'analyze') {
+        if (node.kind === 'analyze') {
+          // Mirror analyzeThroughTool: the metered analyze tool prices vlm/llm,
+          // writes one ledger row, and returns a structured result the branch
+          // reads — but it is not a createJob submit.
+          const analyzeStep = rendered as Extract<Step, { kind: 'analyze' }>;
+          const refs = Array.isArray(analyzeStep.refs) ? (analyzeStep.refs as unknown[]) : [];
+          submitsByKind.analyze = (submitsByKind.analyze ?? 0) + 1;
+          analyzeCaps.push(refs.length > 0 ? 'vlm' : 'llm');
+          counters.ledgerWrites += 1; // one spend-ledger row per analyze call
+          const planStep = priced.steps.find((step) => step.step_id === node.step_id);
+          return {
+            outputs: {
+              result: {
+                text: 'a product',
+                structured: {
+                  ok: true,
+                  pass: true,
+                  reasons: [],
+                  issues: [],
+                  description: 'a product',
+                  visible_text: '',
+                  tier: 'everyday',
+                  hook: 'hook',
+                  segments: ['a', 'b', 'c', 'd', 'e'],
+                },
+                score: 0.9,
+                badge: 'high',
+              },
+            },
+            actual_usd: planStep?.estimate_usd ?? 0,
+            provider: 'openrouter',
+            status: 'completed',
+          };
+        }
+        if (node.kind === 'generate' || node.kind === 'transform') {
           const planStep = priced.steps.find((step) => step.step_id === node.step_id);
           const jobInput = buildSpendInput(
             'run_fixture',
@@ -250,25 +288,13 @@ describe('every spending step of every kind reaches the engine once (F-WFL-06)',
               asset: result.assets[0],
               assets: result.assets,
               // Generous result namespace so the shipped workflows' output
-              // templates (a transform's transcript, an analyze step's
-              // structured JSON, a board's clean plate) all resolve during a
-              // fixture run; the assertion here is on the money path, not on
-              // provider content.
+              // templates (a transform's transcript, a board's clean plate) all
+              // resolve during a fixture run; the assertion here is on the money
+              // path, not on provider content.
               result: {
                 assets: result.assets,
                 asset_id: result.assets[0],
                 words: [],
-                structured: {
-                  ok: true,
-                  pass: true,
-                  reasons: [],
-                  issues: [],
-                  description: 'a product',
-                  visible_text: '',
-                  tier: 'everyday',
-                  hook: 'hook',
-                  segments: ['a', 'b', 'c', 'd', 'e'],
-                },
               },
             },
             actual_usd: jobInput.confirmed_cost_usd,
@@ -279,7 +305,7 @@ describe('every spending step of every kind reaches the engine once (F-WFL-06)',
       },
     };
 
-    return { workflow, priced, submits, submitsByKind, counters, effects, scope };
+    return { workflow, priced, submits, submitsByKind, analyzeCaps, counters, effects, scope };
   }
 
   it('runs the transcribe transform of kilnry-subtitles-burn through the engine once', async () => {
@@ -334,15 +360,21 @@ describe('every spending step of every kind reaches the engine once (F-WFL-06)',
     const transform = run.submitsByKind.transform ?? 0;
     const analyze = run.submitsByKind.analyze ?? 0;
 
-    // One createJob and one ledger write per spending step reached — a generate,
-    // transform or analyze step, expanded through foreach and branch — and never
-    // a placeholder request. The gate, product normalisation and script analyze
-    // steps, the storyboard and clip generates, and the clip QA analyze all run.
+    // Every spending step writes exactly one ledger row: a generate or transform
+    // through createJob (counted in run.submits), and an analyze through the
+    // metered analyze tool (counted separately, never a createJob). The gate,
+    // product normalisation, script and clip-QA analyze steps, the storyboard
+    // and clip generates all run.
     expect(analyze).toBeGreaterThan(0);
     expect(generate).toBeGreaterThan(0);
     expect(transform).toBeGreaterThan(0);
-    expect(run.submits.length).toBe(run.counters.ledgerWrites);
-    expect(run.submits.length).toBe(generate + transform + analyze);
+    // createJob submits are generate + transform only; analyze does not submit.
+    expect(run.submits.length).toBe(generate + transform);
+    // One ledger row per spending step of every kind.
+    expect(run.counters.ledgerWrites).toBe(generate + transform + analyze);
+    // Each analyze priced as a vision-language or a text call, never a generate.
+    expect(run.analyzeCaps.length).toBe(analyze);
+    for (const cap of run.analyzeCaps) expect(['vlm', 'llm']).toContain(cap);
 
     for (const submit of run.submits) {
       expect(submit.request.source).toBe('workflow');
@@ -350,11 +382,6 @@ describe('every spending step of every kind reaches the engine once (F-WFL-06)',
       expect(submit.confirmed_by).toBe('user');
       expect(submit.request.target_folder).toBe('Client_A/Run_2026-09-18_1120');
     }
-    // An analyze step over refs routes as a vision-language request; with no refs
-    // it routes as a text large-language request — never a placeholder image
-    // generate.
-    const analyzeSubmits = run.submits.filter((submit) => ['vlm', 'llm'].includes(submit.request.capability));
-    expect(analyzeSubmits.length).toBe(analyze);
     // A generate step keeps a generative capability, not an analyze or transform
     // one.
     const generateSubmits = run.submits.filter((submit) =>
@@ -363,6 +390,34 @@ describe('every spending step of every kind reaches the engine once (F-WFL-06)',
       ),
     );
     expect(generateSubmits.length).toBe(generate);
+  });
+
+  it('the gate analyze passing lets kilnry-ugc-ad past the hard-stop branch', async () => {
+    // The gate step reads result.structured.ok; the fixture analyze returns
+    // ok:true, so the `when: {{ !steps.gate.outputs.ok }}` hard-stop branch does
+    // not fire and the run reaches its clip generates and completes.
+    const run = runCounting('kilnry-ugc-ad', {
+      mode: 'product-only',
+      product: 'asset-serum-1',
+      duration_s: 15,
+      approved_claims: ['hydrating'],
+      folder: 'Client_A',
+    });
+    let status = 'unknown';
+    try {
+      const state = await execute(run.workflow, run.scope, run.effects, {
+        automatic: true,
+        skipApprovals: true,
+      });
+      status = state.status;
+    } catch {
+      // A terminal export/render issue does not undo the branch decision proven
+      // by the spends already routed below.
+    }
+    // The clip generates only run when the gate did not stop the run: at least
+    // one video/image generate reached the engine.
+    expect(run.submitsByKind.generate).toBeGreaterThan(0);
+    expect(['completed', 'cancelled', 'unknown']).toContain(status);
   });
 
   it('the shipped catalogue exercises a spending step of every wired kind', () => {

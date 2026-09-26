@@ -11,7 +11,7 @@ import { NextResponse } from 'next/server';
 import { loadConfig } from '@kilnry/core';
 import { errorResponse, requireSession } from '../../../../../server/http';
 import { ensureRuntimeEngine, runtimeServices } from '../../../../../server/runtime';
-import { approveRun } from '../../../../../server/workflows';
+import { approveRun, buildAnalyzeServices } from '../../../../../server/workflows';
 
 export async function POST(
   _request: Request,
@@ -23,7 +23,14 @@ export async function POST(
     const config = await loadConfig();
     const services = await runtimeServices();
     const engine = await ensureRuntimeEngine();
-    const state = await approveRun(services.database, engine, config.data_dir, id);
+    const openrouterKey = await services.keyStore.get('openrouter').catch(() => undefined);
+    const state = await approveRun(
+      services.database,
+      engine,
+      config.data_dir,
+      id,
+      buildAnalyzeServices(openrouterKey, config.port),
+    );
     return NextResponse.json({ run_id: id, status: state.status, spent_usd: state.spent_usd });
   } catch (error) {
     return errorResponse(error);

@@ -162,6 +162,75 @@ function sse(body: string): Response {
   });
 }
 
+// A plain (non-streamed) chat completion, the shape kilnry_analyze and the
+// appearance descriptor read (completion.choices[0].message.content).
+function completion(content: string): Response {
+  return HttpResponse.json({
+    id: 'chatcmpl-analyze',
+    object: 'chat.completion',
+    model: 'google/gemini-3.1-flash-lite',
+    choices: [{ index: 0, message: { role: 'assistant', content }, finish_reason: 'stop' }],
+    usage: { prompt_tokens: 200, completion_tokens: 60, total_tokens: 260 },
+  });
+}
+
+// Pull an explicit count out of an analyze prompt ("Exactly 4 blocks", "Write 3
+// scenes", "into 5 blocks"), so the fixture returns arrays the workflow's
+// foreach expects (rule 7.4 checks the count). Defaults to three.
+function requestedCount(prompt: string): number {
+  const match =
+    /(?:exactly|write|into|split[^.]*into)\s+(\d+)\s+(?:blocks?|scenes?|segments?|framings?)/i.exec(prompt) ??
+    /(\d+)\s+(?:blocks?|scenes?|segments?|framings?)/i.exec(prompt);
+  const n = match ? Number(match[1]) : 3;
+  return Number.isFinite(n) && n > 0 && n <= 24 ? n : 3;
+}
+
+// One covering JSON object with every key any shipped workflow's analyze schema
+// requires, sized to the prompt. A workflow reads only the keys its own schema
+// names, so a superset satisfies each schema while one fixture serves all nine.
+function analyzeJson(prompt: string): string {
+  const n = requestedCount(prompt);
+  const lines = Array.from({ length: n }, (_, i) => `Scripted line ${i + 1}.`);
+  const blocks = Array.from({ length: n }, (_, i) => ({
+    line: `Scripted line ${i + 1}.`,
+    on_screen: `Beat ${i + 1}`,
+  }));
+  const scenes = Array.from({ length: n }, (_, i) => ({ beat: `Scene ${i + 1}`, motion: 'gentle push-in' }));
+  return JSON.stringify({
+    // qa_check / gate
+    ok: true,
+    pass: true,
+    reasons: [],
+    issues: [],
+    // product normalisation / photoshoot
+    description: 'A clear product on a plain background.',
+    visible_text: '',
+    tier: 'everyday',
+    // ugc script
+    segments: lines,
+    hook: 'Watch this.',
+    // thumbnail
+    framings: Array.from({ length: n }, (_, i) => `framing ${i + 1}`),
+    // character sheet
+    descriptor: 'A calm subject in soft daylight.',
+    anchors: ['soft daylight', 'neutral background'],
+    negative_traits: ['no text', 'no watermark'],
+    palette_hex: ['#e8e2d9', '#3b3a36'],
+    gendered_noun: 'person',
+    // faceless video
+    title: 'Scripted narration',
+    blocks,
+    roster: ['narrator'],
+    sources: [],
+    // motion design
+    scenes,
+  });
+}
+
+function isStreaming(body: { stream?: unknown; tools?: unknown }): boolean {
+  return body.stream === true || Array.isArray(body.tools);
+}
+
 function videoRequests(): Array<Record<string, unknown>> {
   return CHAI_VIDEO_PROMPTS.map((prompt) => ({
     kind: 'video',
@@ -178,10 +247,17 @@ export const chatCompletionHandler: HttpHandler = http.post(
     const body = (await request
       .clone()
       .json()
-      .catch(() => ({}))) as { messages?: OpenAiMessage[] };
+      .catch(() => ({}))) as { messages?: OpenAiMessage[]; stream?: unknown; tools?: unknown };
     const messages = Array.isArray(body.messages) ? body.messages : [];
     const turn = currentTurn(messages);
     const state = priorToolRounds(turn.messages);
+
+    // A non-streamed completion is a kilnry_analyze task or the appearance
+    // descriptor (both ask for a plain JavaScript Object Notation reply, no
+    // tools, no stream). Answer with a schema-shaped object sized to the prompt.
+    if (!isStreaming(body)) {
+      return completion(analyzeJson(turn.prompt));
+    }
 
     // The single-image branch is deliberately below the session threshold, so
     // it runs without an approval card and lands in the Library.
