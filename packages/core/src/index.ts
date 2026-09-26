@@ -26,6 +26,7 @@ export * from './budget/enforcer.js';
 export * from './budget/spend-ledger.js';
 export * from './skills/frontmatter.js';
 export * from './skills/validate.js';
+export * from './skills/pipeline.js';
 export * from './skills/loader.js';
 export * from './skills/install.js';
 export * from './characters/store.js';

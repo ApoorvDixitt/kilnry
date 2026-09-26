@@ -14,16 +14,51 @@
 
 import { readdir, rm } from 'node:fs/promises';
 import { eq } from 'drizzle-orm';
-import { installedSkillsRoot, listSkills, loadConfig, type SkillListEntry } from '@kilnry/core';
+import {
+  installedSkillsRoot,
+  listSkills,
+  loadConfig,
+  type SkillFolderValidators,
+  type SkillListEntry,
+} from '@kilnry/core';
 import { skills as skillsTable, type DatabaseState } from '@kilnry/db';
 import { bundledSkillsRoot } from '@kilnry/skills';
+import { validateWorkflowFile } from '@kilnry/workflows';
+import { validatePresetFile } from '@kilnry/presets';
+import { loadCatalogue } from './workflows';
+
+// The cross-package validators the loader cannot import directly: a skill's
+// linked pipeline must resolve to a catalogue workflow (V8), and a shipped
+// workflow or preset must pass its own validator (V12).
+function skillValidators(dataDir: string): SkillFolderValidators {
+  const catalogue = loadCatalogue(dataDir);
+  return {
+    pipelineInCatalogue: (name) => catalogue.has(name),
+    validateWorkflowYaml: (yaml, fileName) => {
+      const result = validateWorkflowFile(yaml, fileName);
+      return { ok: result.ok, ...(result.issues[0] ? { firstError: result.issues[0].message } : {}) };
+    },
+    validatePresetJson: (text, fileName) => {
+      const result = validatePresetFile(text, fileName);
+      const firstError = result.issues.find((issue) => issue.level === 'error');
+      return { ok: firstError === undefined, ...(firstError ? { firstError: firstError.message } : {}) };
+    },
+  };
+}
 
 /** The two skill roots plus the persisted disabled set, ready for the loader. */
-export async function skillRoots(
-  db?: DatabaseState,
-): Promise<{ bundled: string; installed: string; disabled?: Set<string> }> {
+export async function skillRoots(db?: DatabaseState): Promise<{
+  bundled: string;
+  installed: string;
+  disabled?: Set<string>;
+  validators: SkillFolderValidators;
+}> {
   const config = await loadConfig();
-  const base = { bundled: bundledSkillsRoot(), installed: installedSkillsRoot(config.data_dir) };
+  const base = {
+    bundled: bundledSkillsRoot(),
+    installed: installedSkillsRoot(config.data_dir),
+    validators: skillValidators(config.data_dir),
+  };
   if (!db) return base;
   return { ...base, disabled: await disabledSkillNames(db) };
 }

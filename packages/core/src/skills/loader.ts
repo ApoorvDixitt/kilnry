@@ -14,9 +14,10 @@
 // outside itself.
 
 import { readFile, readdir, stat } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { parseSkillFrontmatter, SkillFrontmatterSchema } from './frontmatter.js';
-import { validateSkill, type SkillIssue } from './validate.js';
+import { validateSkill, validateSkillFolder, type SkillIssue } from './validate.js';
 
 export interface SkillListEntry {
   name: string;
@@ -74,7 +75,11 @@ interface LoadedSkill {
   issues: SkillIssue[];
 }
 
-async function loadOne(dir: string, source: 'bundled' | 'installed'): Promise<LoadedSkill | null> {
+async function loadOne(
+  dir: string,
+  source: 'bundled' | 'installed',
+  validators?: SkillFolderValidators,
+): Promise<LoadedSkill | null> {
   const dirName = dir.split('/').pop() ?? dir;
   let source_md: string;
   try {
@@ -84,9 +89,32 @@ async function loadOne(dir: string, source: 'bundled' | 'installed'): Promise<Lo
   }
   const frontmatter = parseSkillFrontmatter(source_md);
   const bodySplit = source_md.replace(/^---[\s\S]*?\n---\n?/, '');
-  const issues = validateSkill({ dirName, frontmatter, body: bodySplit });
-  const parsed = frontmatter ? SkillFrontmatterSchema.safeParse(frontmatter) : undefined;
   const files = await skillFiles(dir);
+  const issues = validateSkill({ dirName, frontmatter, body: bodySplit });
+  // The folder-aware and cross-file rules (V6–V8, V12–V14). Read a referenced
+  // file synchronously from the skill folder, contained to it.
+  const readTextFile = (relativePath: string): string | undefined => {
+    const target = resolve(dir, relativePath);
+    const base = resolve(dir);
+    if (target !== base && !target.startsWith(`${base}/`)) return undefined;
+    try {
+      return readFileSync(target, 'utf8');
+    } catch {
+      return undefined;
+    }
+  };
+  issues.push(
+    ...validateSkillFolder({
+      frontmatter,
+      body: bodySplit,
+      files,
+      readTextFile,
+      ...(validators?.pipelineInCatalogue ? { pipelineInCatalogue: validators.pipelineInCatalogue } : {}),
+      ...(validators?.validateWorkflowYaml ? { validateWorkflowYaml: validators.validateWorkflowYaml } : {}),
+      ...(validators?.validatePresetJson ? { validatePresetJson: validators.validatePresetJson } : {}),
+    }),
+  );
+  const parsed = frontmatter ? SkillFrontmatterSchema.safeParse(frontmatter) : undefined;
   const firstError = issues.find((issue) => issue.level === 'error');
   const entry: SkillListEntry = {
     name: parsed?.success ? parsed.data.name : dirName,
@@ -102,6 +130,13 @@ async function loadOne(dir: string, source: 'bundled' | 'installed'): Promise<Lo
   return { entry, dir, body: bodySplit, frontmatter: frontmatter ?? {}, issues };
 }
 
+/** Cross-package validators the loader cannot import directly (V8, V12). */
+export interface SkillFolderValidators {
+  pipelineInCatalogue?: (name: string) => boolean;
+  validateWorkflowYaml?: (yaml: string, fileName: string) => { ok: boolean; firstError?: string };
+  validatePresetJson?: (text: string, fileName: string) => { ok: boolean; firstError?: string };
+}
+
 // Load every skill under the given roots. Later roots shadow earlier ones by
 // name, so an installed skill overrides a bundled skill with the same name. A
 // name in `disabled` (the persisted enable state from the skills table) is
@@ -111,6 +146,7 @@ export async function loadSkills(roots: {
   bundled: string;
   installed?: string;
   disabled?: Set<string>;
+  validators?: SkillFolderValidators;
 }): Promise<Map<string, LoadedSkill>> {
   const byName = new Map<string, LoadedSkill>();
   for (const [source, root] of [
@@ -119,7 +155,7 @@ export async function loadSkills(roots: {
   ] as const) {
     if (!root) continue;
     for (const dir of await listDirs(root)) {
-      const loaded = await loadOne(dir, source);
+      const loaded = await loadOne(dir, source, roots.validators);
       if (loaded) byName.set(loaded.entry.name, loaded);
     }
   }
@@ -139,13 +175,14 @@ export async function listSkills(roots: {
   bundled: string;
   installed?: string;
   disabled?: Set<string>;
+  validators?: SkillFolderValidators;
 }): Promise<SkillListEntry[]> {
   const skills = await loadSkills(roots);
   return [...skills.values()].map((skill) => skill.entry).sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export async function loadSkill(
-  roots: { bundled: string; installed?: string; disabled?: Set<string> },
+  roots: { bundled: string; installed?: string; disabled?: Set<string>; validators?: SkillFolderValidators },
   name: string,
 ): Promise<SkillDetail | null> {
   const skills = await loadSkills(roots);
@@ -160,7 +197,7 @@ export async function loadSkill(
 }
 
 export async function loadSkillFile(
-  roots: { bundled: string; installed?: string; disabled?: Set<string> },
+  roots: { bundled: string; installed?: string; disabled?: Set<string>; validators?: SkillFolderValidators },
   name: string,
   relativePath: string,
 ): Promise<{ path: string; content: string } | null> {

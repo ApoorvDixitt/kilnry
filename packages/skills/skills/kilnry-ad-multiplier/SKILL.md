@@ -9,7 +9,6 @@ license: CC-BY-4.0
 metadata:
   kilnry:
     version: 1.0.0
-    pipeline: kilnry-ad-multiplier
     requires: [video2video, vlm]
     cost_hint_usd: [2, 20]
     triggers: [multiply my ad, variations of this ad]

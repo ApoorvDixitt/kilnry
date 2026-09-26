@@ -9,7 +9,6 @@ license: CC-BY-4.0
 metadata:
   kilnry:
     version: 1.0.0
-    pipeline: kilnry-storyboard
     requires: [image_edit]
     cost_hint_usd: [0.2, 1.5]
     triggers: [storyboard, shot list, plan the shots]

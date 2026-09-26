@@ -19,7 +19,7 @@
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { parseSkillFrontmatter, SkillFrontmatterSchema } from './frontmatter.js';
-import { validateSkill, type SkillIssue } from './validate.js';
+import { validateSkill, validateSkillFolder, type SkillIssue } from './validate.js';
 
 /** A candidate skill: files keyed by their path relative to the skill folder. */
 export type SkillFileSet = Map<string, Uint8Array>;
@@ -77,6 +77,12 @@ export function validateSkillInstall(input: {
   files: SkillFileSet;
   /** The names already shipped in the bundled catalogue (kilnry-* are reserved). */
   shippedNames: Set<string>;
+  /** Whether metadata.kilnry.pipeline resolves to a catalogue workflow (V8). */
+  pipelineInCatalogue?: (name: string) => boolean;
+  /** Validate a shipped workflow YAML the way the workflow validator does (V12). */
+  validateWorkflowYaml?: (yaml: string, fileName: string) => { ok: boolean; firstError?: string };
+  /** Validate a shipped preset JSON the way the preset validator does (V12). */
+  validatePresetJson?: (text: string, fileName: string) => { ok: boolean; firstError?: string };
 }): { issues: SkillIssue[]; warnings: SkillIssue[]; name?: string } {
   const issues: SkillIssue[] = [];
   const warnings: SkillIssue[] = [];
@@ -95,6 +101,24 @@ export function validateSkillInstall(input: {
   // Parsed-content rules V1–V11 (name-matches-folder V2 is checked here against
   // the resolved name, which becomes the folder).
   issues.push(...validateSkill({ dirName: name ?? '', frontmatter, body }));
+
+  // Folder-aware and cross-file rules V6–V8, V12–V14 read from the file set.
+  const folderIssues = validateSkillFolder({
+    frontmatter,
+    body,
+    files: [...input.files.keys()],
+    readTextFile: (relativePath) => {
+      const bytes = input.files.get(relativePath);
+      return bytes === undefined ? undefined : decode(bytes);
+    },
+    ...(input.pipelineInCatalogue ? { pipelineInCatalogue: input.pipelineInCatalogue } : {}),
+    ...(input.validateWorkflowYaml ? { validateWorkflowYaml: input.validateWorkflowYaml } : {}),
+    ...(input.validatePresetJson ? { validatePresetJson: input.validatePresetJson } : {}),
+  });
+  for (const issue of folderIssues) {
+    if (issue.level === 'warning' && issue.rule === 'V13') warnings.push(issue);
+    else issues.push(issue);
+  }
 
   // Filesystem rules that need the whole file set.
   let total = 0;
@@ -159,10 +183,16 @@ export async function installSkill(input: {
   shippedNames: Set<string>;
   source?: string;
   acknowledgeWarnings?: boolean;
+  pipelineInCatalogue?: (name: string) => boolean;
+  validateWorkflowYaml?: (yaml: string, fileName: string) => { ok: boolean; firstError?: string };
+  validatePresetJson?: (text: string, fileName: string) => { ok: boolean; firstError?: string };
 }): Promise<InstallResult> {
   const { issues, warnings, name } = validateSkillInstall({
     files: input.files,
     shippedNames: input.shippedNames,
+    ...(input.pipelineInCatalogue ? { pipelineInCatalogue: input.pipelineInCatalogue } : {}),
+    ...(input.validateWorkflowYaml ? { validateWorkflowYaml: input.validateWorkflowYaml } : {}),
+    ...(input.validatePresetJson ? { validatePresetJson: input.validatePresetJson } : {}),
   });
   const hasError = issues.some((issue) => issue.level === 'error');
   if (hasError || name === undefined) {

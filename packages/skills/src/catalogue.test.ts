@@ -18,6 +18,21 @@ import { bundledSkillsRoot } from './index.js';
 const packageRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const catalogueRoot = join(packageRoot, '..', 'workflows', 'catalogue');
 
+// The catalogue workflow ids, so a skill's linked pipeline resolves (V8). The
+// loader takes the resolver injected rather than importing @kilnry/workflows.
+const catalogueIds = new Set(
+  (existsSync(catalogueRoot) ? readdirSync(catalogueRoot) : [])
+    .filter((name) => name.endsWith('.yaml'))
+    .map((name) => name.replace(/\.yaml$/, '')),
+);
+const validators = {
+  pipelineInCatalogue: (name: string) => catalogueIds.has(name),
+  validateWorkflowYaml: (yaml: string, fileName: string) => {
+    const result = validateWorkflowFile(yaml, fileName);
+    return { ok: result.ok };
+  },
+};
+
 const FLAGSHIP_SKILLS = ['kilnry-ugc-ad', 'kilnry-character-sheet', 'kilnry-faceless-video'];
 
 const ALL_SKILLS = [
@@ -41,7 +56,7 @@ const ALL_SKILLS = [
 
 describe('shipped skills catalogue (F-SKL-02)', () => {
   it('loads every bundled skill enabled', async () => {
-    const skills = await listSkills({ bundled: bundledSkillsRoot() });
+    const skills = await listSkills({ bundled: bundledSkillsRoot(), validators });
     const names = new Set(skills.map((skill) => skill.name));
     for (const name of ALL_SKILLS) expect(names.has(name), `${name} is present`).toBe(true);
     expect(skills.length).toBe(ALL_SKILLS.length);
@@ -51,7 +66,7 @@ describe('shipped skills catalogue (F-SKL-02)', () => {
   });
 
   it('ships the three flagship skills with a pipeline', async () => {
-    const skills = await listSkills({ bundled: bundledSkillsRoot() });
+    const skills = await listSkills({ bundled: bundledSkillsRoot(), validators });
     const byName = new Map(skills.map((skill) => [skill.name, skill]));
     for (const name of FLAGSHIP_SKILLS) {
       const skill = byName.get(name);
