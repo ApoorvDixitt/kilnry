@@ -29,6 +29,7 @@ const TOUCHED_ROUTES = [
   '/jobs',
   '/chat',
   '/presets',
+  '/workflows',
   '/characters',
   '/characters?tab=elements',
   '/characters?tab=voices',
@@ -101,6 +102,25 @@ async function csrf(page: Page): Promise<string> {
         ?.slice('kilnry_csrf='.length) ?? '',
     ),
   );
+}
+
+// Plan a lightweight workflow to obtain a run id, so the gates can visit the run
+// view at /workflows/runs/:id. A planned run persists a run row the run view
+// reads; no spend happens (planning only estimates).
+async function plannedRunRoute(page: Page): Promise<string | undefined> {
+  await ensureSignedIn(page, '/workflows');
+  const token = await csrf(page);
+  const runId = await page.evaluate(async (token) => {
+    const response = await fetch('/api/workflows/kilnry-thumbnail/plan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Kilnry-CSRF': token },
+      body: JSON.stringify({ inputs: { topic: 'A quiet lighthouse at dusk', takes: 1 } }),
+    });
+    if (!response.ok) return '';
+    const body = (await response.json()) as { run_id?: string };
+    return body.run_id ?? '';
+  }, token);
+  return runId ? `/workflows/runs/${runId}` : undefined;
 }
 
 async function ensureFal(page: Page): Promise<void> {
@@ -274,8 +294,10 @@ test('@gate keyboard shortcuts from the design contract §2.12', async ({ page }
 test('@gate accessibility has zero critical or serious issues on touched routes', async ({ page }) => {
   await ensureOpenRouter(page);
   await ensureGateCharacters(page);
+  const runRoute = await plannedRunRoute(page);
+  const routes = runRoute ? [...TOUCHED_ROUTES, runRoute] : [...TOUCHED_ROUTES];
   const violations: Record<string, number> = {};
-  for (const route of TOUCHED_ROUTES) {
+  for (const route of routes) {
     await ensureSignedIn(page, route);
     await page.waitForTimeout(300);
     const result = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag22aa']).analyze();
@@ -284,7 +306,7 @@ test('@gate accessibility has zero critical or serious issues on touched routes'
     // eslint-disable-next-line no-console
     if (serious.length > 0) console.log(`AXE ${route}`, JSON.stringify(serious.map((v) => v.id)));
   }
-  for (const route of TOUCHED_ROUTES) expect(violations[route], `axe on ${route}`).toBe(0);
+  for (const route of routes) expect(violations[route], `axe on ${route}`).toBe(0);
 });
 
 test('@gate reduced motion via OS preference and the Appearance setting', async ({ page }) => {
@@ -326,8 +348,10 @@ test('@gate save light and dark screenshots of every touched route', async ({ pa
   await page.setViewportSize({ width: 1440, height: 900 });
   await ensureOpenRouter(page);
   await ensureGateCharacters(page);
+  const runRoute = await plannedRunRoute(page);
+  const routes = runRoute ? [...TOUCHED_ROUTES, runRoute] : [...TOUCHED_ROUTES];
   for (const theme of ['light', 'dark'] as const) {
-    for (const route of TOUCHED_ROUTES) {
+    for (const route of routes) {
       await ensureSignedIn(page, route);
       await page.evaluate((value) => {
         localStorage.setItem('kilnry-theme', value);
