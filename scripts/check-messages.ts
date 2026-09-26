@@ -54,15 +54,14 @@ const unused = [...available].filter((key) => !referenced.has(key)).sort();
 // Honest "not yet" copy is allowed, but only for a capability that genuinely
 // has not shipped and only until its milestone lands. Each string that names a
 // future capability is listed here against the milestone the feature map
-// assigns it: laterReasoning is visible thinking (F-CHT-08, M6); laterMemory is
-// project memory (F-CHT-09, M6). The check reads the highest completed milestone from docs/STATUS.md and fails
+// assigns it: laterReasoning is visible thinking (F-CHT-08, M6). The check reads
+// the highest completed milestone from docs/STATUS.md and fails
 // when a listed key's milestone has already landed (the promise is stale), or
 // when any string still reads as a future promise but is not on this list (so a
 // new stale promise cannot slip in unnoticed). Update this map, not the regex,
 // when copy legitimately points at a later milestone.
 const notYet: Record<string, number> = {
   'settings.chat.laterReasoning': 6,
-  'settings.chat.laterMemory': 6,
 };
 
 // A string reads as a future promise if it defers a capability to a later

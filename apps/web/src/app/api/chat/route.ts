@@ -37,6 +37,7 @@ import * as z from 'zod';
 import { errorResponse, requireSession } from '../../../server/http';
 import { presetServices } from '../../../server/presets';
 import { ensureRuntimeEngine, runtimeServices } from '../../../server/runtime';
+import { projectMemoryBody } from '../../../server/project-memory';
 import { skillRoots } from '../../../server/skills';
 
 export const maxDuration = 300;
@@ -182,6 +183,9 @@ export async function POST(request: Request): Promise<Response> {
       messages,
       llm,
       promptsRoot: promptLibraryRoot(),
+      ...(session.folder && config.library_root
+        ? { memoryBody: projectMemoryBody(config.library_root, session.folder) }
+        : {}),
       tools,
       toolApproval: approvals.policy,
       approvalDescriptor: (name, value) => planned.get(planKey(name, value)),

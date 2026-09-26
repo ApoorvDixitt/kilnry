@@ -7037,3 +7037,16 @@ html[data-motion='reduced'] *::after {
   white-space: pre-wrap;
   font-size: 0.85em;
 }
+
+/* Chat › Project memory (F-CHT-09) */
+.chat-memory {
+  margin-top: 1.5rem;
+  border-top: 1px solid var(--border);
+  padding-top: 1rem;
+}
+.chat-memory-body {
+  width: 100%;
+  font-family: var(--font-mono, monospace);
+  font-size: 0.85em;
+  margin: 0.5rem 0;
+}

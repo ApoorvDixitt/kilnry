@@ -581,7 +581,14 @@
       "saveFailed": "Kilnry could not save the chat settings.",
       "laterTitle": "Arrives later",
       "laterReasoning": "Choosing how much of the model's thinking is shown arrives with visible thinking in M6.",
-      "laterMemory": "Reading project notes from the current folder arrives with project memory in M6."
+      "memoryTitle": "Project memory",
+      "memoryIntro": "Notes the agent reads for a Project folder — brand facts, style rules, the default character. Saved to the folder's project file; the user's message still outranks them.",
+      "memoryFolder": "Project folder",
+      "memoryFolderPlaceholder": "Client_A",
+      "memoryLoad": "Load notes",
+      "memorySave": "Save notes",
+      "memorySaved": "Project notes saved.",
+      "memoryFailed": "Kilnry could not save the project notes."
     }
   },
   "placeholder": {

@@ -40,6 +40,37 @@ export function ChatSettings(): React.ReactNode {
   const [ollama, setOllama] = useState<ChatSettingsBody['ollama'] | null>(null);
   const [status, setStatus] = useState('');
   const [pending, setPending] = useState(false);
+  const [memoryFolder, setMemoryFolder] = useState('');
+  const [memoryText, setMemoryText] = useState('');
+  const [memoryStatus, setMemoryStatus] = useState('');
+  const [memoryPending, setMemoryPending] = useState(false);
+
+  async function loadMemory(): Promise<void> {
+    if (memoryFolder.trim() === '') return;
+    setMemoryStatus('');
+    const response = await fetch(`/api/chat/memory?folder=${encodeURIComponent(memoryFolder.trim())}`);
+    if (!response.ok) return;
+    const body = (await response.json()) as { text: string };
+    setMemoryText(body.text);
+  }
+
+  async function saveMemory(): Promise<void> {
+    if (memoryFolder.trim() === '') return;
+    setMemoryPending(true);
+    setMemoryStatus('');
+    try {
+      const response = await apiFetch('/api/chat/memory', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ folder: memoryFolder.trim(), text: memoryText }),
+      });
+      setMemoryStatus(
+        response.ok ? message('settings.chat.memorySaved') : message('settings.chat.memoryFailed'),
+      );
+    } finally {
+      setMemoryPending(false);
+    }
+  }
 
   useEffect(() => {
     void load();
@@ -174,10 +205,41 @@ export function ChatSettings(): React.ReactNode {
         ) : null}
       </label>
 
+      <section className="chat-memory" aria-label={message('settings.chat.memoryTitle')}>
+        <h3>{message('settings.chat.memoryTitle')}</h3>
+        <p className="settings-hint">{message('settings.chat.memoryIntro')}</p>
+        <label className="chat-field">
+          <span>{message('settings.chat.memoryFolder')}</span>
+          <input
+            type="text"
+            value={memoryFolder}
+            placeholder={message('settings.chat.memoryFolderPlaceholder')}
+            onChange={(event) => setMemoryFolder(event.target.value)}
+          />
+          <button type="button" onClick={() => void loadMemory()} disabled={memoryFolder.trim() === ''}>
+            {message('settings.chat.memoryLoad')}
+          </button>
+        </label>
+        <textarea
+          className="chat-memory-body"
+          value={memoryText}
+          rows={10}
+          onChange={(event) => setMemoryText(event.target.value)}
+          aria-label={message('settings.chat.memoryTitle')}
+        />
+        <button
+          type="button"
+          onClick={() => void saveMemory()}
+          disabled={memoryPending || memoryFolder.trim() === ''}
+        >
+          {message('settings.chat.memorySave')}
+        </button>
+        {memoryStatus === '' ? null : <p role="status">{memoryStatus}</p>}
+      </section>
+
       <section className="chat-later" aria-label={message('settings.chat.laterTitle')}>
         <h3>{message('settings.chat.laterTitle')}</h3>
         <p>{message('settings.chat.laterReasoning')}</p>
-        <p>{message('settings.chat.laterMemory')}</p>
       </section>
 
       <button type="submit" disabled={pending}>
