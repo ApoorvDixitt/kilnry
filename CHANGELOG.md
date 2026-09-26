@@ -4,6 +4,8 @@ All notable changes to Kilnry are documented here. The format follows Keep a Cha
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-27
+
 ### Added
 
 - A workflow catalogue at `/workflows` listing each pipeline with its cost range, typical duration, required inputs and a Run button (F-WFL-01).
