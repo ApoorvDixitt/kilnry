@@ -121,4 +121,22 @@ Open for M6: the Windows crash-resume skip stays until M8; the `@matrix` suite i
 
 Test counts by suite (uncached `turbo run test --force`): core 316, agent 89, providers 60, presets 253, skills 3, media 17, launcher 8, mcp 7, db 1, web node 93; `test:browser` 190.
 
+## M6 · Workflows and skills catalogue · 2026-09-27
+
+Status: complete. GitHub [`ci` run 36278378548](https://github.com/ApoorvDixitt/kilnry/actions/runs/36278378548) passed on `cfbdc9a` with `@m6` in the grep; released as v0.4.0.
+
+Implemented: F-WFL-01, 02, 03, 04, 05, 06, 07, 09; F-CHT-08, 09, 11, 12; F-SKL-02, 03, 04; F-SET-06. Scenario S-04 (the approval-checkpoint golden) and one end-to-end run each for the UGC ad, faceless video in stills mode, product photoshoot, thumbnail and subtitles burn run as `@m6` under strict mock service worker; each writes its `run.kilnry.json` with an actual cost on every step. All nine workflow definitions pass `kilnry workflows validate`. A full UGC run's actual cost is within about two percent of its plan estimate on the fixtures (the ±15 percent gate).
+
+Originality (D-16): every workflow definition and skill text is Kilnry-authored from `01-prd/10-workflows.md` and `01-prd/13-skills-system-prompts.md` alone. The nine definitions are `kilnry-character-sheet`, `kilnry-ugc-ad`, `kilnry-faceless-video`, `kilnry-product-photoshoot`, `kilnry-thumbnail`, `kilnry-subtitles-burn`, `kilnry-narrator`, `kilnry-motion-design` and `kilnry-localize` (three flagship follow the technical chapter's structure). The sixteen skills are the catalogue from the specification, the three flagship texts verbatim and the rest to the same standard. Higgsfield's texts were never fetched, quoted or vendored.
+
+Decisions and reconciliations (default; adjustable): step ids allow an underscore; a foreach expect may be a number; a generate step's params may be a whole template; an object-literal templating plugin was added; a generate step routes on its explicit capability; a run's steps confirm at the engine's own estimate since the plan total was already approved; offline mode is entered when the resolved chat model is a local Ollama one, not by network detection.
+
+Cadence: nine continuous-integration re-runs, all transient — five `@m5` acceptance timeouts, a webServer boot failure and a PGlite WebAssembly teardown crash on the runner (each verified green locally on the same commit), and a pnpm binary download failure; one flaky unit timeout was fixed forward rather than re-run. The `notYet` message allow-list is empty.
+
+Manual-only: `@visual` (platform-specific baselines regenerated locally) and `@matrix` (needs clients installed) stay out of the grep.
+
+Carried to M7: an inline approval on a spending step marks it complete on approve without running its work; an intermittent speech-to-text finalize flake; the Windows crash-resume skip.
+
+Test counts by suite (uncached `turbo run test --force`): core 341, agent 91, providers 60, presets 253, skills 6, media 17, launcher 8, mcp 7, db 1, web node 117, workflows 34; `test:browser` 210.
+
 <!-- Kilnry © 2026 Apoorv Dixit · Sustainable Use License 1.0 · See LICENSE.md. -->

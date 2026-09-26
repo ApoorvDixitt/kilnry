@@ -4,6 +4,32 @@ All notable changes to Kilnry are documented here. The format follows Keep a Cha
 
 ## [Unreleased]
 
+### Added
+
+- A workflow catalogue at `/workflows` listing each pipeline with its cost range, typical duration, required inputs and a Run button (F-WFL-01).
+- An intake drawer per workflow that fills the inputs, previews a plan with a per-step model, cost and total, and an Approve button that starts the run at that confirmed total (F-WFL-02).
+- A run view at `/workflows/runs/:id` with a header (status, steps done of total, cost so far versus estimate, Cancel), a step list and a step detail with Inputs, Outputs, Logs and Cost tabs (F-WFL-03).
+- Checkpoints: a step marked for approval pauses the run with an approval card, so storyboards are approved before clips render (F-WFL-04).
+- Retry a failed step, swap its model, and re-run from a step in the run view (F-WFL-05).
+- The workflow definition language: inputs as JavaScript Object Notation Schema with interface hints, steps for generate, transform, assemble, analyze, branch, foreach and approval, templating, and outputs routed to a folder — with a planner that prices the graph and an executor that runs it (F-WFL-06).
+- The nine version-one workflows — Character Sheet, UGC Ad, Faceless Narrated Video, Product Photoshoot, Thumbnail, Subtitles Burn, Narrator, Explainer and Motion Design, and Localize — each authored in Kilnry's own words (F-WFL-07).
+- Output routing: a run writes into `<Library>/<Project>/<Workflow>_<date>/` with a `run.kilnry.json` manifest listing every step and its actual cost (F-WFL-09).
+- Visible thinking steps and a step list during a multi-step chat task (F-CHT-08).
+- Project memory: per-folder notes the agent reads into every turn, edited in Settings (F-CHT-09).
+- Offline mode: when the resolved chat model is a local Ollama one, the provider tools are disabled with a reason and only the local assembly tools remain (F-CHT-11).
+- Chat sessions saved per Project folder and a Markdown transcript export (F-CHT-12).
+- The sixteen Kilnry skills, with the three flagship texts from the specification verbatim and the rest authored to the same standard (F-SKL-02).
+- Installing a community skill from a repository or an in-app drop, validated against every frontmatter and filesystem rule before it is enabled (F-SKL-03).
+- Settings › Skills: preview, enable or disable per skill, the installed list, and import (F-SKL-04, F-SET-06).
+
+### Fixed
+
+- A workflow transform or analyze step now prices, budget-checks and charges through the engine like a generate step, writing one spend-ledger row and one audit event each, instead of completing without any spend (F-WFL-06).
+- A workflow analyze step returns a validated structured result, so a branch that reads `steps.<id>.outputs.result.structured` takes the right arm; a schema forces JavaScript Object Notation with one repair retry, metered as a language or vision-language spend (F-WFL-06).
+- A generate step now routes and prices on its own declared capability, so a reference-to-video clip is priced as video rather than an image and finds an audio-capable model (F-WFL-06).
+- An export step expands a files list whose reference is an array into one file each, binding the per-file index and name before writing them into the run folder (F-WFL-09).
+- The skill validator gained the six remaining rules — references exist, scripts stay declarative, a named pipeline resolves, shipped workflows and presets validate, and the licence and description are checked — so an installed skill is verified in full before it is enabled (F-SKL-03).
+
 ## [0.3.2] - 2026-09-24
 
 ### Added
