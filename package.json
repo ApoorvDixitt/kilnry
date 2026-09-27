@@ -24,6 +24,7 @@
     "check:provenance": "tsx scripts/check-provenance.ts",
     "check:canon": "tsx scripts/check-canon.ts",
     "check:size": "tsx scripts/check-launcher-size.ts",
+    "workflows:validate": "node packages/launcher/bin/kilnry.js workflows validate packages/workflows/catalogue/*.yaml",
     "i18n:check": "tsx scripts/check-messages.ts",
     "release": "tsx scripts/release.ts",
     "deps:check": "pnpm outdated -r --long",

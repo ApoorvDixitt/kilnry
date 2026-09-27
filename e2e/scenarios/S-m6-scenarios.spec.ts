@@ -404,6 +404,8 @@ test.describe('M6 workflows acceptance', () => {
         channel_type: 'explainer',
         motion_mode: 'stills',
         topic: 'How rivers shape a valley',
+        // The shortest duration the workflow offers; its block count is derived
+        // from this, so a longer one only repeats the same loop.
         duration_s: 60,
       },
     });

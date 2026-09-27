@@ -40,7 +40,7 @@ jobs:
         id: ffmpeg-cache
         # The FFmpeg 7.0.2 binaries rarely change, so cache the two installed
         # files across runs; a hit skips the third-party download entirely.
-        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             /usr/local/bin/ffmpeg
@@ -89,6 +89,8 @@ jobs:
         run: pnpm i18n:check
       - name: Check launcher package size
         run: pnpm check:size
+      - name: Validate the shipped workflow catalogue
+        run: pnpm workflows:validate
       - name: Lint and format
         run: pnpm lint
       - name: Typecheck
@@ -99,10 +101,6 @@ jobs:
         run: pnpm exec playwright install --with-deps chromium
       - name: Browser component tests
         run: pnpm test:browser
-      - name: Smoke acceptance tests
-        run: pnpm e2e --grep @smoke
-      - name: Acceptance and gate suites
-        run: pnpm e2e --grep "@m3|@m4|@m5|@m6|@gate"
       - name: Production build
         run: pnpm build
         env:
@@ -112,3 +110,78 @@ jobs:
           KILNRY_RELEASE_BUILD: '1'
       - name: Audit production dependencies
         run: pnpm audit --prod
+
+  # The Playwright acceptance scenarios run as a matrix keyed by milestone tag
+  # rather than as one step inside the job above. All of them on one runner grew
+  # past that job's half-hour budget once the workflow runs started doing their
+  # real work, and a single flake meant re-running every scenario together with
+  # the lint, typecheck, unit, browser and build steps. Sharded, no shard comes
+  # close to its own budget and a flake re-runs only its own scenarios. Each shard
+  # runs the first-run smoke scenario before its own, because a fresh server
+  # rewrites the setup token and a later scenario would otherwise be
+  # unauthenticated. @visual and @matrix stay out: the visual baselines are
+  # platform-specific and regenerated locally, and the client matrix needs clients
+  # installed on the build machine.
+  e2e:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        shard:
+          - name: m3-m4
+            grep: '@m3|@m4'
+          - name: m5
+            grep: '@m5'
+          - name: m6-gate
+            grep: '@m6|@gate'
+    name: e2e (${{ matrix.shard.name }})
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24.21.0
+      - name: Enable pnpm
+        run: corepack enable
+      - name: Install pnpm
+        run: corepack install --global pnpm@12.4.2
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Cache FFmpeg 7.0.2 static build
+        id: ffmpeg-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            /usr/local/bin/ffmpeg
+            /usr/local/bin/ffprobe
+          key: ffmpeg-static-7.0.2-${{ runner.os }}
+      - name: Install FFmpeg 7.0.2
+        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
+        with:
+          max_attempts: 3
+          timeout_minutes: 5
+          retry_on: error
+          command: |
+            set -euo pipefail
+            tmp="$(mktemp -d)"
+            curl -fsSL --retry 3 --retry-delay 5 -o "$tmp/ffmpeg.tar.xz" \
+              https://johnvansickle.com/ffmpeg/releases/ffmpeg-7.0.2-amd64-static.tar.xz
+            echo "7fa72b652e19bf84c9461e332ea1cdf3  $tmp/ffmpeg.tar.xz" | md5sum -c -
+            tar -xf "$tmp/ffmpeg.tar.xz" -C "$tmp"
+            dir="$tmp/ffmpeg-7.0.2-amd64-static"
+            sudo install -m755 "$dir/ffmpeg" /usr/local/bin/ffmpeg
+            sudo install -m755 "$dir/ffprobe" /usr/local/bin/ffprobe
+      - name: Verify FFmpeg 7.0.2
+        run: |
+          set -euo pipefail
+          ffmpeg -version | head -n1
+          ffprobe -version | head -n1
+      - name: Install browser
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Acceptance shard ${{ matrix.shard.name }}
+        run: pnpm e2e --grep "@smoke|${{ matrix.shard.grep }}"
