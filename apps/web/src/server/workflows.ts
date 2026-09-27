@@ -1016,12 +1016,12 @@ async function spendThroughEngine(
     })
     .where(and(eq(runSteps.runId, run.runId), eq(runSteps.stepId, node.step_id)));
 
-  // Wait for the job's terminal state, bounded by the engine's own poll window
-  // rather than a fixed two minutes, so a real video or lip-sync step that
-  // outlasts two minutes is not cut off (waitForJob returns the instant the job
-  // is terminal, so this never slows a fast step).
+  // Wait for the job's terminal state, bounded by the engine's own poll window so
+  // a real video or lip-sync step that runs long is not cut off. waitForJob
+  // returns the instant the job is terminal, so this never slows a fast step.
   const terminal = await engine.waitForJob(created.job_id, engine.pollWindowMs);
   const assetIds = await jobAssetIds(db, created.job_id);
+  const settled = ['completed', 'failed', 'cancelled', 'moderated'].includes(terminal.status);
   const actual = Number(terminal.actualUsd ?? terminal.estimateUsd ?? confirmedCost) || confirmedCost;
   if (terminal.status === 'completed') {
     return {
@@ -1043,9 +1043,17 @@ async function spendThroughEngine(
   }
   return {
     outputs: {},
-    actual_usd: terminal.status === 'moderated' ? 0 : actual,
+    // Money is only owed for work that finished. A job that was moderated is free,
+    // and a job that had not settled when the wait ended has produced nothing yet,
+    // so neither is charged; only a job the provider actually failed carries the
+    // cost the provider reports.
+    actual_usd: terminal.status === 'failed' ? actual : 0,
     status: terminal.status === 'moderated' ? 'moderated' : 'failed',
-    error: terminal.status,
+    // Name the honest outcome: a settled failure says so, an unsettled job says
+    // it is still running rather than pretending the provider refused it.
+    error: settled ? terminal.status : `not_settled:${terminal.status}`,
+    // Only a settled failure is worth another attempt. An unsettled job must never
+    // be resubmitted after an ambiguous wait; its stored request is re-polled.
     retryable: terminal.status === 'failed',
   };
 }

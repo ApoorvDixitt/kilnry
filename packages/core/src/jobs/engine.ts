@@ -80,6 +80,14 @@ export interface JobEngineOptions {
   events?: EventHub;
   pollScheduleMs?: number[];
   pollTimeoutMs?: number;
+  /**
+   * How long to keep polling one provider, when that provider needs a different
+   * window from every other. The acceptance harness shrinks the window for the
+   * provider whose fixture deliberately holds a request, so the ambiguous-timeout
+   * scenario is reached quickly without giving every other provider — and so every
+   * workflow step that waits on one — the same tiny budget.
+   */
+  pollTimeoutMsByProvider?: Partial<Record<ProviderId, number>>;
   submitRetryScheduleMs?: number[];
   now?: () => Date;
   log?: (level: 'debug' | 'info' | 'warn' | 'error', event: string, meta?: Record<string, unknown>) => void;
@@ -188,12 +196,26 @@ export class JobEngine {
   readonly #options: Required<
     Pick<
       JobEngineOptions,
-      'fetch' | 'events' | 'pollScheduleMs' | 'pollTimeoutMs' | 'submitRetryScheduleMs' | 'now' | 'log'
+      | 'fetch'
+      | 'events'
+      | 'pollScheduleMs'
+      | 'pollTimeoutMs'
+      | 'pollTimeoutMsByProvider'
+      | 'submitRetryScheduleMs'
+      | 'now'
+      | 'log'
     >
   > &
     Omit<
       JobEngineOptions,
-      'fetch' | 'events' | 'pollScheduleMs' | 'pollTimeoutMs' | 'submitRetryScheduleMs' | 'now' | 'log'
+      | 'fetch'
+      | 'events'
+      | 'pollScheduleMs'
+      | 'pollTimeoutMs'
+      | 'pollTimeoutMsByProvider'
+      | 'submitRetryScheduleMs'
+      | 'now'
+      | 'log'
     >;
   readonly #controllers = new Map<string, AbortController>();
   #boss: PgBoss | undefined;
@@ -207,6 +229,7 @@ export class JobEngine {
       events: options.events ?? eventHub,
       pollScheduleMs: options.pollScheduleMs ?? [2000, 3000, 5000, 8000, 10_000],
       pollTimeoutMs: options.pollTimeoutMs ?? 7_200_000,
+      pollTimeoutMsByProvider: options.pollTimeoutMsByProvider ?? {},
       submitRetryScheduleMs: options.submitRetryScheduleMs ?? [2000, 8000, 32_000],
       now: options.now ?? (() => new Date()),
       log: options.log ?? (() => undefined),
@@ -715,6 +738,11 @@ export class JobEngine {
     return this.#options.pollTimeoutMs;
   }
 
+  /** The poll window for one provider: its own override, or the default. */
+  #pollTimeoutFor(provider: ProviderId): number {
+    return this.#options.pollTimeoutMsByProvider[provider] ?? this.#options.pollTimeoutMs;
+  }
+
   async waitForJob(jobId: string, timeoutMs = 30_000): Promise<JobRow> {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() <= deadline) {
@@ -873,7 +901,8 @@ export class JobEngine {
   ): Promise<ProviderResult> {
     const started = Date.now();
     let poll = 0;
-    while (Date.now() - started <= this.#options.pollTimeoutMs) {
+    const window = this.#pollTimeoutFor(adapter.id);
+    while (Date.now() - started <= window) {
       const current = await this.#job(row.id);
       if (current.status === 'cancelled') throw new KilnryError('CANCELLED', 'Cancelled.');
       if (poll > 0) {

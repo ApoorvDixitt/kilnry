@@ -181,10 +181,14 @@ export async function ensureRuntimeEngine(): Promise<JobEngine> {
         }),
     });
     global.__kilnryRuntimeStatus = { stage: 'starting_workers' };
-    // Under the acceptance harness (mock service worker on) the provider poll
-    // window is shrunk to a second so the ambiguous-timeout scenario (S-11) can
-    // reach it quickly; production keeps the engine's two-hour default.
-    const testPollTimeoutMs = process.env.KILNRY_TEST_MSW === '1' ? 1000 : undefined;
+    // Under the acceptance harness the poll window is shrunk for MiniMax alone,
+    // because its fixture deliberately holds a request so the ambiguous-timeout
+    // scenario (S-11) can reach the window. Shrinking it for every provider gave
+    // each workflow step's job one second to finish, so a step that was merely
+    // slow on a loaded runner was recorded as failed and charged — the intermittent
+    // image and speech-to-text step failures seen in the workflow runs. Production
+    // keeps the engine's two-hour window everywhere.
+    const testMsw = process.env.KILNRY_TEST_MSW === '1';
     const engine = new JobEngine({
       state: services.database,
       keyStore: services.keyStore,
@@ -193,7 +197,7 @@ export async function ensureRuntimeEngine(): Promise<JobEngine> {
       libraryRoot: config.library_root,
       libraryId: marker.library_id,
       events: eventHub,
-      ...(testPollTimeoutMs === undefined ? {} : { pollTimeoutMs: testPollTimeoutMs }),
+      ...(testMsw ? { pollTimeoutMsByProvider: { minimax: 1000 } } : {}),
       log: (level, event, meta) => log[level]({ ...(meta ?? {}) }, event),
     });
     await engine.start();

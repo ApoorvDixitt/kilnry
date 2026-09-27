@@ -235,7 +235,13 @@ export function WorkflowRunView({ runId, initial }: { runId: string; initial?: R
   }, [initial, reload]);
 
   useEffect(() => {
-    if (!run || !isLive(run.status)) return;
+    // Keep polling while the run has not loaded yet as well as while it is live.
+    // Stopping when `run` was still null meant a first fetch that lost the race
+    // with the run being written left the view blank for good: no header, no step
+    // list and no approval card, so a run waiting for a decision could never be
+    // answered. Polling stops only once a run has loaded and reached a terminal
+    // state (F-WFL-03: the view survives a reload).
+    if (run && !isLive(run.status)) return;
     const timer = setInterval(() => void reload(), 2000);
     return () => clearInterval(timer);
   }, [run, reload]);

@@ -218,7 +218,13 @@ async function driveRun(
       return false;
     }
   };
-  const deadline = Date.now() + 180_000;
+  // How long the helper keeps clearing checkpoints. A run's approve request drives
+  // the workflow synchronously to its next pause, and a step's job is now given the
+  // engine's honest poll window rather than the one second the harness used to
+  // impose, so a workflow with several spending steps and a loop takes minutes on a
+  // loaded runner. The budget is sized to that real work; the assertions afterwards
+  // stay strict.
+  const deadline = Date.now() + 420_000;
   while (Date.now() < deadline) {
     const card = page.locator('.approval-card');
     const appeared = await card
@@ -259,7 +265,7 @@ function spendingStepsCompleted(manifest: RunManifest): number {
 
 test.describe('M6 workflows acceptance', () => {
   test('@m6 S-04 UGC ad · product-only pauses at the storyboard checkpoint (golden)', async ({ page }) => {
-    test.setTimeout(240_000);
+    test.setTimeout(600_000);
     // Given an onboarded install with fal and OpenRouter fixtures and a product
     // image at Client_A/serum.png.
     await ensureProvider(page, 'fal', FAL_KEY);
@@ -370,7 +376,7 @@ test.describe('M6 workflows acceptance', () => {
   // completed spending steps).
 
   test('@m6 kilnry-ugc-ad runs to its checkpoint and renders clips', async ({ page }) => {
-    test.setTimeout(240_000);
+    test.setTimeout(600_000);
     await ensureProvider(page, 'fal', FAL_KEY);
     await ensureProvider(page, 'openrouter', OPENROUTER_KEY);
     const product = await seedProduct(page, 'Ugc_A', 'serum.png');
@@ -387,7 +393,7 @@ test.describe('M6 workflows acceptance', () => {
   });
 
   test('@m6 kilnry-faceless-video runs in stills mode', async ({ page }) => {
-    test.setTimeout(240_000);
+    test.setTimeout(600_000);
     await ensureProvider(page, 'fal', FAL_KEY);
     await ensureProvider(page, 'openrouter', OPENROUTER_KEY);
     const { manifest } = await driveRun(page, {
@@ -408,7 +414,7 @@ test.describe('M6 workflows acceptance', () => {
   });
 
   test('@m6 kilnry-product-photoshoot renders variants', async ({ page }) => {
-    test.setTimeout(240_000);
+    test.setTimeout(600_000);
     await ensureProvider(page, 'fal', FAL_KEY);
     await ensureProvider(page, 'openrouter', OPENROUTER_KEY);
     const product = await seedProduct(page, 'Shoot_A', 'bottle.png');
@@ -424,7 +430,7 @@ test.describe('M6 workflows acceptance', () => {
   });
 
   test('@m6 kilnry-thumbnail renders takes', async ({ page }) => {
-    test.setTimeout(240_000);
+    test.setTimeout(600_000);
     await ensureProvider(page, 'fal', FAL_KEY);
     await ensureProvider(page, 'openrouter', OPENROUTER_KEY);
     const { manifest } = await driveRun(page, {
@@ -438,7 +444,7 @@ test.describe('M6 workflows acceptance', () => {
   });
 
   test('@m6 kilnry-subtitles-burn transcribes and burns captions', async ({ page }) => {
-    test.setTimeout(240_000);
+    test.setTimeout(600_000);
     await ensureProvider(page, 'fal', FAL_KEY);
     await ensureProvider(page, 'openrouter', OPENROUTER_KEY);
     const video = await seedFile(page, 'Subs_A', 'clip.mp4', MP4);
@@ -461,7 +467,7 @@ test.describe('M6 workflows acceptance', () => {
   });
 
   test('@m6 kilnry-ugc-ad actual cost is within 15 percent of its plan estimate', async ({ page }) => {
-    test.setTimeout(240_000);
+    test.setTimeout(600_000);
     await ensureProvider(page, 'fal', FAL_KEY);
     await ensureProvider(page, 'openrouter', OPENROUTER_KEY);
     const product = await seedProduct(page, 'Cost_A', 'serum.png');
