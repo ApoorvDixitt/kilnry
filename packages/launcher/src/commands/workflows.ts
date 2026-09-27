@@ -33,7 +33,7 @@ export async function runWorkflowsValidate(files: string[]): Promise<number> {
       );
       continue;
     }
-    const result = validateWorkflowFile(yaml, fileName);
+    const result = validateWorkflowFile(yaml, fileName, file);
     const errors = result.issues.filter((issue) => issue.level === 'error');
     const warnings = result.issues.filter((issue) => issue.level === 'warning');
     if (result.ok && warnings.length === 0) {

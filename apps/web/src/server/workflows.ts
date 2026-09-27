@@ -42,14 +42,17 @@ import {
   buildManifest,
   execute,
   expandRunState,
+  packagesRootFrom,
   parseWorkflow,
   plan,
   renderStep,
   resetFrom,
   runFolder,
   validateWorkflowFile,
+  withFileSource,
   type Effects,
   type ExpandedExportStep,
+  type FileSourceRoots,
   type Plan,
   type PlanContext,
   type RunState,
@@ -88,6 +91,7 @@ interface CatalogueEntry {
   id: string;
   workflow: WorkflowFile;
   yaml: string;
+  dir: string;
 }
 
 /** Load and parse every workflow YAML, later roots shadowing earlier ones by id. */
@@ -104,7 +108,7 @@ export function loadCatalogue(dataDir: string): Map<string, CatalogueEntry> {
       const yaml = readFileSync(join(root, file), 'utf8');
       try {
         const workflow = parseWorkflow(yaml);
-        byId.set(workflow.id, { id: workflow.id, workflow, yaml });
+        byId.set(workflow.id, { id: workflow.id, workflow, yaml, dir: root });
       } catch {
         // A malformed catalogue file is skipped; validate.ts / the CLI report it.
       }
@@ -117,6 +121,11 @@ export function getWorkflow(dataDir: string, id: string): CatalogueEntry | undef
   return loadCatalogue(dataDir).get(id);
 }
 
+/** The file() roots a workflow may read from: packages/** and its own folder. */
+function fileRootsFor(entry: CatalogueEntry): FileSourceRoots {
+  return { packagesRoot: packagesRootFrom(entry.dir), workflowDir: entry.dir };
+}
+
 // ── planning ─────────────────────────────────────────────────────────────────
 
 /**
@@ -124,7 +133,7 @@ export function getWorkflow(dataDir: string, id: string): CatalogueEntry | undef
  * spending step through engine.estimate (which never spends), so the plan uses
  * the same prices as an actual run.
  */
-function planContext(): PlanContext {
+function planContext(fileRoots?: FileSourceRoots): PlanContext {
   return {
     // Inputs default and validate against the workflow's JSON Schema. A full
     // JSON-Schema validation is layered in the drawer; here defaults are applied
@@ -133,6 +142,7 @@ function planContext(): PlanContext {
     // The synchronous planner only expands the graph; pricePlan then estimates
     // each spending leaf through the engine for the real total.
     priceStep: () => ({ estimate_usd: 0, eta_s: 0, why: 'priced at run' }),
+    ...(fileRoots ? { fileRoots } : {}),
   };
 }
 
@@ -147,7 +157,7 @@ export async function planWorkflow(
   const entry = getWorkflow(dataDir, workflowId);
   if (!entry) throw new KilnryError('NOT_FOUND', `No workflow called ${workflowId} is installed.`);
 
-  const ctx = planContext();
+  const ctx = planContext(fileRootsFor(entry));
   // Price each spending leaf through the engine estimate for the real total.
   const priced = await pricePlan(engine, entry.workflow, inputs, ctx);
   const runId = ulid();
@@ -538,12 +548,15 @@ export async function startRun(
   const startedAt = run.createdAt.toISOString();
   await db.db.update(runs).set({ status: 'running', folder }).where(eq(runs.id, runId));
 
-  const baseScope: Scope = {
-    inputs: persistedPlan.inputs,
-    defaults: entry.workflow.defaults,
-    vars: persistedPlan.vars,
-    run: { id: runId, folder, workflow: entry.workflow.id },
-  };
+  const baseScope: Scope = withFileSource(
+    {
+      inputs: persistedPlan.inputs,
+      defaults: entry.workflow.defaults,
+      vars: persistedPlan.vars,
+      run: { id: runId, folder, workflow: entry.workflow.id },
+    },
+    fileRootsFor(entry),
+  );
 
   const effects = runEffects(db, engine, {
     runId,

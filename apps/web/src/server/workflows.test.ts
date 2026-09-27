@@ -13,9 +13,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   execute,
+  packagesRootFrom,
   parseWorkflow,
   plan,
   renderStep,
+  withFileSource,
   type Effects,
   type ExpandedExportStep,
   type PlanContext,
@@ -206,6 +208,16 @@ describe('every spending step of every kind reaches the engine once (F-WFL-06)',
       eta_s: 3,
       why: 'fixture',
     }),
+    fileRoots: { packagesRoot: packagesRootFrom(catalogueRoot()), workflowDir: catalogueRoot() },
+    // A resolved character for the sheet workflow's `characters[@handle]` reads.
+    resolveCharacter: () => ({
+      references: [{ role: 'anchor', asset_id: 'asset-anchor-1' }],
+      appearance: {
+        descriptor: 'A tall woman with short dark hair. Wears a green jacket.',
+        anchors: ['short dark hair', 'green jacket'],
+        outfit: 'a green jacket',
+      },
+    }),
   };
 
   // Drive a catalogue workflow through the pure executor with effects that mirror
@@ -218,7 +230,20 @@ describe('every spending step of every kind reaches the engine once (F-WFL-06)',
     const workflow = loadCatalogueWorkflow(id);
     const resolved = fixturePlan.resolveInputs(workflow, inputs);
     const priced = plan(workflow, inputs, fixturePlan);
-    const scope: Scope = { inputs: resolved, defaults: workflow.defaults, vars: priced.vars };
+    // Install the file() roots (packages/** and the catalogue folder) so a
+    // workflow whose prompts are bundled with file('...#EXPORT') — the
+    // character sheet — resolves them during the fixture run. The characters
+    // namespace is stubbed so a set step that reads characters[@handle] at run
+    // time resolves the same shape the planner saw.
+    const scope: Scope = withFileSource(
+      {
+        inputs: resolved,
+        defaults: workflow.defaults,
+        vars: priced.vars,
+        characters: new Proxy({}, { get: () => fixturePlan.resolveCharacter?.('') ?? {} }),
+      },
+      { packagesRoot: packagesRootFrom(catalogueRoot()), workflowDir: catalogueRoot() },
+    );
     const submitsByKind: Record<string, number> = { generate: 0, transform: 0, analyze: 0 };
     // A mutable counter object so the returned handle observes every increment
     // (a returned primitive would freeze at zero).
@@ -443,6 +468,52 @@ describe('every spending step of every kind reaches the engine once (F-WFL-06)',
     expect(kinds.has('generate')).toBe(true);
     expect(kinds.has('transform')).toBe(true);
     expect(kinds.has('analyze')).toBe(true);
+  });
+
+  it('runs kilnry-character-sheet end to end with its file() prompts resolved (F-WFL-04)', async () => {
+    // Unit 2's end-to-end proof for the character sheet, which unit 2b unblocked:
+    // its prompts live in a bundled module read through file('...#EXPORT'), so
+    // before file() was implemented these six generate steps threw the moment
+    // they ran. With the roots installed in the scope, every prompt resolves to
+    // real wording and every spending step reaches the engine once.
+    const run = runCounting('kilnry-character-sheet', {
+      character: 'nova',
+      description: 'a tall woman with short dark hair and a green jacket',
+      look: 'photoreal',
+      model: 'fal/x',
+      views: ['front', 'three_quarter_left', 'left', 'back'],
+      expressions: true,
+      outfits: [{ label: 'raincoat', text: 'a yellow raincoat' }],
+      states: [{ label: 'running', text: 'running through rain' }],
+    });
+    let status = 'unknown';
+    try {
+      const state = await execute(run.workflow, run.scope, run.effects, {
+        automatic: true,
+        skipApprovals: true,
+      });
+      status = state.status;
+    } catch {
+      // A terminal export/render issue does not undo the spending already routed.
+    }
+
+    // Every generate prompt resolved through file() to real, non-empty wording
+    // (an unresolved file() would have thrown, failing the run before any
+    // submit). Assert the rendered prompts carry the bundled text.
+    expect(run.submitsByKind.generate).toBeGreaterThan(0);
+    const prompts = run.submits
+      .map((submit) => submit.request.prompt)
+      .filter((prompt): prompt is string => typeof prompt === 'string');
+    expect(prompts.length).toBeGreaterThan(0);
+    for (const prompt of prompts) {
+      expect(prompt.length).toBeGreaterThan(0);
+      // No unrendered template or file() call leaked into a provider request.
+      expect(prompt).not.toContain('file(');
+      expect(prompt).not.toContain('{{');
+    }
+    // At least one prompt is the turnaround-sheet wording read from the module.
+    expect(prompts.some((prompt) => /panels? in one row/.test(prompt))).toBe(true);
+    expect(['completed', 'cancelled', 'unknown']).toContain(status);
   });
 });
 

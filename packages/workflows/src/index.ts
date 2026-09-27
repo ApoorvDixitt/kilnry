@@ -7,10 +7,20 @@ export {
   evaluateExpression,
   renderString,
   renderDeep,
+  withFileSource,
+  FILE_SOURCE_KEY,
   TemplateError,
   FUNCTION_NAMES,
   type Scope,
 } from './template.js';
+
+export {
+  readFileSource,
+  packagesRootFrom,
+  FileSourceError,
+  FILE_SOURCE_MAX_BYTES,
+  type FileSourceRoots,
+} from './file-source.js';
 
 export {
   WorkflowFileSchema,

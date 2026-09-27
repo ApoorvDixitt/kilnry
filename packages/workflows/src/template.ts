@@ -20,6 +20,7 @@
 
 import jsep from 'jsep';
 import jsepObject from '@jsep-plugin/object';
+import { readFileSource, type FileSourceRoots } from './file-source.js';
 
 // Register the object-literal plugin so `{ a: 1, b: x }` parses (used as the
 // argument to render() in the shipped workflows, TRD-12 §8–10).
@@ -46,6 +47,17 @@ interface Node {
 
 /** The evaluation scope: the namespaces a template may read (TRD-12 §3). */
 export type Scope = Record<string, unknown>;
+
+// The reserved scope key under which the executor and validator install the
+// filesystem roots the `file()` function may read from. It is not a namespace a
+// template can name: it starts with `$`, which is not a valid identifier start
+// in an expression, so it can only be reached through `file()` itself.
+export const FILE_SOURCE_KEY = '$fileSource';
+
+/** Install the `file()` roots into a scope so `file()` may resolve against them. */
+export function withFileSource(scope: Scope, roots: FileSourceRoots): Scope {
+  return { ...scope, [FILE_SOURCE_KEY]: roots };
+}
 
 /** Raised when an expression is malformed or does something disallowed. */
 export class TemplateError extends Error {
@@ -386,10 +398,32 @@ function call(node: Node, scope: Scope): unknown {
   if (callee.type !== 'Identifier')
     throw new TemplateError('only named functions from the library may be called');
   const name = callee.name as string;
+  if (name === 'file') return callFile(node, scope);
   const fn = FUNCTIONS[name];
   if (!fn) throw new TemplateError(`unknown function "${name}"`);
   const args = (node.arguments as Node[]).map((argument) => evaluate(argument, scope));
   return fn(...args);
+}
+
+// `file(path)` / `file(path#EXPORT)` reads a bundled prompt at render time. It is
+// not in the pure function library because it touches the filesystem; the roots
+// it may read from are installed into the scope by the executor and validator
+// under FILE_SOURCE_KEY. Without those roots (a bare template evaluation) it
+// refuses, so a file read never happens by surprise.
+function callFile(node: Node, scope: Scope): unknown {
+  const args = (node.arguments as Node[]).map((argument) => evaluate(argument, scope));
+  if (args.length !== 1 || typeof args[0] !== 'string') {
+    throw new TemplateError('file() takes one string path, optionally with #EXPORT');
+  }
+  const roots = scope[FILE_SOURCE_KEY] as FileSourceRoots | undefined;
+  if (!roots) {
+    throw new TemplateError('file() is not available here: no file roots are configured');
+  }
+  try {
+    return readFileSource(args[0], roots);
+  } catch (error) {
+    throw new TemplateError(error instanceof Error ? error.message : String(error));
+  }
 }
 
 /** Evaluate a single expression (the text between {{ and }}) against a scope. */
@@ -442,4 +476,9 @@ export function renderDeep(value: unknown, scope: Scope): unknown {
 }
 
 /** The names of the functions the engine exposes, for the validator (§7). */
-export const FUNCTION_NAMES: readonly string[] = Object.freeze(Object.keys(FUNCTIONS));
+export const FUNCTION_NAMES: readonly string[] = Object.freeze([
+  ...Object.keys(FUNCTIONS),
+  // file() is handled specially in call() rather than in FUNCTIONS because it
+  // reads the filesystem, but it is a callable name the validator must accept.
+  'file',
+]);

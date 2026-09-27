@@ -11,7 +11,9 @@
 // does not fail validation.
 
 import { CapabilitySchema, MediaRoleSchema } from '@kilnry/core/types';
+import { dirname } from 'node:path';
 import { evaluateExpression, TemplateError } from './template.js';
+import { readFileSource, packagesRootFrom, type FileSourceRoots } from './file-source.js';
 import { parseWorkflow, WorkflowParseError } from './parse.js';
 import {
   AnalyzeTaskSchema,
@@ -78,6 +80,16 @@ function collectStrings(value: unknown, out: string[]): void {
     for (const child of Object.values(value as Record<string, unknown>)) collectStrings(child, out);
 }
 
+// The string literal inside each `file('...')` / `file("...")` call in an
+// expression body. Only literal arguments are extracted; a computed path is left
+// to plan time.
+function fileRefs(body: string): string[] {
+  const out: string[] = [];
+  const call = /\bfile\(\s*(['"])([^'"]*)\1\s*\)/g;
+  for (const match of body.matchAll(call)) if (match[2] !== undefined) out.push(match[2]);
+  return out;
+}
+
 // A media ref is safe when it is an id/path/https or a template; a raw file:// or
 // a `..` traversal is refused (§7 rule 11).
 function unsafeMediaRef(ref: string): boolean {
@@ -88,7 +100,11 @@ function unsafeMediaRef(ref: string): boolean {
 }
 
 /** Validate a parsed workflow. `fileName` (without extension) checks rule 1. */
-export function validateWorkflow(workflow: WorkflowFile, fileName?: string): WorkflowIssue[] {
+export function validateWorkflow(
+  workflow: WorkflowFile,
+  fileName?: string,
+  roots?: FileSourceRoots,
+): WorkflowIssue[] {
   const issues: WorkflowIssue[] = [];
   const error = (rule: string, message: string): void => {
     issues.push({ rule, level: 'error', message });
@@ -135,6 +151,26 @@ export function validateWorkflow(workflow: WorkflowFile, fileName?: string): Wor
       }
     }
   });
+
+  // Rule 3b (§7, file() security): every file() reference resolves inside the
+  // allowed roots and, with an #EXPORT, names a string constant. Skipped when no
+  // roots are known (a schema-only check with no file path), so the CLI and the
+  // import path read the disk while a bare parse does not.
+  if (roots !== undefined) {
+    walk(workflow.steps, (step) => {
+      const templates: string[] = [];
+      collectTemplates(step, templates);
+      for (const body of templates) {
+        for (const ref of fileRefs(body)) {
+          try {
+            readFileSource(ref, roots);
+          } catch (e) {
+            error('7.11', `step "${step.id}" file(${JSON.stringify(ref)}): ${(e as Error).message}`);
+          }
+        }
+      }
+    });
+  }
 
   // Rules 5, 6, 7, 8, 10, 11 per step.
   walk(workflow.steps, (step) => {
@@ -216,7 +252,7 @@ export function validateWorkflow(workflow: WorkflowFile, fileName?: string): Wor
 }
 
 /** Validate a workflow from its YAML text; the parse errors become rule 1. */
-export function validateWorkflowFile(yaml: string, fileName?: string): ValidationResult {
+export function validateWorkflowFile(yaml: string, fileName?: string, filePath?: string): ValidationResult {
   if (new TextEncoder().encode(yaml).length > MAX_FILE_BYTES) {
     return {
       ok: false,
@@ -244,8 +280,18 @@ export function validateWorkflowFile(yaml: string, fileName?: string): Validatio
       issues: [{ rule: '7.10', level: 'error', message: 'description exceeds 1,024 characters.' }],
     };
   }
-  const issues = validateWorkflow(workflow, fileName);
+  const issues = validateWorkflow(workflow, fileName, rootsFor(filePath));
   return { ok: !issues.some((issue) => issue.level === 'error'), workflow, issues };
+}
+
+// Derive the file() roots from the workflow file's own path: its folder is one
+// allowed root, and the packages directory containing it (or containing the
+// process's own packages) is the other. Returns undefined when no path is known,
+// which turns the file() rule off.
+function rootsFor(filePath?: string): FileSourceRoots | undefined {
+  if (filePath === undefined) return undefined;
+  const workflowDir = dirname(filePath);
+  return { packagesRoot: packagesRootFrom(workflowDir), workflowDir };
 }
 
 // A scope whose every member access returns another proxy, so evaluating a

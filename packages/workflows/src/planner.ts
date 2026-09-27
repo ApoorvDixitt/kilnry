@@ -17,7 +17,8 @@
 // validates and defaults the inputs. This keeps the planner unit-testable with a
 // stub price function and identical in the app.
 
-import { evaluateExpression, renderDeep, renderString, type Scope } from './template.js';
+import { evaluateExpression, renderDeep, renderString, FILE_SOURCE_KEY, type Scope } from './template.js';
+import type { FileSourceRoots } from './file-source.js';
 import type { Step, WorkflowFile } from './schema.js';
 
 /** A priced step in the plan preview. */
@@ -76,6 +77,8 @@ export interface PlanContext {
   };
   /** Read a resolved character by handle, for the characters namespace. */
   resolveCharacter?: (handle: string) => unknown;
+  /** The file() roots (packages/** and the workflow's folder), if file() is used. */
+  fileRoots?: FileSourceRoots;
   now?: Date;
 }
 
@@ -112,6 +115,7 @@ function baseScope(
     run: { workflow: workflow.id },
     steps: new Proxy({}, { get: () => ({}) }),
     presets: new Proxy({}, { get: () => ({}) }),
+    ...(ctx.fileRoots ? { [FILE_SOURCE_KEY]: ctx.fileRoots } : {}),
   };
 }
 

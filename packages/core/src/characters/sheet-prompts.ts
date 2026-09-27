@@ -52,3 +52,70 @@ export const T3_EXPRESSIONS = [
 export function renderSheetPrompt(template: string, short: string): string {
   return template.replaceAll('{{short}}', short).trim();
 }
+
+// ── The workflow-facing templates (kilnry-character-sheet.yaml) ───────────────
+// The character-sheet workflow renders these through the template engine's
+// render() function, so their placeholders are the {{token}} names that
+// workflow passes: {{n}}, {{views}}, {{outfit}}, {{look}}, {{exprs}},
+// {{anchors}}, {{state_description}}. They are kept as plain string exports so
+// the workflow's file('...#EXPORT') reference reads them without executing code.
+// The "Build sheet" button above uses its own {{short}} variants; the two paths
+// share wording but not tokens.
+
+// T0 — clean the anchor from a source photo.
+export const T0 = [
+  'Clean, well-lit character reference of the person in image 1.',
+  'Waist-up, facing the camera, neutral expression, arms relaxed.',
+  'Plain light-grey studio background, even soft lighting, no props.',
+  'Keep the face, hair, and build exactly as in image 1. {{look}} look.',
+].join(' ');
+
+// T0_TEXT — generate the anchor from a text description (no source photo).
+export const T0_TEXT = [
+  'Clean, well-lit character reference, waist-up, facing the camera, neutral expression.',
+  'Plain light-grey studio background, even soft lighting, no props. {{look}} look.',
+].join(' ');
+
+// T1 — a turnaround row of {{n}} panels showing the named {{views}}.
+export const T1 = [
+  'A single wide image: {{n}} equal panels in one row showing the same person from image 1.',
+  'Panels left to right: {{views}}.',
+  'Consistent identity, outfit, lighting, and scale across all panels.',
+  'Wearing {{outfit}}. Plain light-grey background, full turnaround pose, no text or labels. {{look}} look.',
+].join(' ');
+
+// T1_FULL — a single full-body shot.
+export const T1_FULL = [
+  'A single full-body image of the same person from image 1, standing, facing the camera.',
+  'Head to feet in frame, natural stance, wearing {{outfit}}.',
+  'Plain light-grey background, even lighting, no text or labels. {{look}} look.',
+].join(' ');
+
+// T2 — the expression grid over the named {{exprs}}, anchored on {{anchors}}.
+export const T2 = [
+  'A single image: a three by three grid of the same person from image 1, head and shoulders.',
+  'Expressions, row-major: {{exprs}}.',
+  'Keep these features constant across every cell: {{anchors}}.',
+  'Consistent hair and lighting, plain background, no text. {{look}} look.',
+].join(' ');
+
+// T3_IMAGE — an outfit change driven by a reference garment image.
+export const T3_IMAGE = [
+  'The same person from image 1, waist-up, facing the camera, neutral expression.',
+  'Dress them in the garment shown in image 2, fitted naturally to their body.',
+  'Plain light-grey background, even lighting, no text or labels.',
+].join(' ');
+
+// T3_TEXT — an outfit change described in words.
+export const T3_TEXT = [
+  'The same person from image 1, waist-up, facing the camera, neutral expression.',
+  'Dress them in {{outfit}}, fitted naturally to their body.',
+  'Plain light-grey background, even lighting, no text or labels.',
+].join(' ');
+
+// T3_STATE — the same person in a described state or scene.
+export const T3_STATE = [
+  'The same person from image 1, {{state_description}}.',
+  'Keep the face, hair, and build exactly as in image 1.',
+  'Even lighting, no text or labels.',
+].join(' ');
