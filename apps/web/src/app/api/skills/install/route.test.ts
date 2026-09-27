@@ -8,20 +8,17 @@
 // dropped skill carrying an executable script is refused with the exact message
 // and nothing is written.
 //
-// This file owns the lifetime of the embedded Postgres instance at its own data
-// directory. Pointing KILNRY_DATA_DIR at a temporary folder means any module in
-// this worker that asks for the database opens a file-backed instance under it,
-// so the folder may only be removed after an awaited close — removing it while
-// the instance is live tore the WebAssembly module down mid-write and surfaced as
-// an unhandled "unexpected data beyond EOF" or "RuntimeError: Aborted()" against
-// whichever test file happened to be running. The directory is therefore created
-// once and removed once, in afterAll, after closeDatabase has resolved.
+// This file owns the lifetime of its own data directory. Pointing
+// KILNRY_DATA_DIR at a temporary folder and removing that folder after every case
+// meant any module in this worker that asked for the database would have had its
+// files pulled out from under it. The directory is therefore created once and
+// removed once, in afterAll, and only the installed-skills folder is cleared
+// between cases. Nothing on this route opens a database.
 
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { closeDatabase } from '@kilnry/db';
 
 vi.mock('../../../../server/http', async (importOriginal) => {
   const original = await importOriginal<typeof import('../../../../server/http')>();
@@ -63,12 +60,8 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-afterAll(async () => {
+afterAll(() => {
   delete process.env.KILNRY_DATA_DIR;
-  // Release the embedded Postgres instance before the folder holding its files
-  // goes away; closeDatabase waits for the readiness chain and is a no-op when
-  // nothing was ever opened.
-  await closeDatabase();
   rmSync(dataDir, { recursive: true, force: true });
 });
 

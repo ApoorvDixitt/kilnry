@@ -44,12 +44,46 @@ import { POST } from './route';
 const server = setupServer(chatCompletionHandler);
 const disposers: Array<() => Promise<void> | void> = [];
 
-beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
+// One embedded database serves both cases. Creating and closing a PGlite
+// instance per case booted a second WebAssembly module in the same worker after
+// the first had been torn down, which aborted inside the module's own entry point
+// (Object.callMain) and surfaced as an unhandled "RuntimeError: Aborted()" that
+// failed the unit job while every test passed. The instance is created once here,
+// seeded once, and closed once in afterAll.
+let database: ReturnType<typeof createDatabase>;
+let root: string;
+
+beforeAll(async () => {
+  server.listen({ onUnhandledRequest: 'error' });
+  root = mkdtempSync(join(tmpdir(), 'kilnry-chat-route-'));
+  const dataDir = join(root, 'data');
+  const libraryRoot = join(root, 'library');
+  mkdirSync(dataDir, { recursive: true, mode: 0o700 });
+  mkdirSync(libraryRoot, { recursive: true });
+  process.env.KILNRY_DATA_DIR = dataDir;
+  process.env.KILNRY_LIBRARY_ROOT = libraryRoot;
+  database = createDatabase(dataDir, { memory: true });
+  await database.ready;
+  await seedRegistry(database);
+});
+
 afterEach(async () => {
   vi.restoreAllMocks();
   for (const dispose of disposers.splice(0).reverse()) await dispose();
+  // Each case asserts on the rows its own turn wrote, so the shared instance
+  // starts every case with none of them.
+  await database.db.delete(jobs);
+  await database.db.delete(chatMessages);
+  await database.db.delete(chatSessions);
 });
-afterAll(() => server.close());
+
+afterAll(async () => {
+  server.close();
+  delete process.env.KILNRY_DATA_DIR;
+  delete process.env.KILNRY_LIBRARY_ROOT;
+  await closeDatabaseState(database);
+  rmSync(root, { recursive: true, force: true });
+});
 
 interface Chunk {
   type?: string;
@@ -107,17 +141,6 @@ function fakeEngine(perRequestUsd = 0.42) {
 
 describe('POST /api/chat — scripted OpenRouter tool rounds', () => {
   it('streams two skills results, an estimate result, then asks before the three-video spend', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'kilnry-chat-route-'));
-    const dataDir = join(root, 'data');
-    const libraryRoot = join(root, 'library');
-    mkdirSync(dataDir, { recursive: true, mode: 0o700 });
-    mkdirSync(libraryRoot, { recursive: true });
-    process.env.KILNRY_DATA_DIR = dataDir;
-    process.env.KILNRY_LIBRARY_ROOT = libraryRoot;
-
-    const database = createDatabase(dataDir, { memory: true });
-    await database.ready;
-    await seedRegistry(database);
     await database.db.insert(chatSessions).values({
       id: 'chai-route-session',
       llmProvider: 'openrouter',
@@ -136,12 +159,6 @@ describe('POST /api/chat — scripted OpenRouter tool rounds', () => {
         get: async (provider: string) => (provider === 'openrouter' ? 'sk-or-v1-fixture' : undefined),
       },
     };
-    disposers.push(async () => {
-      delete process.env.KILNRY_DATA_DIR;
-      delete process.env.KILNRY_LIBRARY_ROOT;
-      await closeDatabaseState(database);
-      rmSync(root, { recursive: true, force: true });
-    });
 
     const response = await POST(
       new Request('http://127.0.0.1:3123/api/chat', {
@@ -205,17 +222,6 @@ describe('POST /api/chat — scripted OpenRouter tool rounds', () => {
   }, 30_000);
 
   it('stamps an automatic confirmer on a call the policy let through below the threshold', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'kilnry-chat-auto-'));
-    const dataDir = join(root, 'data');
-    const libraryRoot = join(root, 'library');
-    mkdirSync(dataDir, { recursive: true, mode: 0o700 });
-    mkdirSync(libraryRoot, { recursive: true });
-    process.env.KILNRY_DATA_DIR = dataDir;
-    process.env.KILNRY_LIBRARY_ROOT = libraryRoot;
-
-    const database = createDatabase(dataDir, { memory: true });
-    await database.ready;
-    await seedRegistry(database);
     await database.db.insert(chatSessions).values({
       id: 'chai-auto-session',
       llmProvider: 'openrouter',
@@ -236,12 +242,6 @@ describe('POST /api/chat — scripted OpenRouter tool rounds', () => {
         get: async (provider: string) => (provider === 'openrouter' ? 'sk-or-v1-fixture' : undefined),
       },
     };
-    disposers.push(async () => {
-      delete process.env.KILNRY_DATA_DIR;
-      delete process.env.KILNRY_LIBRARY_ROOT;
-      await closeDatabaseState(database);
-      rmSync(root, { recursive: true, force: true });
-    });
 
     const response = await POST(
       new Request('http://127.0.0.1:3123/api/chat', {

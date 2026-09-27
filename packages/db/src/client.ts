@@ -31,19 +31,18 @@ export function createDatabase(dataDir: string, options: { memory?: boolean } = 
   return { client, db, dataDir, ready };
 }
 
-// Closing while the instance is still opening, still migrating, or still serving
-// a query aborts the embedded Postgres WebAssembly module: the abort surfaces as
-// an unhandled "RuntimeError: Aborted()" or, on a file-backed instance, as
-// "unexpected data beyond EOF" the next time a buffer is extended. So a close
-// always waits for the readiness chain to settle first, and closing twice is a
-// no-op rather than a second abort.
+// Closing while the instance is still serving a query aborts the embedded
+// Postgres WebAssembly module: the abort surfaces as an unhandled
+// "RuntimeError: Aborted()" or, on a file-backed instance, as "unexpected data
+// beyond EOF" the next time a buffer is extended. So closing is single-shot, and
+// the readiness chain's own rejection is neutralised rather than awaited — waiting
+// on it would make the caller block on, and re-raise, a boot that already failed.
 const closed = new WeakSet<PGlite>();
 
 export async function closeDatabaseState(state: DatabaseState): Promise<void> {
   if (closed.has(state.client)) return;
   closed.add(state.client);
-  // A failed migration must not stop the close; the instance still has to go.
-  await state.ready.catch(() => undefined);
+  void state.ready.catch(() => undefined);
   await state.client.close();
 }
 
