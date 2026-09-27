@@ -89,12 +89,14 @@ jobs:
         run: pnpm i18n:check
       - name: Check launcher package size
         run: pnpm check:size
-      - name: Validate the shipped workflow catalogue
-        run: pnpm workflows:validate
       - name: Lint and format
         run: pnpm lint
       - name: Typecheck
         run: pnpm typecheck
+      # Runs after the typecheck because that is what builds the launcher the
+      # command lives in; the launcher's binary loads its compiled entry point.
+      - name: Validate the shipped workflow catalogue
+        run: pnpm workflows:validate
       - name: Unit and integration tests
         run: pnpm test
       - name: Install browser
