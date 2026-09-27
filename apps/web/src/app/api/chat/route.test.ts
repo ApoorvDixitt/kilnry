@@ -65,7 +65,12 @@ beforeAll(async () => {
   database = createDatabase(dataDir, { memory: true });
   await database.ready;
   await seedRegistry(database);
-});
+  // Applying the migrations and seeding the model registry is the work each case
+  // used to do for itself; doing it once here is well inside a second locally but
+  // several times that on a loaded continuous-integration runner, past vitest's
+  // ten-second default for a hook. A deterministic budget removes that without
+  // hiding a real hang.
+}, 60_000);
 
 afterEach(async () => {
   vi.restoreAllMocks();
@@ -75,7 +80,7 @@ afterEach(async () => {
   await database.db.delete(jobs);
   await database.db.delete(chatMessages);
   await database.db.delete(chatSessions);
-});
+}, 30_000);
 
 afterAll(async () => {
   server.close();
@@ -83,7 +88,7 @@ afterAll(async () => {
   delete process.env.KILNRY_LIBRARY_ROOT;
   await closeDatabaseState(database);
   rmSync(root, { recursive: true, force: true });
-});
+}, 30_000);
 
 interface Chunk {
   type?: string;
