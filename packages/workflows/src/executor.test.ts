@@ -129,6 +129,128 @@ steps:
   });
 });
 
+// An `approval` marked on a working step is a gate in front of that step, not a
+// substitute for it: PRD-10 §4 says the step pauses the run, and once approved the
+// step still has to do its work. The four shipped workflows that mark a generate
+// or analyze step this way used to have that step marked complete with the
+// decision as its only output, producing no asset and spending nothing.
+describe('an inline approval gates a step without replacing its work (F-WFL-04)', () => {
+  const scope = { inputs: {}, defaults: {}, vars: {} };
+
+  const GATED = (mode: 'hard' | 'soft'): string => `
+id: kilnry-gated-demo
+name: Gated demo
+version: 1.0.0
+category: image
+steps:
+  - id: anchor
+    kind: generate
+    capability: text2image
+    prompt: "anchor"
+    approval: ${mode}
+    outputs: { asset: "{{ result.assets[0] }}" }
+`;
+
+  function producingEffects(counter: { runs: string[] }, overrides: Partial<Effects> = {}): Effects {
+    return {
+      runStep: async (node: RunStep): Promise<StepResult> => {
+        counter.runs.push(node.step_id);
+        return {
+          outputs: { result: { assets: ['asset-anchor'] } },
+          actual_usd: 0.19,
+          model: 'stub/model',
+          provider: 'fal',
+          status: 'completed',
+        };
+      },
+      ...overrides,
+    };
+  }
+
+  it('waits at a hard gate without running the step', async () => {
+    const counter = { runs: [] as string[] };
+    const state = await execute(
+      parseWorkflow(GATED('hard')),
+      scope,
+      producingEffects(counter, { decide: () => 'wait' }),
+    );
+    expect(state.status).toBe('awaiting_approval');
+    expect(state.steps[0]?.status).toBe('waiting');
+    expect(counter.runs).toEqual([]);
+    expect(state.spent_usd).toBe(0);
+  });
+
+  it('runs the step itself once a hard gate is approved', async () => {
+    const counter = { runs: [] as string[] };
+    const state = await execute(
+      parseWorkflow(GATED('hard')),
+      scope,
+      producingEffects(counter, { decide: () => 'approve' }),
+    );
+    expect(state.status).toBe('completed');
+    expect(counter.runs).toEqual(['anchor']);
+    // The step's declared output resolves from its own result, not from the
+    // decision, so a downstream step can read the asset it produced.
+    expect(state.steps[0]?.outputs).toMatchObject({ asset: 'asset-anchor' });
+    expect(state.steps[0]?.outputs).not.toMatchObject({ choice: 'approve' });
+    expect(state.spent_usd).toBeCloseTo(0.19, 6);
+  });
+
+  it('runs the step itself when a soft gate proceeds automatically', async () => {
+    const counter = { runs: [] as string[] };
+    const state = await execute(parseWorkflow(GATED('soft')), scope, producingEffects(counter), {
+      automatic: true,
+    });
+    expect(state.status).toBe('completed');
+    expect(counter.runs).toEqual(['anchor']);
+    expect(state.steps[0]?.outputs).toMatchObject({ asset: 'asset-anchor' });
+    expect(state.spent_usd).toBeCloseTo(0.19, 6);
+  });
+
+  it('runs the step after a paused gate is resumed with the decision recorded', async () => {
+    const counter = { runs: [] as string[] };
+    const wf = parseWorkflow(GATED('hard'));
+    const paused = await execute(wf, scope, producingEffects(counter, { decide: () => 'wait' }));
+    expect(paused.status).toBe('awaiting_approval');
+    expect(counter.runs).toEqual([]);
+    // The host records the decision the way approveRun does for a gated working
+    // step: back to pending with the gate cleared, not completed.
+    const gated = paused.steps[0]!;
+    gated.status = 'pending';
+    gated.approval_cleared = true;
+    const resumed = await execute(wf, scope, producingEffects(counter), {}, paused);
+    expect(resumed.status).toBe('completed');
+    expect(counter.runs).toEqual(['anchor']);
+    expect(resumed.steps[0]?.outputs).toMatchObject({ asset: 'asset-anchor' });
+  });
+
+  it('denying a gated step neither runs it nor spends', async () => {
+    const counter = { runs: [] as string[] };
+    const state = await execute(
+      parseWorkflow(GATED('hard')),
+      scope,
+      producingEffects(counter, { decide: () => 'deny' }),
+    );
+    expect(state.steps[0]?.status).toBe('denied');
+    expect(counter.runs).toEqual([]);
+    expect(state.spent_usd).toBe(0);
+  });
+
+  it('a barrier approval step is still finished by approving it', async () => {
+    const counter = { runs: [] as string[] };
+    const state = await execute(
+      parseWorkflow(WF),
+      scope,
+      producingEffects(counter, { decide: () => 'approve' }),
+    );
+    const gate = state.steps.find((step) => step.step_id === 'approve')!;
+    expect(gate.status).toBe('completed');
+    expect(gate.outputs).toMatchObject({ choice: 'approve' });
+    // The barrier itself never reaches the step runner.
+    expect(counter.runs).not.toContain('approve');
+  });
+});
+
 describe('export step array expansion (F-WFL-09, TRD-12 §4)', () => {
   const EXPORT_WF = `
 id: kilnry-export-demo

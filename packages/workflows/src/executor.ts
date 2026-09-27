@@ -49,6 +49,15 @@ export interface RunStep {
   adjustments: string[];
   error?: string;
   approval: boolean | 'hard' | 'soft';
+  /**
+   * True once this step's checkpoint has been answered with an approval. A step
+   * whose `kind` is `approval` is a barrier and nothing more, so approving it
+   * completes it. An `approval` marked on a working step is only a gate in front
+   * of that step: once the gate is cleared the step still has to do its own work,
+   * so the flag lets the run loop pass the gate and fall through to run it, and
+   * lets a resumed run tell "approved, still to run" from "finished" (F-WFL-04).
+   */
+  approval_cleared?: boolean;
 }
 
 export interface RunState {
@@ -334,20 +343,17 @@ export async function execute(
         continue;
       }
 
-      // A checkpoint pauses or proceeds per its mode.
-      if (node.kind === 'approval' || node.approval !== false) {
-        const mode = node.kind === 'approval' ? approvalMode(node.step) : node.approval;
-        const skippable = node.kind === 'approval' ? approvalSkippable(node.step) : true;
+      // A checkpoint gates the step. `kind: approval` is a barrier and nothing
+      // more: approving it completes it. An `approval` marked on a working step
+      // is only a gate in front of that step, so once the gate is cleared the
+      // loop falls through and the step runs its own work (F-WFL-04, PRD-10 §4).
+      const isBarrier = node.kind === 'approval';
+      if ((isBarrier || node.approval !== false) && node.approval_cleared !== true) {
+        const mode = isBarrier ? approvalMode(node.step) : node.approval;
+        const skippable = isBarrier ? approvalSkippable(node.step) : true;
         const canProceed =
           mode === 'soft' && skippable && (options.automatic === true || options.skipApprovals === true);
-        if (canProceed) {
-          node.status = 'completed';
-          node.outputs = { choice: 'approve' };
-          progressed = true;
-          await checkpoint();
-          continue;
-        }
-        const decision = (await effects.decide?.(node, scope)) ?? 'wait';
+        const decision = canProceed ? 'approve' : ((await effects.decide?.(node, scope)) ?? 'wait');
         if (decision === 'wait') {
           node.status = 'waiting';
           state.status = 'awaiting_approval';
@@ -365,11 +371,16 @@ export async function execute(
           }
           continue;
         }
-        node.status = 'completed';
-        node.outputs = { choice: 'approve' };
-        progressed = true;
+        node.approval_cleared = true;
+        if (isBarrier) {
+          node.status = 'completed';
+          node.outputs = { choice: 'approve' };
+          progressed = true;
+          await checkpoint();
+          continue;
+        }
+        // The gate is cleared; fall through and run the step itself.
         await checkpoint();
-        continue;
       }
 
       // Run the step (set/generate/transform/assemble/analyze/export).
@@ -585,6 +596,9 @@ export function resetFrom(state: RunState, stepId: string, modelOverride?: strin
     node.status = 'pending';
     node.outputs = {};
     delete node.error;
+    // A re-run asks again: a gate that was cleared for the previous attempt does
+    // not stand in for this one (PRD-10 §4).
+    delete node.approval_cleared;
     if (node.step_id === stepId && modelOverride !== undefined) {
       node.model = modelOverride;
       node.adjustments.push(`model swapped to ${modelOverride}: re-run from step`);

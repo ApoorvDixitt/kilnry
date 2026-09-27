@@ -603,6 +603,10 @@ async function rebuildRunState(
     if (row.actualUsd) node.actual_usd = Number(row.actualUsd);
     if (Array.isArray(row.adjustments)) node.adjustments = row.adjustments as string[];
     node.attempts = row.attempts ?? 0;
+    // A decided checkpoint carries its approval time. For a step that only had an
+    // approval gate in front of its own work, that is what tells the run loop the
+    // gate is cleared so the step runs instead of pausing again (F-WFL-04).
+    if (row.approvedAt) node.approval_cleared = true;
     spent += Number(row.actualUsd ?? 0);
   }
   state.spent_usd = spent;
@@ -665,11 +669,16 @@ export async function approveRun(
     .where(and(eq(runSteps.runId, runId), eq(runSteps.status, 'waiting')));
   if (waiting.length === 0) throw new KilnryError('INVALID_INPUT', 'This run is not waiting for approval.');
   for (const step of waiting) {
+    // A barrier step (`kind: approval`) is finished the moment it is approved. A
+    // step that merely carried an approval gate in front of its own work goes back
+    // to pending with its approval time recorded, so the resumed run clears the
+    // gate and then runs the step (F-WFL-04, PRD-10 §4).
+    const barrier = step.kind === 'approval';
     await db.db
       .update(runSteps)
       .set({
-        status: 'completed',
-        outputs: { choice: 'approve' },
+        status: barrier ? 'completed' : 'pending',
+        ...(barrier ? { outputs: { choice: 'approve' } } : {}),
         approvedAt: new Date(),
         decidedBy: 'owner',
       })
@@ -1065,6 +1074,10 @@ async function upsertStep(db: DatabaseState, runId: string, node: RunStep, statu
     ...(node.provider === undefined ? {} : { provider: node.provider }),
     ...(node.error === undefined ? {} : { error: node.error }),
     attempts: node.attempts,
+    // A gated step that is pending again with no cleared gate has been reset for a
+    // re-run, so its recorded approval is dropped and the checkpoint asks again
+    // (F-WFL-04). Any other state leaves the recorded approval time alone.
+    ...(status === 'pending' && node.approval_cleared !== true ? { approvedAt: null } : {}),
   };
   if (existing[0]) {
     await db.db

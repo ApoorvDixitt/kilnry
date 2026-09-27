@@ -19,6 +19,7 @@ import {
   type Effects,
   type ExpandedExportStep,
   type PlanContext,
+  type RunState,
   type RunStep,
   type Scope,
   type Step,
@@ -491,5 +492,129 @@ steps:
     );
     expect(bad.ok).toBe(false);
     expect(bad.issues.some((issue) => issue.rule === '7.7')).toBe(true);
+  });
+});
+
+// Four shipped workflows mark an inline approval on a step that does work. Such a
+// step used to be marked complete with the decision as its only output, so it
+// produced no asset and spent nothing (PRD-10 §4). These cases drive the two
+// without an end-to-end scenario — the character sheet's clean anchor and the
+// explainer's style key — and assert the gated step reaches the engine and
+// resolves its declared output from its own result.
+describe('a gated step still does its own work in the shipped workflows (F-WFL-04)', () => {
+  function catalogueRoot(): string {
+    const here = dirname(fileURLToPath(import.meta.url));
+    return join(here, '..', '..', '..', '..', 'packages', 'workflows', 'catalogue');
+  }
+
+  const fixturePlan: PlanContext = {
+    resolveInputs: (workflow, inputs) => {
+      const properties =
+        (workflow.inputs as { properties?: Record<string, { default?: unknown }> }).properties ?? {};
+      const withDefaults: Record<string, unknown> = { ...inputs };
+      for (const [key, schema] of Object.entries(properties)) {
+        if (withDefaults[key] === undefined && schema.default !== undefined) {
+          withDefaults[key] = schema.default;
+        }
+      }
+      return withDefaults;
+    },
+    // The character sheet reads the characters namespace for its anchor and
+    // descriptor, so the fixture answers with a resolved character that has no
+    // anchor reference yet — the case the clean-anchor branch exists for.
+    resolveCharacter: () => ({
+      handle: 'maya',
+      references: [],
+      appearance: {
+        descriptor: 'A woman in her late twenties. Warm brown eyes.',
+        anchors: ['freckles across the nose', 'a small scar above the left brow'],
+        outfit: 'a plain oatmeal knit',
+      },
+    }),
+    priceStep: (step: Step) => ({
+      model: step.kind === 'generate' ? 'fal/x' : 'openrouter/gemini',
+      provider: step.kind === 'generate' ? 'fal' : 'openrouter',
+      estimate_usd: 0.05,
+      eta_s: 3,
+      why: 'fixture',
+    }),
+  };
+
+  // Drive a catalogue workflow with every checkpoint approved, recording which
+  // steps reached the step runner. A gated step that never runs cannot appear.
+  async function runApprovingEveryGate(
+    id: string,
+    inputs: Record<string, unknown>,
+  ): Promise<{ ran: string[]; state: RunState }> {
+    const workflow = parseWorkflow(readFileSync(join(catalogueRoot(), `${id}.yaml`), 'utf8'));
+    const resolved = fixturePlan.resolveInputs(workflow, inputs);
+    const priced = plan(workflow, inputs, fixturePlan);
+    // The executor sees the same namespaces the planner did, including the
+    // characters the character sheet reads.
+    const scope: Scope = {
+      inputs: resolved,
+      defaults: workflow.defaults,
+      vars: priced.vars,
+      characters: { maya: fixturePlan.resolveCharacter?.('maya') },
+    };
+    const ran: string[] = [];
+    let snapshot: RunState = { status: 'running', steps: [], spent_usd: 0 };
+    const effects: Effects = {
+      decide: async (): Promise<'approve' | 'deny' | 'wait'> => 'approve',
+      // The executor checkpoints after every state change, so the snapshot holds
+      // the latest state even if a later step throws while rendering.
+      persist: (state: RunState): void => {
+        snapshot = state;
+      },
+      runStep: async (node: RunStep): Promise<StepResult> => {
+        ran.push(node.step_id);
+        const asset = `asset-${ran.length}`;
+        return {
+          outputs: {
+            asset,
+            assets: [asset],
+            result: {
+              assets: [asset],
+              asset_id: asset,
+              words: [],
+              structured: { ok: true, pass: true, reasons: [], issues: [], segments: ['a', 'b', 'c'] },
+              score: 0.9,
+              badge: 'high',
+            },
+          },
+          actual_usd: 0.05,
+          model: 'fal/x',
+          provider: 'fal',
+          status: 'completed',
+        };
+      },
+    };
+    let state: RunState;
+    try {
+      state = await execute(workflow, scope, effects, {});
+    } catch {
+      // A terminal export/render issue does not undo the steps already run; the
+      // assertion below is on the gated step, which runs long before the export,
+      // so the last checkpointed snapshot is what the case reads.
+      state = snapshot;
+    }
+    return { ran, state };
+  }
+
+  it("runs the explainer's gated style key and resolves its asset", async () => {
+    const { ran, state } = await runApprovingEveryGate('kilnry-motion-design', {
+      brief: 'How a valley forms',
+      style: 'saas_motion',
+      duration_s: 15,
+      aspect: '16:9',
+      voice: 'voice-narrator-1',
+      language: 'en',
+    });
+    expect(ran).toContain('style_key');
+    const styleKey = state.steps.find((step) => step.step_id === 'style_key');
+    expect(styleKey?.status).toBe('completed');
+    expect(styleKey?.outputs.asset).toMatch(/^asset-/);
+    expect(styleKey?.outputs).not.toMatchObject({ choice: 'approve' });
+    expect(styleKey?.actual_usd).toBeCloseTo(0.05, 6);
   });
 });

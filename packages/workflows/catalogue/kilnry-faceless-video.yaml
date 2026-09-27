@@ -92,7 +92,7 @@ steps:
     capability: "{{ len(inputs.style_refs) > 0 ? 'image_edit' : 'text2image' }}"
     model: auto
     constraints: { quality: standard, refs_count: '{{ len(inputs.style_refs) }}' }
-    alternates: [fal-ai/bytedance/seedream/v4.5/edit, fal-ai/nano-banana-2/edit]
+    alternates: "{{ len(inputs.style_refs) > 0 ? ['fal-ai/bytedance/seedream/v4.5/edit', 'fal-ai/nano-banana-2/edit'] : ['fal-ai/bytedance/seedream/v4.5/text-to-image', 'fal-ai/flux-2-pro'] }}"
     prompt: >
       Style sample only, no subject in particular: a wide establishing frame in this exact look — {{ vars.style_prompt }}.
       {{ len(inputs.style_refs) > 0 ? 'Match the palette, line quality and texture of the reference images exactly.' : '' }}
