@@ -152,6 +152,22 @@ interface RunManifest {
   steps?: Array<{ step_id?: string; kind?: string; actual_usd?: number; status?: string }>;
 }
 
+// Whether the run's manifest currently shows a step waiting on a decision. Used
+// by the checkpoint loop to tell a genuinely paused run (reload to reveal the
+// card) from a run that has moved on.
+function manifestWaiting(project: string, slugPrefix: string): boolean {
+  const folder = findRunFolder(project, slugPrefix);
+  if (!folder) return false;
+  const manifestPath = join(folder, 'run.kilnry.json');
+  if (!existsSync(manifestPath)) return false;
+  try {
+    const m = JSON.parse(readFileSync(manifestPath, 'utf8')) as RunManifest;
+    return (m.steps ?? []).some((s) => s.status === 'waiting');
+  } catch {
+    return false;
+  }
+}
+
 // Fill a workflow's intake by field id, preview, approve the plan total, then
 // clear any approval checkpoints, and return the run folder's manifest once it
 // lands on disk. `inputs` maps a field name to a value (string, number, or the
@@ -244,6 +260,15 @@ async function driveRun(
       continue;
     }
     if (settled()) break;
+    // No card is showing and the run has not settled. The manifest is the source
+    // of truth: if it says a step is waiting on a decision, the view lost the
+    // first-read race under load and rendered blank, so a reload forces a fresh
+    // fetch and the card reappears on the next cycle. Without this the loop spins
+    // against a blank page until the deadline while the run sits paused.
+    if (manifestWaiting(options.folder, options.slugPrefix)) {
+      await page.reload();
+      await page.waitForTimeout(1500);
+    }
   }
   const folder = await expect
     .poll(() => findRunFolder(options.folder, options.slugPrefix), { timeout: 180_000 })
