@@ -28,6 +28,14 @@ export function createDatabase(dataDir: string, options: { memory?: boolean } = 
       : new PGlite({ fs: new NodeFS(dbDir), relaxedDurability: false });
   const db = drizzle(client, { schema });
   const ready = client.waitReady.then(() => applyMigrations(client));
+  // Neutralise the readiness chain's own rejection at creation. A boot that
+  // aborts — which the embedded WebAssembly module does when a second instance is
+  // booted in a process that has torn one down, as the Next dev server can do by
+  // re-evaluating this module on a hot reload — otherwise becomes an unhandled
+  // "RuntimeError: Aborted()" rejection with no awaiter, which floods the dev log.
+  // A caller that needs to know the boot failed still awaits `ready` and sees the
+  // rejection; this only stops the unawaited copy from surfacing as unhandled.
+  void ready.catch(() => undefined);
   return { client, db, dataDir, ready };
 }
 

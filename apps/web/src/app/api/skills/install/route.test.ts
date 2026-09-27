@@ -13,12 +13,14 @@
 // meant any module in this worker that asked for the database would have had its
 // files pulled out from under it. The directory is therefore created once and
 // removed once, in afterAll, and only the installed-skills folder is cleared
-// between cases. Nothing on this route opens a database.
+// between cases. The database singleton is closed in afterAll before the
+// directory is removed, in case the route's core imports opened it.
 
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { closeDatabase } from '@kilnry/db';
 
 vi.mock('../../../../server/http', async (importOriginal) => {
   const original = await importOriginal<typeof import('../../../../server/http')>();
@@ -60,7 +62,13 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-afterAll(() => {
+afterAll(async () => {
+  // If anything this route touched opened the file-backed database singleton
+  // against this data dir, close it before the directory is removed. Otherwise
+  // its NodeFS handle flushes into a directory that no longer exists and throws
+  // an ENOTDIR the worker reports as an unhandled error, failing the unit job on
+  // a loaded runner while every test passes.
+  await closeDatabase();
   delete process.env.KILNRY_DATA_DIR;
   rmSync(dataDir, { recursive: true, force: true });
 });
