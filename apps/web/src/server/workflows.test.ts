@@ -167,9 +167,17 @@ describe('workflow host runner money path (F-WFL-01/02/03)', () => {
       { index: 0 },
     );
     const input = buildSpendInput('run_9', 'inbox/x', node, rendered, scope, 0.5);
-    expect(input.client_request_id).toBe('run_9:boards[0].board');
+    expect(input.client_request_id).toBe('run_9:boards[0].board:0');
     expect(input.request.prompt).toContain('board');
     expect(input.request.source).toBe('workflow');
+
+    // A later attempt of the same node produces a distinct idempotency key, so a
+    // retry is a fresh request rather than an idempotent replay of the failed job
+    // (F-WFL-05).
+    const retryNode: RunStep = { ...node, attempts: 1 };
+    const retry = buildSpendInput('run_9', 'inbox/x', retryNode, rendered, scope, 0.5);
+    expect(retry.client_request_id).toBe('run_9:boards[0].board:1');
+    expect(retry.client_request_id).not.toBe(input.client_request_id);
   });
 });
 

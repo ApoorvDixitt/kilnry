@@ -127,6 +127,58 @@ steps:
     expect(state.status).toBe('running');
     expect(state.steps.find((step) => step.step_id === 'clip')?.status).toBe('pending');
   });
+
+  it('numbers each retry attempt so it is a fresh request, not a replay (F-WFL-05)', async () => {
+    const wf = parseWorkflow(`
+id: kilnry-retry-attempts
+name: Retry attempts
+version: 1.0.0
+category: image
+steps:
+  - id: gen
+    kind: generate
+    capability: text2image
+    model: primary/model
+    prompt: "x"
+    retry: { max: 2, on: [PROVIDER_ERROR] }
+    outputs: { asset: "a1" }
+`);
+    const seenAttempts: number[] = [];
+    const state = await execute(wf, scope, {
+      runStep: async (node: RunStep): Promise<StepResult> => {
+        // The host keys the idempotency id off node.attempts; record it so we can
+        // assert every attempt carried a distinct number rather than replaying.
+        seenAttempts.push(node.attempts);
+        if (node.attempts < 3) {
+          return { outputs: {}, status: 'failed', error: 'PROVIDER_ERROR', retryable: true };
+        }
+        return { outputs: { asset: 'a1' }, actual_usd: 0.1, status: 'completed' };
+      },
+    });
+    expect(state.steps.find((step) => step.step_id === 'gen')?.status).toBe('completed');
+    // Three attempts (initial + two retries), each with a distinct, increasing
+    // attempt number — so each produced a different client_request_id.
+    expect(seenAttempts).toEqual([1, 2, 3]);
+    expect(new Set(seenAttempts).size).toBe(seenAttempts.length);
+  });
+
+  it('resetFrom zeroes a re-run step so its spend is not double-counted (F-WFL-05)', async () => {
+    const wf = parseWorkflow(WF.replace('mode: hard', 'mode: soft'));
+    const state = await execute(wf, scope, completingEffects(), { automatic: true });
+    expect(state.spent_usd).toBeCloseTo(0.75, 6); // 2 boards + 1 clip at 0.25
+
+    // Reset from the checkpoint: the clip after it re-pends and its 0.25 leaves
+    // the run total and the node.
+    resetFrom(state, 'approve');
+    const clip = state.steps.find((step) => step.step_id === 'clip')!;
+    expect(clip.actual_usd).toBe(0);
+    expect(state.spent_usd).toBeCloseTo(0.5, 6); // only the two boards remain
+
+    // Re-running adds the clip's cost exactly once, not on top of the old one.
+    const resumed = await execute(wf, scope, completingEffects(), { automatic: true }, state);
+    expect(resumed.status).toBe('completed');
+    expect(resumed.spent_usd).toBeCloseTo(0.75, 6);
+  });
 });
 
 // An `approval` marked on a working step is a gate in front of that step, not a

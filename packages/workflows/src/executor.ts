@@ -456,7 +456,8 @@ async function runWithRetry(
   let tries = 0;
   while (result.status !== 'completed' && result.retryable !== false && tries < maxRetries) {
     tries += 1;
-    node.attempts += 1;
+    // attempt() advances node.attempts; the client request id keys off it, so
+    // each retry is a distinct request rather than a replay of the failed job.
     if (retry?.reword) node.adjustments.push(`prompt reworded before retry ${tries}`);
     result = await attempt(node, rendered, scope, effects);
   }
@@ -593,6 +594,12 @@ export function resetFrom(state: RunState, stepId: string, modelOverride?: strin
   }
   for (const node of state.steps) {
     if (!targets.has(node.step_id)) continue;
+    // Drop this step's prior spend from the run total before it re-runs; the
+    // re-run adds its own actual cost. Without this a re-run's spend is counted
+    // on top of the attempt it replaces, so the run total double-counts the
+    // reset steps (F-WFL-05).
+    state.spent_usd -= node.actual_usd;
+    node.actual_usd = 0;
     node.status = 'pending';
     node.outputs = {};
     delete node.error;
@@ -604,6 +611,8 @@ export function resetFrom(state: RunState, stepId: string, modelOverride?: strin
       node.adjustments.push(`model swapped to ${modelOverride}: re-run from step`);
     }
   }
+  // Guard against floating-point drift leaving a tiny negative or residual.
+  if (state.spent_usd < 0) state.spent_usd = 0;
   state.status = 'running';
   return state;
 }

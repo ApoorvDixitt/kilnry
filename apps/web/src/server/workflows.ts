@@ -497,7 +497,11 @@ export function buildSpendInput(
     confirmed_by: 'user',
     run_id: runId,
     step_id: node.step_id,
-    client_request_id: `${runId}:${node.instance_id}`,
+    // The idempotency key carries the attempt number, so a retry after a failed
+    // attempt is a fresh request rather than an idempotent replay of the failed
+    // job (F-WFL-05). A crash-resume that re-runs the same attempt reuses the
+    // same key and correctly replays the job already created for it.
+    client_request_id: `${runId}:${node.instance_id}:${node.attempts}`,
   };
 }
 
