@@ -34,7 +34,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
 import { and, eq } from 'drizzle-orm';
-import { KilnryError, loadConfig, ulid } from '@kilnry/core';
+import { KilnryError, loadConfig, loadRegistry, ulid } from '@kilnry/core';
 import { CanonicalRequestSchema, type CanonicalRequest, type RouteConstraints } from '@kilnry/core';
 import { analyzeTool, capabilityFor, type ToolServices } from '@kilnry/core';
 import { assets, assetTags, runSteps, runs, type DatabaseState } from '@kilnry/db';
@@ -750,6 +750,32 @@ export async function cancelRun(db: DatabaseState, engine: JobEngine, runId: str
 }
 
 /**
+ * Assert a swapped model can serve a step's capability. A model chosen by name
+ * must be in the registry and list the capability the step needs; otherwise the
+ * swap is refused before the run continues (F-WFL-05). Kept pure and exported so
+ * the rule is tested directly without standing up a database and engine.
+ */
+export function assertModelServes(
+  model: string,
+  capability: string,
+  models: ReadonlyArray<{ provider: string; model_id: string; capabilities: readonly string[] }>,
+  stepId: string,
+): void {
+  const matches = models.filter(
+    (entry) => entry.model_id === model || `${entry.provider}/${entry.model_id}` === model,
+  );
+  if (matches.length === 0) {
+    throw new KilnryError('NOT_FOUND', `Model ${model} is not in the registry.`);
+  }
+  if (!matches.some((entry) => entry.capabilities.includes(capability))) {
+    throw new KilnryError(
+      'INVALID_INPUT',
+      `Model ${model} does not support ${capability}, which step "${stepId}" needs.`,
+    );
+  }
+}
+
+/**
  * Retry a step (optionally swapping its model) and re-run from it (F-WFL-05):
  * reset that step and its dependants to pending in the rebuilt state, persist the
  * reset, and continue the run.
@@ -771,6 +797,21 @@ export async function retryStep(
   const folder = runRow.folder ?? runFolder(entry.workflow, {});
   const baseScope = buildBaseScope(runId, folder, entry.workflow, persistedPlan);
   const rebuilt = await rebuildRunState(db, runId, entry.workflow, baseScope);
+  // A model swap validates before it re-runs: the chosen model must be in the
+  // registry and serve the step's own capability, so an image model pinned on a
+  // video step is refused now rather than dispatched as a mismatched job
+  // (F-WFL-05). This is checked against the step's capability specifically, not
+  // through the general router, whose pin-by-name is an explicit override for a
+  // directly requested generation.
+  if (modelOverride !== undefined) {
+    const target = rebuilt.steps.find((node) => node.step_id === stepId);
+    if (target && (target.kind === 'generate' || target.kind === 'transform' || target.kind === 'analyze')) {
+      const rendered = renderStep(target.step, baseScope) as Step;
+      const capability = canonicalRequestForStep(rendered, baseScope).request.capability;
+      const registry = await loadRegistry(db);
+      assertModelServes(modelOverride, capability, registry.models, stepId);
+    }
+  }
   resetFrom(rebuilt, stepId, modelOverride);
   // Persist the reset so the resumed drive sees the re-pended steps.
   for (const node of rebuilt.steps) {

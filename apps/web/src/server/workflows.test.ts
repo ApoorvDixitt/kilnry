@@ -27,7 +27,7 @@ import {
   type Step,
   type StepResult,
 } from '@kilnry/workflows';
-import { buildSpendInput, importWorkflow } from './workflows';
+import { buildSpendInput, importWorkflow, assertModelServes } from './workflows';
 import { mkdtempSync, readFileSync, existsSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -695,5 +695,30 @@ describe('a gated step still does its own work in the shipped workflows (F-WFL-0
     expect(styleKey?.outputs.asset).toMatch(/^asset-/);
     expect(styleKey?.outputs).not.toMatchObject({ choice: 'approve' });
     expect(styleKey?.actual_usd).toBeCloseTo(0.05, 6);
+  });
+});
+
+describe('a swapped model validates against the step it re-runs (F-WFL-05)', () => {
+  const models = [
+    { provider: 'fal', model_id: 'flux/text2image', capabilities: ['text2image', 'image_edit'] },
+    { provider: 'openrouter', model_id: 'seedance/video', capabilities: ['text2video', 'image2video'] },
+  ];
+
+  it('accepts a model that lists the step capability, by bare id or provider/id', () => {
+    expect(() => assertModelServes('flux/text2image', 'text2image', models, 'gen')).not.toThrow();
+    expect(() => assertModelServes('fal/flux/text2image', 'text2image', models, 'gen')).not.toThrow();
+  });
+
+  it('refuses a model not in the registry', () => {
+    expect(() => assertModelServes('nope/model', 'text2image', models, 'gen')).toThrow(
+      /not in the registry/i,
+    );
+  });
+
+  it('refuses a model that cannot serve the step capability', () => {
+    // An image model swapped onto a step that needs video.
+    expect(() => assertModelServes('flux/text2image', 'text2video', models, 'clip')).toThrow(
+      /does not support text2video/i,
+    );
   });
 });

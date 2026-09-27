@@ -390,6 +390,14 @@ export async function execute(
         node.step.kind === 'export'
           ? expandExportStep(node.step, scope)
           : (renderDeep(node.step, scope) as Step);
+      // A model swapped onto the node — by a re-run's modelOverride (F-WFL-05) or
+      // carried from a prior attempt's alternate — is the model that must route.
+      // The rendered step comes from node.step, which still holds the workflow's
+      // original model, so without this the swap changed only the manifest note
+      // and the job ran on the old model. An export step has no model field.
+      if (node.step.kind !== 'export' && node.model !== undefined && (rendered as Step).kind !== 'assemble') {
+        (rendered as { model?: string }).model = node.model;
+      }
       const result = await runWithRetry(node, rendered, scope, effects);
       // The step's declared `outputs` are templates over its result (e.g.
       // `ok: '{{ result.structured.ok }}'`, `transcript: '{{ result.assets[0] }}'`).

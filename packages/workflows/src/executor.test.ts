@@ -5,6 +5,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { parseWorkflow } from './parse.js';
+import type { Step } from './schema.js';
 import {
   execute,
   expandExportStep,
@@ -126,6 +127,39 @@ steps:
     resetFrom(state, 'approve', 'new/model');
     expect(state.status).toBe('running');
     expect(state.steps.find((step) => step.step_id === 'clip')?.status).toBe('pending');
+  });
+
+  it('routes a swapped model, not the original, on a re-run (F-WFL-05)', async () => {
+    const wf = parseWorkflow(`
+id: kilnry-swap-route
+name: Swap route
+version: 1.0.0
+category: image
+steps:
+  - id: gen
+    kind: generate
+    capability: text2image
+    model: primary/model
+    prompt: "x"
+    outputs: { asset: "a1" }
+`);
+    const seenModels: Array<string | undefined> = [];
+    const effects: Effects = {
+      runStep: async (_node: RunStep, rendered: Step | ExpandedExportStep): Promise<StepResult> => {
+        seenModels.push((rendered as { model?: string }).model);
+        return { outputs: { asset: 'a1' }, actual_usd: 0.1, status: 'completed' };
+      },
+    };
+    // First run on the original model.
+    let state = await execute(wf, scope, effects, { automatic: true });
+    // Swap the model and re-run from the step.
+    resetFrom(state, 'gen', 'swapped/model');
+    state = await execute(wf, scope, effects, { automatic: true }, state);
+    expect(state.status).toBe('completed');
+    // The rendered step the effect saw carried the original first, then the swap
+    // — proving the swap reaches the request rather than only the manifest note.
+    expect(seenModels[0]).toBe('primary/model');
+    expect(seenModels[seenModels.length - 1]).toBe('swapped/model');
   });
 
   it('numbers each retry attempt so it is a fresh request, not a replay (F-WFL-05)', async () => {
