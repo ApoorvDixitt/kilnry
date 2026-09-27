@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { setupServer } from 'msw/node';
-import { chatSessions, closeDatabaseState, createDatabase, jobs } from '@kilnry/db';
+import { chatMessages, chatSessions, closeDatabaseState, createDatabase, jobs } from '@kilnry/db';
 import { seedRegistry } from '@kilnry/core';
 import { chatCompletionHandler, CHAI_VIDEO_MODEL } from '../../../test/chat-openrouter-fixture';
 
@@ -189,6 +189,14 @@ describe('POST /api/chat — scripted OpenRouter tool rounds', () => {
 
     expect(engine.createJob).not.toHaveBeenCalled();
     expect(await database.db.select().from(jobs)).toHaveLength(0);
+    // The turn persists its messages as the stream ends (F-CHT-12). Waiting for
+    // those rows before the disposer closes the database is what makes the close
+    // deterministic: an insert still in flight when the embedded Postgres
+    // instance goes away aborts its WebAssembly module, which is the unhandled
+    // rejection this suite used to raise under load.
+    await expect
+      .poll(async () => (await database.db.select().from(chatMessages)).length, { timeout: 20_000 })
+      .toBeGreaterThan(0);
     // This case seeds a real in-memory database and registry and drives the full
     // agent tool loop (skills, estimate, then the approval), which is a few
     // seconds locally but several times that on a loaded continuous-integration
@@ -254,5 +262,10 @@ describe('POST /api/chat — scripted OpenRouter tool rounds', () => {
       confirmed_by: 'auto',
       request: { source: 'chat' },
     });
+    // Wait for the turn's persisted messages before the disposer closes the
+    // database, for the same reason as the case above.
+    await expect
+      .poll(async () => (await database.db.select().from(chatMessages)).length, { timeout: 20_000 })
+      .toBeGreaterThan(0);
   }, 30_000);
 });
