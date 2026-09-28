@@ -310,7 +310,8 @@
       "budget": "Budget",
       "chat": "Chat",
       "mcp": "MCP",
-      "skills": "Skills"
+      "skills": "Skills",
+      "presets": "Presets"
     },
     "skills": {
       "title": "Skills",
@@ -337,6 +338,18 @@
       "saved": "Saved and reloaded.",
       "saveFailed": "That edit did not pass the skill checks.",
       "editLabel": "Edit skill body"
+    },
+    "presetsTab": {
+      "title": "Presets",
+      "intro": "Presets are saved generation recipes. Disable one to hide it from the Create grid; import a preset from a file or a URL.",
+      "importLabel": "Import a preset",
+      "importPlaceholder": "https://…/preset.json",
+      "import": "Import",
+      "imported": "Imported.",
+      "importFailed": "That preset could not be imported.",
+      "enabled": "Enabled",
+      "empty": "No presets yet. Import one above.",
+      "invalid": "Not valid"
     },
     "mcp": {
       "eyebrow": "Give an agent a studio",

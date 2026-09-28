@@ -5,6 +5,7 @@
 
 import Link from 'next/link';
 import {
+  LayoutGrid,
   LockKeyhole,
   MessagesSquare,
   Palette,
@@ -24,6 +25,7 @@ const sections = [
   { id: 'security', icon: LockKeyhole },
   { id: 'mcp', icon: Plug },
   { id: 'skills', icon: Sparkles },
+  { id: 'presets', icon: LayoutGrid },
   { id: 'appearance', icon: Palette },
 ] as const;
 

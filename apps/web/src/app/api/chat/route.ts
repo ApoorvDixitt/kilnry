@@ -151,7 +151,7 @@ export async function POST(request: Request): Promise<Response> {
         ...(config.library_root ? { libraryRoot: config.library_root } : {}),
         ...(openrouterKey ? { openrouterKey } : {}),
         skillsRoots: await skillRoots(services.database),
-        presets: await presetServices(),
+        presets: await presetServices(services.database),
       },
       chatSessionId: session.id,
       offline: llm.local === true,

@@ -14,7 +14,7 @@ import { listProviders, registrySeed } from '@kilnry/core';
 import { listPresets } from '@kilnry/presets';
 import { adapters } from '@kilnry/providers';
 import { errorResponse, requireSession } from '../../../server/http';
-import { presetRoots } from '../../../server/presets';
+import { presetRoots, disabledPresetIds } from '../../../server/presets';
 import { runtimeServices } from '../../../server/runtime';
 
 export interface PresetCardRow {
@@ -33,6 +33,7 @@ export interface PresetCardRow {
   price_stale: boolean;
   preview_url?: string;
   enabled: boolean;
+  user_disabled?: boolean;
   issue?: string;
   path: string;
   source: string;
@@ -57,10 +58,15 @@ function modelProvider(ref: string): string | undefined {
   return undefined;
 }
 
-export async function GET(): Promise<Response> {
+export async function GET(request: Request): Promise<Response> {
   try {
     await requireSession();
+    // The settings Presets tab asks for every preset (?all=1) so it can toggle a
+    // disabled one back on; the catalogue grid gets only the enabled ones so a
+    // disabled preset is hidden from it (PRD-09).
+    const includeDisabled = new URL(request.url).searchParams.get('all') === '1';
     const services = await runtimeServices();
+    const disabled = await disabledPresetIds(services.database);
     const summaries = await listProviders(services.database, adapters);
     const connected = new Set(summaries.filter((row) => row.connected).map((row) => row.id));
     const stale = new Set(summaries.filter((row) => row.price_stale).map((row) => row.id));
@@ -95,13 +101,16 @@ export async function GET(): Promise<Response> {
           ? {}
           : { preview_url: preset.examples[0].asset_url }),
         enabled: entry.enabled,
+        ...(disabled.has(entry.id) ? { user_disabled: true } : {}),
         ...(entry.issues[0] === undefined ? {} : { issue: entry.issues[0].message }),
         path: entry.path,
         source: entry.source,
       };
     });
 
-    return NextResponse.json({ presets: rows });
+    return NextResponse.json({
+      presets: includeDisabled ? rows : rows.filter((row) => !row.user_disabled),
+    });
   } catch (error) {
     return errorResponse(error);
   }

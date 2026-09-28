@@ -11,6 +11,7 @@ import { McpSettings } from '../../../../components/mcp-settings';
 import { ProviderSettings } from '../../../../components/provider-settings';
 import { SecuritySettings } from '../../../../components/security-settings';
 import { SkillsSettings } from '../../../../components/skills-settings';
+import { PresetsSettings } from '../../../../components/presets-settings';
 import { SettingsLayout } from '../../../../components/settings-layout';
 import { WorkspaceSettings } from '../../../../components/workspace-settings';
 
@@ -28,6 +29,7 @@ export default async function SettingsPage({
     'security',
     'mcp',
     'skills',
+    'presets',
     'appearance',
   ].includes(requested)
     ? requested
@@ -52,6 +54,8 @@ export default async function SettingsPage({
       <McpSettings port={config.port} />
     ) : section === 'skills' ? (
       <SkillsSettings />
+    ) : section === 'presets' ? (
+      <PresetsSettings />
     ) : section === 'workspace' ? (
       <WorkspaceSettings libraryRoot={config.library_root ?? ''} />
     ) : (

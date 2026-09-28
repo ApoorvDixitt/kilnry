@@ -70,7 +70,7 @@ async function handle(request: Request): Promise<Response> {
       ...(marker ? { libraryId: marker.library_id } : {}),
       ...(openrouterKey ? { openrouterKey } : {}),
       skillsRoots: await skillRoots(services.database),
-      presets: await presetServices(),
+      presets: await presetServices(services.database),
       training: await trainingRunner(),
       voiceCloner: await voiceCloner(),
       voicePreviewer: await voicePreviewer(),

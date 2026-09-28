@@ -11,8 +11,34 @@
 
 import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { eq } from 'drizzle-orm';
+import { settings, type DatabaseState } from '@kilnry/db';
 import { loadConfig, type PresetCatalogueServices, type PresetSummary } from '@kilnry/core';
 import { getPreset, listPresets, renderPreset, type PresetRoots } from '@kilnry/presets';
+
+// The owner can disable an installed preset; a disabled preset is hidden from the
+// catalogue grid and the kilnry_presets list (PRD-09). The disabled ids persist
+// in the settings key/value table so no preset schema change is needed.
+const DISABLED_PRESETS_KEY = 'presets.disabled';
+
+/** The set of preset ids the owner has disabled. */
+export async function disabledPresetIds(db: DatabaseState): Promise<Set<string>> {
+  const rows = await db.db.select().from(settings).where(eq(settings.key, DISABLED_PRESETS_KEY)).limit(1);
+  const value = rows[0]?.value;
+  return new Set(Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : []);
+}
+
+/** Enable or disable a preset by id, persisted in the settings table. */
+export async function setPresetEnabled(db: DatabaseState, id: string, enabled: boolean): Promise<void> {
+  const current = await disabledPresetIds(db);
+  if (enabled) current.delete(id);
+  else current.add(id);
+  const value = [...current];
+  await db.db
+    .insert(settings)
+    .values({ key: DISABLED_PRESETS_KEY, value, updatedAt: new Date() })
+    .onConflictDoUpdate({ target: settings.key, set: { value, updatedAt: new Date() } });
+}
 
 /** The folder a user's own presets live in. */
 export function userPresetRoot(dataDir: string): string {
@@ -70,12 +96,14 @@ function folderHint(preset: Record<string, unknown>): string | undefined {
  * than imported by it, because the preset package depends on the core package
  * the tools live in.
  */
-export async function presetServices(): Promise<PresetCatalogueServices> {
+export async function presetServices(db?: DatabaseState): Promise<PresetCatalogueServices> {
   const roots = await presetRoots();
+  const disabled = db ? await disabledPresetIds(db) : new Set<string>();
   return {
     list(query) {
       const needle = query?.query?.trim().toLowerCase() ?? '';
       return listPresets(roots)
+        .filter((entry) => !disabled.has(entry.id))
         .filter((entry) => query?.category === undefined || entry.category === query.category)
         .filter((entry) => {
           if (needle === '') return true;
@@ -88,10 +116,12 @@ export async function presetServices(): Promise<PresetCatalogueServices> {
         .map(summarise);
     },
     get(id) {
+      if (disabled.has(id)) return undefined;
       const entry = getPreset(id, roots);
       return entry ? summarise(entry) : undefined;
     },
     resolve(id, values) {
+      if (disabled.has(id)) return undefined;
       const entry = getPreset(id, roots);
       if (!entry?.preset) return undefined;
       const preset = entry.preset;
