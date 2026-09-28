@@ -268,16 +268,18 @@ export function listChatModels(
   rows: LlmRegistryRow[],
   connected: LlmProvider[],
 ): Array<{ ref: LlmRef; price: LlmPrice; price_label: string; vision: boolean }> {
-  return rows
-    .filter((row) => row.capabilities.includes('llm') && row.price_rule.kind === 'per_million_tokens')
-    // A model that cannot call tools cannot drive Chat, so it is not offered
-    // rather than listed and then failing opaquely on the first tool call.
-    .filter((row) => !row.capabilities.includes('no_tools'))
-    .filter((row) => connected.includes(row.provider as LlmProvider))
-    .map((row) => {
-      const ref: LlmRef = { provider: row.provider as LlmProvider, model: row.model_id };
-      const price = llmPrice(rows, ref) ?? { in: 0, out: 0 };
-      return { ref, price, price_label: formatLlmPrice(price), vision: row.capabilities.includes('vlm') };
-    })
-    .sort((a, b) => a.price.in - b.price.in || a.ref.model.localeCompare(b.ref.model));
+  return (
+    rows
+      .filter((row) => row.capabilities.includes('llm') && row.price_rule.kind === 'per_million_tokens')
+      // A model that cannot call tools cannot drive Chat, so it is not offered
+      // rather than listed and then failing opaquely on the first tool call.
+      .filter((row) => !row.capabilities.includes('no_tools'))
+      .filter((row) => connected.includes(row.provider as LlmProvider))
+      .map((row) => {
+        const ref: LlmRef = { provider: row.provider as LlmProvider, model: row.model_id };
+        const price = llmPrice(rows, ref) ?? { in: 0, out: 0 };
+        return { ref, price, price_label: formatLlmPrice(price), vision: row.capabilities.includes('vlm') };
+      })
+      .sort((a, b) => a.price.in - b.price.in || a.ref.model.localeCompare(b.ref.model))
+  );
 }
