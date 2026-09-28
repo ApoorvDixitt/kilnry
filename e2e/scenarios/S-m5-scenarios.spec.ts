@@ -948,8 +948,10 @@ async function setChatSettings(
 
 test('@m5 S-24 asks for the three-video spend, then pauses at the session cap', async ({ page }) => {
   // One turn here is four streamed model rounds plus three video jobs, which is
-  // slower than the default budget on a shared continuous-integration runner.
-  test.setTimeout(180_000);
+  // slower than the default budget on a shared continuous-integration runner, and
+  // the three renders must then run to completion before the cap section reads
+  // the submit count. The budget is sized to that real work on a loaded runner.
+  test.setTimeout(300_000);
   await ensureProvider(page, 'fal', FAL_KEY);
   await ensureProvider(page, 'openrouter', OPENROUTER_KEY);
   await setChatSettings(page, { autonomy: 'ask_first', session_budget_usd: 5 });
@@ -1008,7 +1010,7 @@ test('@m5 S-24 asks for the three-video spend, then pauses at the session cap', 
         const mine = rows.filter((job) => approvedIds.includes(job.id as string));
         return mine.length === 3 && mine.every((job) => job.status === 'completed');
       },
-      { timeout: 150_000 },
+      { timeout: 240_000 },
     )
     .toBe(true);
 
