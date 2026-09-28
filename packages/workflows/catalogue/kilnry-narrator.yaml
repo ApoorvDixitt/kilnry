@@ -38,7 +38,21 @@ inputs:
         default: 0.5,
         x-kilnry: { widget: number, help: 'Silence between takes for continuous mode' },
       }
-budget: { max_usd: 1, warn_usd: 0.5 }
+    max_take_s:
+      {
+        type: number,
+        minimum: 2,
+        maximum: 30,
+        default: 12,
+        x-kilnry: { widget: number, help: 'A take longer than this is shortened and re-spoken' },
+      }
+    presenter:
+      {
+        type: string,
+        description: '@handle of the presenter to read to camera (presenter mode)',
+        x-kilnry: { widget: character, kinds: [character], allow_empty: true },
+      }
+budget: { max_usd: 3, warn_usd: 1.5 }
 steps:
   - id: takes
     kind: foreach
@@ -60,6 +74,34 @@ steps:
         op: probe
         inputs: ['{{ steps.vo.outputs.asset }}']
         outputs: { dur: '{{ result.duration_s }}' }
+      # A take that runs past the budget is shortened rather than time-stretched:
+      # rewrite the line tighter and re-speak it (PRD-10 §9 refit loop).
+      - id: refit
+        kind: branch
+        when: '{{ steps.probe.outputs.dur > inputs.max_take_s }}'
+        then:
+          - id: tighten
+            kind: analyze
+            name: 'Tighten take {{ index + 1 }}'
+            task: describe
+            model: auto
+            instructions: >
+              Rewrite this line to be spoken in under {{ inputs.max_take_s }} seconds without losing meaning:
+              {{ line }}. Return JSON {line}.
+            schema: { type: object, required: [line], properties: { line: { type: string } } }
+            outputs: { line: '{{ result.structured.line }}' }
+          - id: vo_refit
+            kind: generate
+            name: 'Re-speak take {{ index + 1 }}'
+            capability: tts
+            model: auto
+            prompt: '{{ steps.tighten.outputs.line }}'
+            params: { voice: '{{ inputs.voice }}', language: '{{ inputs.language }}', format: wav }
+            outputs: { asset: '{{ result.assets[0] }}' }
+        else: []
+      - id: take_final
+        kind: set
+        values: { asset: '{{ steps.vo_refit.outputs.asset | default(steps.vo.outputs.asset) }}' }
 
   - id: continuous
     kind: branch
@@ -75,6 +117,39 @@ steps:
         outputs: { asset: '{{ result.asset_id }}' }
     else: []
 
+  # presenter — a talking-head video of the presenter reading the narration to
+  # camera, lip-synced to the joined track (PRD-10 §9 presenter mode).
+  - id: presenter_read
+    kind: branch
+    when: "{{ inputs.mode == 'presenter' && inputs.presenter != '' }}"
+    then:
+      - id: presenter_track
+        kind: assemble
+        name: Join narration
+        op: concat
+        inputs: '{{ steps.takes.assets }}'
+        params: { mode: audio, gap_s: '{{ inputs.gap_s }}' }
+        output_name: presenter_track.wav
+        outputs: { asset: '{{ result.asset_id }}' }
+      - id: presenter_video
+        kind: generate
+        name: Presenter to camera
+        capability: image2video
+        model: auto
+        prompt: 'The presenter reads to camera, natural delivery, lip-synced to the narration track.'
+        params: { duration_s: 10, aspect_ratio: '9:16' }
+        medias:
+          - {
+              role: reference,
+              ref: "{{ (characters[inputs.presenter].references | filter('role','anchor') | first).asset_id }}",
+              label: presenter,
+            }
+          - { role: audio, ref: '{{ steps.presenter_track.outputs.asset }}', label: narration }
+        characters: ['{{ inputs.presenter }}']
+        retry: { max: 1, on: [PROVIDER_ERROR], reword: true }
+        outputs: { asset: '{{ result.assets[0] }}' }
+    else: []
+
   - id: export
     kind: export
     files:
@@ -84,6 +159,12 @@ steps:
           tags: [take],
         }
       - { ref: '{{ steps.join.outputs.asset }}', name: narration.wav, tags: [deliverable] }
+      - {
+          ref: '{{ steps.presenter_video.outputs.asset }}',
+          name: presenter.mp4,
+          tags: [deliverable, presenter],
+        }
+      - { ref: "{{ steps.takes.outputs | map('dur') | json }}", name: takes.json, tags: [manifest] }
 outputs:
-  final: '{{ steps.join.outputs.asset | default(steps.takes.assets | first) }}'
+  final: '{{ steps.presenter_video.outputs.asset | default(steps.join.outputs.asset) | default(steps.takes.assets | first) }}'
   extras: ['{{ steps.takes.assets }}']
