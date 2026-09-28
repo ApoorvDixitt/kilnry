@@ -980,7 +980,12 @@
       "title": "Approve before spending",
       "remaining": "Remaining",
       "approve": "Approve ⏎",
-      "deny": "Deny"
+      "deny": "Deny",
+      "edit": "Edit",
+      "regenerate": "Regenerate",
+      "stop": "Stop run",
+      "outputs": "Awaiting approval",
+      "zoom": "Zoom"
     },
     "category": {
       "all": "All",

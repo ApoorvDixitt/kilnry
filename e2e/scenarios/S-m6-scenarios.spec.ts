@@ -349,6 +349,17 @@ test.describe('M6 workflows acceptance', () => {
     await expect(approvalCard).toBeVisible({ timeout: 120_000 });
     await expect(page.locator('.run-status-pill')).toHaveText('Waiting');
 
+    // The card offers the four decision actions besides Deny (F-WFL-04): Approve,
+    // Edit, Regenerate and Stop run. Edit selects the waiting step in the detail
+    // pane rather than answering the checkpoint, so the run stays paused.
+    await expect(approvalCard.locator('.approval-approve-button')).toBeVisible();
+    await expect(approvalCard.locator('.approval-edit-button')).toBeVisible();
+    await expect(approvalCard.locator('.approval-regenerate-button')).toBeVisible();
+    await expect(approvalCard.locator('.approval-stop-button')).toBeVisible();
+    await approvalCard.locator('.approval-edit-button').click();
+    // Editing does not answer the checkpoint; the card is still shown.
+    await expect(approvalCard).toBeVisible();
+
     // No clip has rendered before approval: every clip generate step is still
     // queued or pending (the wireframe's hollow-dot glyph), never completed. The
     // "no kind=video job" invariant is asserted at unit level; here we assert the

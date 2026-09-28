@@ -256,14 +256,21 @@ export function ApprovalCard({
   run,
   onApprove,
   onDeny,
+  onEdit,
+  onRegenerate,
+  onStop,
   busy = false,
 }: {
   run: RunView;
   onApprove: () => void;
   onDeny: () => void;
+  onEdit?: (stepId: string) => void;
+  onRegenerate?: (stepId: string) => void;
+  onStop?: () => void;
   busy?: boolean;
 }): React.ReactNode {
   const waiting = run.steps.find((step) => step.status === 'waiting');
+  const waitingAssets = waiting?.outputs?.assets ?? [];
   // The planned calls that still remain: steps not yet completed or skipped,
   // with their estimated cost, so the card shows what approving will spend.
   const remaining = run.steps.filter((step) => !['completed', 'skipped', 'waiting'].includes(step.status));
@@ -294,6 +301,28 @@ export function ApprovalCard({
         {message('workflows.approval.title')}
         {waiting ? ` · ${waiting.name}` : ''}
       </h2>
+      {waitingAssets.length > 0 ? (
+        <ul className="approval-card-outputs" aria-label={message('workflows.approval.outputs')}>
+          {waitingAssets.map((assetId) => (
+            <li key={assetId} className="approval-output-card" data-asset-id={assetId}>
+              <a
+                className="approval-output-zoom"
+                href={`/api/media/${encodeURIComponent(assetId)}`}
+                target="_blank"
+                rel="noreferrer"
+                aria-label={message('workflows.approval.zoom')}
+              >
+                <img
+                  className="approval-output-thumb"
+                  src={`/api/thumb/${encodeURIComponent(assetId)}`}
+                  alt={assetId}
+                  loading="lazy"
+                />
+              </a>
+            </li>
+          ))}
+        </ul>
+      ) : null}
       <table className="approval-card-calls">
         <tbody>
           {remaining.map((step) => (
@@ -315,6 +344,31 @@ export function ApprovalCard({
         <button type="button" className="approval-deny-button" disabled={busy} onClick={onDeny}>
           {message('workflows.approval.deny')}
         </button>
+        {onEdit && waiting ? (
+          <button
+            type="button"
+            className="approval-edit-button"
+            disabled={busy}
+            onClick={() => onEdit(waiting.step_id)}
+          >
+            {message('workflows.approval.edit')}
+          </button>
+        ) : null}
+        {onRegenerate && waiting ? (
+          <button
+            type="button"
+            className="approval-regenerate-button"
+            disabled={busy}
+            onClick={() => onRegenerate(waiting.step_id)}
+          >
+            {message('workflows.approval.regenerate')}
+          </button>
+        ) : null}
+        {onStop ? (
+          <button type="button" className="approval-stop-button" disabled={busy} onClick={onStop}>
+            {message('workflows.approval.stop')}
+          </button>
+        ) : null}
         <button type="button" className="approval-approve-button" disabled={busy} onClick={onApprove}>
           {message('workflows.approval.approve')}
         </button>
@@ -392,7 +446,14 @@ export function WorkflowRunView({ runId, initial }: { runId: string; initial?: R
     <section className="run-view">
       <RunHeader run={run} onCancel={() => void cancel()} />
       {run.status === 'awaiting_approval' ? (
-        <ApprovalCard run={run} onApprove={() => void approve()} onDeny={() => void deny()} />
+        <ApprovalCard
+          run={run}
+          onApprove={() => void approve()}
+          onDeny={() => void deny()}
+          onEdit={(stepId) => setSelected(stepId)}
+          onRegenerate={(stepId) => void retry(stepId)}
+          onStop={() => void cancel()}
+        />
       ) : null}
       <div className="run-body">
         <StepList steps={run.steps} selected={selected} onSelect={setSelected} />

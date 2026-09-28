@@ -176,6 +176,51 @@ describe('workflow run view (F-WFL-03)', () => {
     expect(host.querySelector('.approval-card-total-amount')?.textContent).toContain('1.50');
   });
 
+  it('renders the waiting step outputs and Edit, Regenerate, Stop actions (F-WFL-04)', async () => {
+    const waiting: RunView = {
+      ...RUN,
+      status: 'awaiting_approval',
+      steps: [
+        {
+          step_id: 'board',
+          name: 'Storyboard',
+          kind: 'generate',
+          status: 'waiting',
+          model: 'gpt-image-2.5',
+          estimate_usd: 0.22,
+          actual_usd: 0.2,
+          outputs: { assets: ['01BOARDONE', '01BOARDTWO'] },
+        },
+      ],
+    };
+    let edited = '';
+    let regenerated = '';
+    let stopped = 0;
+    const host = await render(
+      <ApprovalCard
+        run={waiting}
+        onApprove={() => {}}
+        onDeny={() => {}}
+        onEdit={(id) => (edited = id)}
+        onRegenerate={(id) => (regenerated = id)}
+        onStop={() => (stopped += 1)}
+      />,
+    );
+    // The waiting step's outputs render as zoomable asset cards.
+    const cards = host.querySelectorAll('.approval-output-card');
+    expect(cards).toHaveLength(2);
+    expect(
+      host.querySelector('.approval-output-card[data-asset-id="01BOARDONE"] a')?.getAttribute('href'),
+    ).toContain('/api/media/01BOARDONE');
+    // The three extra actions are present and wired.
+    await act(async () => (host.querySelector('.approval-edit-button') as HTMLButtonElement).click());
+    expect(edited).toBe('board');
+    await act(async () => (host.querySelector('.approval-regenerate-button') as HTMLButtonElement).click());
+    expect(regenerated).toBe('board');
+    await act(async () => (host.querySelector('.approval-stop-button') as HTMLButtonElement).click());
+    expect(stopped).toBe(1);
+  });
+
   it('approves on Enter and denies on Escape from the keyboard (F-WFL-04)', async () => {
     let approved = 0;
     let denied = 0;
