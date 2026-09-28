@@ -357,15 +357,18 @@ describe('every spending step of every kind reaches the engine once (F-WFL-06)',
       skipApprovals: true,
     });
     expect(['completed', 'cancelled']).toContain(state.status);
-    // Exactly one spending step: the transcribe transform. burn is a local
-    // ffmpeg assemble and export copies files — neither spends.
-    expect(run.submits).toHaveLength(1);
+    // The transcribe transform is the one createJob transform; group and verify
+    // are analyze steps that meter through the analyze tool (align is skipped
+    // with no authored text). burn is a local ffmpeg assemble and export copies
+    // files — neither spends.
     expect(run.submitsByKind.transform).toBe(1);
     expect(run.submitsByKind.generate).toBe(0);
-    expect(run.counters.ledgerWrites).toBe(1);
-    const transform = run.submits[0]!;
+    expect(run.submitsByKind.analyze).toBe(2);
+    // One ledger row per spending step of every kind: the transform submit plus
+    // the two analyze calls.
+    expect(run.counters.ledgerWrites).toBe(3);
+    const transform = run.submits.find((submit) => submit.step_id === 'transcribe')!;
     expect(transform.request.source).toBe('workflow');
-    expect(transform.step_id).toBe('transcribe');
     expect(transform.confirmed_by).toBe('user');
     // The transcribe request routes as speech-to-text over the source video, not
     // a placeholder image request.

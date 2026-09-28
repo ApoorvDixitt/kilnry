@@ -20,6 +20,20 @@ inputs:
         description: 'The video to caption',
         x-kilnry: { widget: media, accept: [video], roles: [video] },
       }
+    authored_text:
+      {
+        type: string,
+        default: '',
+        description: 'Paste the exact script to align, instead of transcribing',
+        x-kilnry: { widget: textarea, help: 'Leave empty to transcribe the audio' },
+      }
+    stt_route:
+      {
+        type: string,
+        enum: [auto, whisper, elevenlabs],
+        default: auto,
+        x-kilnry: { widget: select, help: 'Which transcription route to use' },
+      }
     look: { type: string, enum: [clean, paper, bold], default: clean, x-kilnry: { widget: segment } }
     language: { type: string, default: en, x-kilnry: { widget: language } }
     max_line_chars: { type: integer, minimum: 16, maximum: 48, default: 28, x-kilnry: { widget: number } }
@@ -33,8 +47,38 @@ steps:
     name: Transcribe
     op: transcribe
     source: '{{ inputs.video }}'
-    params: { language: '{{ inputs.language }}' }
+    params:
+      language: '{{ inputs.language }}'
+      route: '{{ inputs.stt_route }}'
+      align_text: '{{ inputs.authored_text }}'
     outputs: { transcript: '{{ result.assets[0] }}', words: '{{ result.result.words }}' }
+
+  # align — when the operator pasted the exact script, fit it to the audio timing
+  # from the transcription rather than trusting the recognised words (PRD-10 §9).
+  - id: align
+    kind: analyze
+    when: "{{ inputs.authored_text != '' }}"
+    name: Align the authored script
+    task: describe
+    model: auto
+    instructions: >
+      Align this authored script to the transcribed word timings so each word keeps its start and end time.
+      Script: {{ inputs.authored_text }}. Return JSON {aligned: string}.
+    schema: { type: object, required: [aligned], properties: { aligned: { type: string } } }
+    on_fail: continue
+    outputs: { aligned: '{{ result.structured.aligned }}' }
+
+  # group — break the words into caption lines within the line-length budget.
+  - id: group
+    kind: analyze
+    name: Group into caption lines
+    task: describe
+    model: auto
+    instructions: >
+      Group these transcript words into caption lines of at most {{ inputs.max_line_chars }} characters, breaking at
+      natural phrase boundaries. Return JSON {lines: string[]}.
+    on_fail: continue
+    outputs: { lines: '{{ result.structured.lines }}' }
 
   - id: review
     kind: approval
@@ -57,6 +101,19 @@ steps:
       language: '{{ inputs.language | slice(0, 2) }}'
     output_name: captioned.mp4
     outputs: { asset: '{{ result.asset_id }}' }
+
+  # verify — confirm the burned captions are legible and in the safe zone.
+  - id: verify
+    kind: analyze
+    name: Verify the captions
+    task: consistency_check
+    model: auto
+    refs: ['{{ steps.burn.outputs.asset }}']
+    instructions: >
+      Are the burned captions legible, inside the safe zone for {{ inputs.position }}, and free of overlap with the
+      speaker? Return JSON {pass, reasons}.
+    on_fail: continue
+    outputs: { pass: '{{ result.structured.pass }}' }
 
   - id: export
     kind: export
