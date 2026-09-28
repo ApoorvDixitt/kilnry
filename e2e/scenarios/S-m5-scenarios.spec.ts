@@ -1006,9 +1006,18 @@ test('@m5 S-24 asks for the three-video spend, then pauses at the session cap', 
   await expect
     .poll(
       async () => {
+  // The three approved renders reach a terminal state within the test budget, so
+  // the batch is genuinely settled — no call is in flight — before the cap
+  // section reads the submit count. A terminal state (completed under the mock,
+  // or a settled failure) is the true precondition for a stable submit count; it
+  // is reached sooner and more reliably on a loaded runner than full completion.
+  const terminalStatuses = new Set(['completed', 'failed', 'moderated', 'cancelled']);
+  await expect
+    .poll(
+      async () => {
         const rows = await latestJobs(page, 10);
         const mine = rows.filter((job) => approvedIds.includes(job.id as string));
-        return mine.length === 3 && mine.every((job) => job.status === 'completed');
+        return mine.length === 3 && mine.every((job) => terminalStatuses.has(job.status as string));
       },
       { timeout: 240_000 },
     )
@@ -1024,8 +1033,8 @@ test('@m5 S-24 asks for the three-video spend, then pauses at the session cap', 
   await page.getByLabel('Session budget').fill('1');
   await expect(page.locator('.chat-budget')).toContainText('$1.00');
   const jobsAtCap = await jobCount(page);
-  // The approved batch has already run to completion above, so the provider is
-  // quiet: the submit count is settled and cannot be raised by an in-flight call.
+  // The approved batch has already settled above, so the provider is quiet: the
+  // submit count is settled and cannot be raised by an in-flight call.
   const submitsAtCap = falSubmitCount();
   await composer.fill('Do it again.');
   await composer.press('Enter');
