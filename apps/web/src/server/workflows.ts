@@ -456,6 +456,24 @@ function canonicalForAnalyze(rendered: Extract<Step, { kind: 'analyze' }>): Cano
   };
 }
 
+// Split a `provider:voice_id` voice param (what the voice widget and the tts
+// workflows write) into the { provider, voice_id } object the canonical request
+// wants. A value that is already an object passes through; an empty string, a
+// bare handle, or a malformed value yields nothing so the request omits voice.
+function parseVoiceParam(value: unknown): { provider: string; voice_id: string } | undefined {
+  if (value !== null && typeof value === 'object') {
+    const object = value as Record<string, unknown>;
+    if (typeof object.provider === 'string' && typeof object.voice_id === 'string') {
+      return { provider: object.provider, voice_id: object.voice_id };
+    }
+    return undefined;
+  }
+  if (typeof value !== 'string' || value === '') return undefined;
+  const separator = value.indexOf(':');
+  if (separator <= 0 || separator === value.length - 1) return undefined;
+  return { provider: value.slice(0, separator), voice_id: value.slice(separator + 1) };
+}
+
 // Build a CanonicalRequest for a generate/transform/analyze step under a scope.
 // generate goes through canonicalGeneration (capability inferred from kind and
 // medias); transform and analyze build the request directly with an explicit
@@ -499,7 +517,14 @@ function canonicalRequestForStep(step: Step, scope: Scope): CanonicalForStep {
   for (const [key, value] of Object.entries(rawParams)) {
     if (key === 'extra') continue;
     if (key === 'quality' && QUALITY_TIERS.has(String(value))) params.quality = value;
-    else if (CANONICAL_PARAM_KEYS.has(key)) params[key] = value;
+    else if (key === 'voice') {
+      // The voice widget and the workflows write `voice` as a `provider:voice_id`
+      // string, but the canonical request wants { provider, voice_id }. Split it
+      // so a workflow tts step (narrator, motion-design, localize) routes rather
+      // than failing schema validation. An empty or malformed value is dropped.
+      const parsed = parseVoiceParam(value);
+      if (parsed) params.voice = parsed;
+    } else if (CANONICAL_PARAM_KEYS.has(key)) params[key] = value;
     else extra[key] = value;
   }
   if (Object.keys(extra).length > 0) params.extra = extra;

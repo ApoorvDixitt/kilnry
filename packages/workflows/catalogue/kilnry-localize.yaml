@@ -25,6 +25,13 @@ inputs:
       }
     keep_voice:
       { type: boolean, default: false, x-kilnry: { widget: toggle, label: 'Clone the original voice' } }
+    keep_music:
+      {
+        type: boolean,
+        default: true,
+        x-kilnry:
+          { widget: toggle, label: 'Keep the original music and background under the new voice' },
+      }
     provider_dub:
       { type: boolean, default: true, x-kilnry: { widget: toggle, label: 'Use provider dubbing' } }
     lipsync: { type: boolean, default: false, x-kilnry: { widget: toggle } }
@@ -102,6 +109,34 @@ steps:
       - id: track
         kind: set
         values: { audio: '{{ steps.provider_dub.outputs.asset | default(steps.tts_dub.outputs.asset) }}' }
+      # Preserve the original music and background: pull the source bed off the
+      # video, then lay the dubbed voice over it rather than replacing the whole
+      # track, so a localised cut keeps its music (the W9 golden rule). Provider
+      # dubbing returns a finished video, so it carries its own mixed bed and
+      # skips this. With keep_music off, the new voice replaces the track.
+      - id: bed
+        kind: branch
+        when: '{{ inputs.keep_music && !inputs.provider_dub }}'
+        then:
+          - id: source_bed
+            kind: assemble
+            name: 'Keep music · {{ lang }}'
+            op: extract_audio
+            inputs: ['{{ inputs.video }}']
+            output_name: 'bed_{{ lang }}.wav'
+            outputs: { asset: '{{ result.asset_id }}' }
+          - id: mix_voice
+            kind: assemble
+            name: 'Mix voice over music · {{ lang }}'
+            op: mux_audio
+            inputs: ['{{ vars.audio }}', '{{ steps.source_bed.outputs.asset }}']
+            params: { mode: under, gain_db: -12 }
+            output_name: 'voiced_{{ lang }}.wav'
+            outputs: { asset: '{{ result.asset_id }}' }
+        else: []
+      - id: voice_track
+        kind: set
+        values: { audio: '{{ steps.mix_voice.outputs.asset | default(vars.audio) }}' }
       - id: mux
         kind: assemble
         op: mux_audio

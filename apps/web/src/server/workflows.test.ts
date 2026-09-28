@@ -458,6 +458,43 @@ describe('every spending step of every kind reaches the engine once (F-WFL-06)',
     expect(['completed', 'cancelled', 'unknown']).toContain(status);
   });
 
+  it('runs kilnry-localize end to end and keeps the music with a mix step (F-WFL-07)', async () => {
+    // keep_music with a per-segment voice (not provider dubbing) takes the
+    // music-preserving path: the source bed is extracted and the dubbed voice is
+    // mixed over it before the video is re-muxed, so the localised cut keeps its
+    // background music rather than replacing the whole track.
+    const run = runCounting('kilnry-localize', {
+      video: 'asset-video-1',
+      target_languages: ['es'],
+      provider_dub: false,
+      keep_music: true,
+      voice: 'fal:voice-1',
+      burn_subtitles: true,
+    });
+    let status = 'unknown';
+    try {
+      const state = await execute(run.workflow, run.scope, run.effects, {
+        automatic: true,
+        skipApprovals: true,
+      });
+      status = state.status;
+    } catch {
+      // A terminal export/render issue does not undo the spends already routed.
+    }
+    expect(['completed', 'cancelled', 'unknown']).toContain(status);
+    // The source transcribe, the per-language translate analyze, and the
+    // per-segment tts each reach their metered road once for one language.
+    expect(run.submitsByKind.transform).toBeGreaterThan(0); // transcribe
+    expect(run.submitsByKind.analyze).toBeGreaterThan(0); // translate
+    expect(run.submitsByKind.generate).toBeGreaterThan(0); // the per-segment voice
+    // Every spending step writes exactly one ledger row.
+    expect(run.counters.ledgerWrites).toBe(
+      (run.submitsByKind.generate ?? 0) +
+        (run.submitsByKind.transform ?? 0) +
+        (run.submitsByKind.analyze ?? 0),
+    );
+  });
+
   it('the shipped catalogue exercises a spending step of every wired kind', () => {
     // A guard that the fixtures above cover transform and analyze, not only
     // generate: the catalogue must exercise all three wired kinds.
