@@ -1000,27 +1000,23 @@ test('@m5 S-24 asks for the three-video spend, then pauses at the session cap', 
   const jobs = await latestJobs(page, 3);
   expect(jobs.every((job) => job.confirmedBy === 'user')).toBe(true);
   expect(jobs.every((job) => job.source === 'chat')).toBe(true);
-  // Wait until the three approved renders have left flight — every one has
-  // reached a terminal state — so the batch is genuinely settled and the cap
-  // section below reads a submit count that can no longer move. The terminal
-  // wait is the precondition; the mock is strict, so once settled every one of
-  // the three must be `completed` — there is no legitimate failure path for a
-  // Kling render here, and accepting one would hide a real fault (F-CHT-03).
+  // Wait until the three approved renders have all reached completed. The mock
+  // is strict — a Kling render has no legitimate failure path here — so the
+  // batch settles as three completed jobs, which is both the true precondition
+  // for a stable submit count and the outcome F-CHT-03 requires. Polling for
+  // completed directly (rather than any terminal state, then re-reading) removes
+  // the race between the settle check and the assertion.
   const approvedIds = jobs.map((job) => job.id as string);
-  const terminalStatuses = new Set(['completed', 'failed', 'moderated', 'cancelled']);
   await expect
     .poll(
       async () => {
         const rows = await latestJobs(page, 10);
         const mine = rows.filter((job) => approvedIds.includes(job.id as string));
-        return mine.length === 3 && mine.every((job) => terminalStatuses.has(job.status as string));
+        return mine.length === 3 && mine.every((job) => job.status === 'completed');
       },
       { timeout: 240_000 },
     )
     .toBe(true);
-  // Every one of the three settled as completed under the strict mock.
-  const settled = (await latestJobs(page, 10)).filter((job) => approvedIds.includes(job.id as string));
-  expect(settled.map((job) => job.status).sort()).toEqual(['completed', 'completed', 'completed']);
 
   // The Workspace Cost tab shows the plan total that was approved.
   await page.getByRole('tab', { name: 'Cost' }).click();
