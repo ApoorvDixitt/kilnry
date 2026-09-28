@@ -7,7 +7,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PlanChecklist, WorkflowIntakeDrawer } from './workflow-intake-drawer';
-import type { PlanView } from './workflow-intake-drawer-logic';
+import { etaLabel, type PlanView } from './workflow-intake-drawer-logic';
 
 let root: Root | undefined;
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -53,6 +53,13 @@ const PLAN: PlanView = {
 };
 
 describe('workflow intake drawer (F-WFL-02)', () => {
+  it('formats the plan ETA in whole minutes (F-WFL-02)', () => {
+    expect(etaLabel({ ...PLAN, eta_s: 60 })).toBe('≈ 1 min');
+    expect(etaLabel({ ...PLAN, eta_s: 400 })).toBe('≈ 7 min');
+    // A sub-minute plan still reads as at least one minute.
+    expect(etaLabel({ ...PLAN, eta_s: 5 })).toBe('≈ 1 min');
+  });
+
   it('renders the plan checklist with per-step model and cost', async () => {
     const host = await render(<PlanChecklist plan={PLAN} />);
     expect(host.querySelector('[data-step-id="board"] .plan-step-model')?.textContent).toBe('gpt-image-2.5');

@@ -8,6 +8,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   costLabel,
+  durationLabel,
   visibleWorkflows,
   WorkflowCatalogue,
   type WorkflowCatalogueRowData,
@@ -39,6 +40,8 @@ function row(overrides: Partial<WorkflowCatalogueRowData> = {}): WorkflowCatalog
     requires: ['text2image', 'reference2video'],
     cost_range: { min_usd: 0, max_usd: 8 },
     input_count: 5,
+    step_count: 11,
+    eta_range: { min_minutes: 3, max_minutes: 12 },
     ...overrides,
   };
 }
@@ -49,6 +52,20 @@ describe('workflow catalogue (F-WFL-01)', () => {
     expect(
       costLabel(row({ cost_range: undefined as unknown as { min_usd: number; max_usd: number } })),
     ).toContain('run');
+  });
+
+  it('shows the real step count and an ETA range, not the input count (F-WFL-01)', () => {
+    // A workflow with 5 inputs and 11 steps must read as an 11-step workflow with
+    // its ETA range, never "5 step workflow".
+    const label = durationLabel(row());
+    expect(label).toContain('11 step');
+    expect(label).not.toContain('5 step');
+    expect(label).toContain('3–12 min');
+    // A workflow with no spending steps shows just the step count.
+    const noEta = row();
+    delete (noEta as { eta_range?: unknown }).eta_range;
+    noEta.step_count = 2;
+    expect(durationLabel(noEta)).toBe('2 step workflow');
   });
 
   it('filters by category tab and by search', () => {

@@ -128,3 +128,9 @@ export function stepCostLabel(step: PlanStepView): string {
 export function totalLabel(plan: PlanView): string {
   return `$${plan.total_estimate_usd.toFixed(2)}`;
 }
+
+/** The plan's estimated time to finish, in whole minutes (at least one). */
+export function etaLabel(plan: PlanView): string {
+  const minutes = Math.max(1, Math.round(plan.eta_s / 60));
+  return `≈ ${minutes} min`;
+}

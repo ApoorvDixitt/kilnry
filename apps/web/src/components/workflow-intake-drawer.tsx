@@ -21,6 +21,7 @@ import {
   readInputFields,
   stepCostLabel,
   totalLabel,
+  etaLabel,
   type PlanView,
   type WorkflowInputField,
 } from './workflow-intake-drawer-logic';
@@ -163,6 +164,7 @@ export function WorkflowIntakeDrawer({
   const [runId, setRunId] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
+  const [skipApprovals, setSkipApprovals] = useState(false);
 
   useEffect(() => {
     void fetch(`/api/workflows/${encodeURIComponent(workflowId)}`)
@@ -211,6 +213,7 @@ export function WorkflowIntakeDrawer({
         body: JSON.stringify({
           run_id: runId,
           confirm_cost_usd: plan.total_estimate_usd,
+          ...(skipApprovals ? { skip_approvals: true } : {}),
           ...(folder.trim() === '' ? {} : { target_folder: folder.trim() }),
         }),
       });
@@ -220,7 +223,7 @@ export function WorkflowIntakeDrawer({
       setError(message('workflows.runFailed'));
       setBusy(false);
     }
-  }, [workflowId, plan, runId, folder]);
+  }, [workflowId, plan, runId, folder, skipApprovals]);
 
   return (
     <aside className="workflow-drawer" role="dialog" aria-label={name} data-workflow-id={workflowId}>
@@ -281,7 +284,17 @@ export function WorkflowIntakeDrawer({
           <p className="workflow-plan-total">
             {message('workflows.total')}{' '}
             <span className="workflow-plan-total-amount">{totalLabel(plan)}</span>
+            <span className="workflow-plan-eta">{etaLabel(plan)}</span>
           </p>
+          <label className="workflow-skip-approvals" htmlFor="workflow-skip-approvals">
+            <input
+              id="workflow-skip-approvals"
+              type="checkbox"
+              checked={skipApprovals}
+              onChange={(event) => setSkipApprovals(event.target.checked)}
+            />
+            <span>{message('workflows.skipApprovals')}</span>
+          </label>
           <button
             type="button"
             className="workflow-approve-button"

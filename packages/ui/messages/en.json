@@ -924,7 +924,9 @@
     "run": "Run",
     "costRange": "≈ ${min} – ${max}",
     "costUnknown": "Priced when you run it",
-    "durationLabel": "{count} step workflow",
+    "stepCount": "{count} step workflow",
+    "etaRange": "{min}–{max} min",
+    "skipApprovals": "Skip approvals: I'll review the result",
     "needsLabel": "Needs: {capabilities}",
     "empty": "No workflows match {category}.",
     "emptyAll": "No workflows are installed yet.",
@@ -959,7 +961,20 @@
       "estimateLabel": "Estimate",
       "actualLabel": "Actual",
       "unitPriceLabel": "Unit price",
-      "costPending": "Not yet spent."
+      "costPending": "Not yet spent.",
+      "costSoFar": "${spent} so far of ≈ ${estimate}",
+      "status": {
+        "awaiting_approval": "Waiting",
+        "running": "Running",
+        "completed": "Completed",
+        "failed": "Failed",
+        "cancelled": "Cancelled",
+        "planning": "Planning",
+        "denied": "Denied",
+        "queued": "Queued",
+        "skipped": "Skipped",
+        "waiting": "Waiting"
+      }
     },
     "approval": {
       "title": "Approve before spending",

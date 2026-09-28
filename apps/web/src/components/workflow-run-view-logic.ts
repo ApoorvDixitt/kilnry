@@ -4,7 +4,12 @@
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
 // Pure helpers for the workflow run view (F-WFL-03). Kept out of the component so
-// the status glyphs, progress and the cost-so-far line are unit-testable.
+// the status glyphs, progress and the cost-so-far line are unit-testable. The
+// user-visible strings come from the message catalogue (F-WFL-03): a status the
+// map does not name falls back to the run-view status keys rather than leaking
+// the database enum.
+
+import { message } from '../lib/messages';
 
 export interface RunStepView {
   step_id: string;
@@ -59,7 +64,9 @@ export function progress(run: RunView): { done: number; total: number; fraction:
 
 /** The header cost line: "$x.xx so far of ≈ $y.yy". */
 export function costSoFarLabel(run: RunView): string {
-  return `$${run.spent_usd.toFixed(2)} so far of ≈ $${run.estimate_usd.toFixed(2)}`;
+  return message('workflows.runView.costSoFar')
+    .replace('{spent}', run.spent_usd.toFixed(2))
+    .replace('{estimate}', run.estimate_usd.toFixed(2));
 }
 
 /** Whether the run is still live and should be polled. */
@@ -67,22 +74,13 @@ export function isLive(status: string): boolean {
   return status === 'running' || status === 'awaiting_approval';
 }
 
-/** A friendly, human status for the header pill (wireframes §9). */
+/** A friendly, human status for the header pill, from the message catalogue. */
 export function statusLabel(status: string): string {
-  switch (status) {
-    case 'awaiting_approval':
-      return 'Waiting';
-    case 'running':
-      return 'Running';
-    case 'completed':
-      return 'Completed';
-    case 'failed':
-      return 'Failed';
-    case 'cancelled':
-      return 'Cancelled';
-    case 'planning':
-      return 'Planning';
-    default:
-      return status;
+  try {
+    return message(`workflows.runView.status.${status}`);
+  } catch {
+    // An unmapped status shows its raw value rather than throwing; every status
+    // the run emits today has a key, so this is only a safety net.
+    return status;
   }
 }

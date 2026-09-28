@@ -176,6 +176,19 @@ describe('workflow run view (F-WFL-03)', () => {
     expect(host.querySelector('.approval-card-total-amount')?.textContent).toContain('1.50');
   });
 
+  it('approves on Enter and denies on Escape from the keyboard (F-WFL-04)', async () => {
+    let approved = 0;
+    let denied = 0;
+    const waiting: RunView = { ...RUN, status: 'awaiting_approval' };
+    await render(
+      <ApprovalCard run={waiting} onApprove={() => (approved += 1)} onDeny={() => (denied += 1)} />,
+    );
+    await act(async () => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' })));
+    expect(approved).toBe(1);
+    await act(async () => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
+    expect(denied).toBe(1);
+  });
+
   it('approves through the interface, posting to the approve route', async () => {
     const calledUrls: string[] = [];
     const fetchMock = vi.fn((input: RequestInfo | URL) => {

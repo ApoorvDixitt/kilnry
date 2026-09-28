@@ -268,6 +268,26 @@ export function ApprovalCard({
   // with their estimated cost, so the card shows what approving will spend.
   const remaining = run.steps.filter((step) => !['completed', 'skipped', 'waiting'].includes(step.status));
   const remainingCost = remaining.reduce((total, step) => total + (step.estimate_usd ?? 0), 0);
+  // The design contract §2.12 and PRD-10 §4 bind Enter to Approve and Esc to
+  // Deny while the card is shown. The listener ignores a keystroke aimed at a
+  // text field and does nothing while a decision is already in flight.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      if (busy) return;
+      const target = event.target as HTMLElement | null;
+      const tag = target?.tagName?.toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        onApprove();
+      } else if (event.key === 'Escape') {
+        event.preventDefault();
+        onDeny();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [busy, onApprove, onDeny]);
   return (
     <section className="approval-card" role="alertdialog" aria-label={message('workflows.approval.title')}>
       <h2 className="approval-card-title">

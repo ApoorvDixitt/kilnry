@@ -21,6 +21,8 @@ export interface WorkflowCatalogueRowData {
   requires: string[];
   cost_range?: { min_usd: number; max_usd: number };
   input_count: number;
+  step_count: number;
+  eta_range?: { min_minutes: number; max_minutes: number };
 }
 
 const CATEGORY_TABS = [
@@ -39,6 +41,16 @@ export function costLabel(row: WorkflowCatalogueRowData): string {
   return message('workflows.costRange')
     .replace('{min}', row.cost_range.min_usd.toFixed(2))
     .replace('{max}', row.cost_range.max_usd.toFixed(2));
+}
+
+/** The step-count and ETA line a row shows (PRD-10 §1). */
+export function durationLabel(row: WorkflowCatalogueRowData): string {
+  const steps = message('workflows.stepCount').replace('{count}', String(row.step_count));
+  if (!row.eta_range) return steps;
+  const eta = message('workflows.etaRange')
+    .replace('{min}', String(row.eta_range.min_minutes))
+    .replace('{max}', String(row.eta_range.max_minutes));
+  return `${steps} · ${eta}`;
 }
 
 /** The rows one tab shows, filtered by the search box. */
@@ -71,9 +83,7 @@ export function WorkflowCatalogueRow({
       <p className="workflow-description">{row.description}</p>
       <div className="workflow-row-meta">
         <span className="workflow-cost">{costLabel(row)}</span>
-        <span className="workflow-duration">
-          {message('workflows.durationLabel').replace('{count}', String(row.input_count))}
-        </span>
+        <span className="workflow-duration">{durationLabel(row)}</span>
         {row.requires.length > 0 ? (
           <span className="workflow-needs">
             {message('workflows.needsLabel').replace('{capabilities}', row.requires.join(', '))}
