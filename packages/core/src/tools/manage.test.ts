@@ -71,14 +71,96 @@ describe('management and template tools (F-MCP-02 §3.3–§3.6)', () => {
     expect((result.structuredContent.error as { code: string }).code).toBe('CONFIRMATION_REQUIRED');
   });
 
-  it('lists empty presets, workflows and skills for now', async () => {
+  it('lists empty presets and skills for now', async () => {
     const state = await db();
     const presets = await presetsTool.execute({ action: 'list' }, { db: state, scope: 'full' });
-    const flows = await workflowsTool.execute({ action: 'list' }, { db: state, scope: 'full' });
     const skills = await skillsTool.execute({ action: 'list' }, { db: state, scope: 'read_only' });
     expect(presets.structuredContent.presets).toEqual([]);
-    expect(flows.structuredContent.workflows).toEqual([]);
     expect(skills.structuredContent.skills).toEqual([]);
+  });
+
+  it('kilnry_workflows is not available without a runner, and drives one when wired (F-MCP-01)', async () => {
+    const state = await db();
+    // No runner on the connection: the tool says so rather than pretending.
+    const absent = await workflowsTool.execute({ action: 'list' }, { db: state, scope: 'full' });
+    expect((absent.structuredContent.error as { code: string }).code).toBe('NO_PROVIDER');
+
+    // A wired runner: list, get, plan (never spends), run by plan id, status,
+    // approve, deny, cancel and retry_step all route to it.
+    const calls: string[] = [];
+    const runner = {
+      list: async () => {
+        calls.push('list');
+        return [{ id: 'kilnry-ugc-ad', name: 'UGC ad' }];
+      },
+      get: async (id: string) => {
+        calls.push(`get:${id}`);
+        return { id };
+      },
+      plan: async (id: string, inputs: Record<string, unknown>) => {
+        calls.push(`plan:${id}:${Object.keys(inputs).length}`);
+        return { run_id: 'run_1', plan: { total_estimate_usd: 2 } };
+      },
+      run: async (planRunId: string, cost: number) => {
+        calls.push(`run:${planRunId}:${cost}`);
+        return { run_id: planRunId, status: 'running' };
+      },
+      status: async (runId: string) => {
+        calls.push(`status:${runId}`);
+        return { id: runId, status: 'running' };
+      },
+      approve: async (runId: string) => {
+        calls.push(`approve:${runId}`);
+        return { run_id: runId, status: 'running' };
+      },
+      deny: async (runId: string) => {
+        calls.push(`deny:${runId}`);
+        return { run_id: runId, status: 'cancelled' };
+      },
+      cancel: async (runId: string) => {
+        calls.push(`cancel:${runId}`);
+        return { run_id: runId, status: 'cancelled' };
+      },
+      retryStep: async (runId: string, stepId: string) => {
+        calls.push(`retry:${runId}:${stepId}`);
+        return { run_id: runId, status: 'running' };
+      },
+      listRuns: async () => {
+        calls.push('list_runs');
+        return [{ id: 'run_1' }];
+      },
+    };
+    const svc = { db: state, scope: 'full' as const, workflows: runner };
+
+    const listed = await workflowsTool.execute({ action: 'list' }, svc);
+    expect((listed.structuredContent.workflows as unknown[]).length).toBe(1);
+
+    const planned = await workflowsTool.execute(
+      { action: 'plan', workflow_id: 'kilnry-ugc-ad', inputs: { product: 'x' } },
+      svc,
+    );
+    expect(planned.structuredContent.run_id).toBe('run_1');
+
+    // run needs a plan id and a confirmed cost.
+    const noConfirm = await workflowsTool.execute({ action: 'run', plan_id: 'run_1' }, svc);
+    expect((noConfirm.structuredContent.error as { code: string }).code).toBe('CONFIRMATION_REQUIRED');
+    const ran = await workflowsTool.execute({ action: 'run', plan_id: 'run_1', confirm_cost_usd: 2 }, svc);
+    expect((ran.structuredContent.run as { status: string }).status).toBe('running');
+
+    await workflowsTool.execute({ action: 'status', run_id: 'run_1' }, svc);
+    await workflowsTool.execute({ action: 'approve', run_id: 'run_1' }, svc);
+    await workflowsTool.execute({ action: 'cancel', run_id: 'run_1' }, svc);
+    await workflowsTool.execute({ action: 'retry_step', run_id: 'run_1', step_id: 'clip' }, svc);
+
+    expect(calls).toContain('list');
+    expect(calls).toContain('plan:kilnry-ugc-ad:1');
+    expect(calls).toContain('run:run_1:2');
+    expect(calls).toContain('status:run_1');
+    expect(calls).toContain('approve:run_1');
+    expect(calls).toContain('cancel:run_1');
+    expect(calls).toContain('retry:run_1:clip');
+    // plan must never have spent: run is a separate, cost-confirmed call.
+    expect(calls.filter((c) => c.startsWith('run:'))).toHaveLength(1);
   });
 
   it('returns a widget resource link and a fallback from kilnry_ui', async () => {

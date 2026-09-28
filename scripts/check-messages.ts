@@ -104,6 +104,36 @@ function collectPromises(value: Record<string, unknown>, prefix = ''): void {
   }
 }
 collectPromises(catalogue);
+
+// Beyond the message catalogue, an MCP tool's own description and the message of
+// a toolError it returns are user-visible strings too (F-SET-05). A stale
+// milestone promise there escaped the catalogue guard entirely. Scan the tool
+// and MCP server sources for a future-milestone promise in a `description:`
+// string, a `toolError(code, '...')` message, or a prompt's `description`/`text`,
+// and fail on any that names a milestone at or below the shipped one, or that
+// reads as a bare future promise.
+const toolSourceDirs = ['packages/core/src/tools', 'packages/mcp/src'];
+const toolStringPatterns = [
+  /description:\s*\n?\s*(['"`])((?:\\.|(?!\1).)*)\1/g,
+  /toolError\(\s*[^,]+,\s*(['"`])((?:\\.|(?!\1).)*)\1/g,
+  /\btext:\s*(['"`])((?:\\.|(?!\1).)*)\1/g,
+];
+for (const dir of toolSourceDirs) {
+  for (const file of sourceFiles(dir)) {
+    if (file.endsWith('.test.ts')) continue;
+    const content = readFileSync(file, 'utf8');
+    for (const pattern of toolStringPatterns) {
+      for (const match of content.matchAll(pattern)) {
+        const text = match[2] ?? '';
+        if (promiseGuard.test(text)) {
+          promises.push(
+            `${file}: a tool string reads as a future milestone promise; reword or remove: ${text}`,
+          );
+        }
+      }
+    }
+  }
+}
 if (promises.length > 0) {
   process.stderr.write(
     `Message catalogue check failed; each user-visible "not yet" string must name a capability that has not shipped and be listed against its milestone:\n${promises

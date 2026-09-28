@@ -21,6 +21,7 @@ import { trainingRunner } from '../../server/training';
 import { voiceCloner, voiceDeleter, voicePreviewer } from '../../server/voices';
 import { bundleExporter } from '../../server/library-export';
 import { ensureRuntimeEngine, runtimeServices } from '../../server/runtime';
+import { buildAnalyzeServices, workflowRunner } from '../../server/workflows';
 
 // Next must run this on the Node.js runtime (the transport and token store use
 // Node APIs) and never cache it.
@@ -75,6 +76,16 @@ async function handle(request: Request): Promise<Response> {
       voicePreviewer: await voicePreviewer(),
       voiceDeleter: await voiceDeleter(),
       ...(config.library_root ? { bundleExporter: await bundleExporter() } : {}),
+      ...(engine
+        ? {
+            workflows: workflowRunner(
+              services.database,
+              engine,
+              config.data_dir,
+              buildAnalyzeServices(openrouterKey, config.port),
+            ),
+          }
+        : {}),
     },
   });
 }

@@ -203,7 +203,7 @@ describe('generation tools (F-MCP-02 §3.2, §3.6)', () => {
     expect(result.structuredContent.all_terminal).toBe(true);
   });
 
-  it('kilnry_ffmpeg needs a Library and names the milestone for an unsupported op', async () => {
+  it('kilnry_ffmpeg needs a Library and refuses an unsupported op without naming a milestone', async () => {
     const state = await db();
     const noRoot = await ffmpegTool.execute({ op: 'trim', inputs: ['x'] }, { db: state, scope: 'full' });
     expect((noRoot.structuredContent.error as { code: string }).code).toBe('NOT_FOUND');
@@ -214,7 +214,8 @@ describe('generation tools (F-MCP-02 §3.2, §3.6)', () => {
     );
     const err = unsupported.structuredContent.error as { code: string; message: string };
     expect(err.code).toBe('NO_PROVIDER');
-    expect(err.message).toContain('M6');
+    expect(err.message).not.toContain('M6');
+    expect(err.message).not.toMatch(/milestone/i);
     expect(err.message).toContain('trim');
   });
 

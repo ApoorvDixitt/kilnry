@@ -367,7 +367,7 @@ export const ffmpegTool: KilnryTool = {
     if (!isSupportedFfmpegOp(op)) {
       return toolError(
         'NO_PROVIDER',
-        `The ${op || 'requested'} operation is not available yet. Supported now: ${FFMPEG_OPS.join(', ')}. Burning captions and the rest arrive in milestone M6.`,
+        `The ${op || 'requested'} operation is not supported. Supported operations: ${FFMPEG_OPS.join(', ')}.`,
       );
     }
 

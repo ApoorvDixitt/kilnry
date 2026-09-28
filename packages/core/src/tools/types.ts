@@ -77,6 +77,29 @@ export interface ToolServices {
   // Supplied by the caller because it needs the media package's strip and label
   // helpers; absent means export is not available on this surface.
   bundleExporter?: BundleExporter;
+  // The workflow runner for the kilnry_workflows tool (F-WFL-06, F-MCP-01).
+  // Supplied by the caller (the web app) because planning and running a workflow
+  // needs the catalogue, the database and the job engine wired together; absent
+  // means workflows are not available on this surface.
+  workflows?: WorkflowRunner;
+}
+
+/**
+ * What the kilnry_workflows tool needs, supplied by the app which owns the
+ * catalogue, planner and executor. `plan` never spends; `run` runs a stored plan
+ * by id; the rest browse and steer (F-WFL-06, PRD-10 §2).
+ */
+export interface WorkflowRunner {
+  list(): Promise<Array<Record<string, unknown>>>;
+  get(workflowId: string): Promise<Record<string, unknown> | undefined>;
+  plan(workflowId: string, inputs: Record<string, unknown>): Promise<{ run_id: string; plan: unknown }>;
+  run(planRunId: string, confirmCostUsd: number): Promise<Record<string, unknown>>;
+  status(runId: string): Promise<Record<string, unknown> | undefined>;
+  approve(runId: string): Promise<Record<string, unknown>>;
+  deny(runId: string): Promise<Record<string, unknown>>;
+  cancel(runId: string): Promise<Record<string, unknown>>;
+  retryStep(runId: string, stepId: string, model?: string): Promise<Record<string, unknown>>;
+  listRuns(): Promise<Array<Record<string, unknown>>>;
 }
 
 /** What the export_bundle action needs: build a bundle from chosen assets. */

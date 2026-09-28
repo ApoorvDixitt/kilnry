@@ -171,7 +171,7 @@ export function createKilnryMcpServer(options: {
   server.registerPrompt(
     'kilnry.ugc_ad',
     {
-      description: 'Start the UGC Ad workflow conversation (brief, steps, cost; the run arrives in M6).',
+      description: 'Start the UGC Ad workflow conversation: brief, steps, cost, then plan and run it.',
       argsSchema: { product: z.string(), duration_s: z.string(), style: z.string().optional() },
     },
     ({ product, duration_s, style }) => ({
@@ -180,7 +180,7 @@ export function createKilnryMcpServer(options: {
           role: 'user',
           content: {
             type: 'text',
-            text: `Plan a UGC-style ad for ${product}, ${duration_s} seconds, style ${style ?? 'testimonial'}. Show the brief, the steps and the estimated cost. Running the workflow arrives in M6.`,
+            text: `Plan a UGC-style ad for ${product}, ${duration_s} seconds, style ${style ?? 'testimonial'}. Show the brief, the steps and the estimated cost, then run the workflow once I approve the total.`,
           },
         },
       ],

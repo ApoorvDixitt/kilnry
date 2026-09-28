@@ -128,6 +128,72 @@ function fileRootsFor(entry: CatalogueEntry): FileSourceRoots {
 }
 
 /**
+ * A WorkflowRunner for the kilnry_workflows MCP tool (F-MCP-01), wrapping the
+ * catalogue, planner and executor this module owns. plan never spends; run runs a
+ * stored plan by its id and confirms the cost independently, so a stale plan is
+ * allowed only there (F-WFL-02). Approve, deny, cancel and retry_step steer a run.
+ */
+export function workflowRunner(
+  db: DatabaseState,
+  engine: JobEngine,
+  dataDir: string,
+  analyze?: WorkflowAnalyzeServices,
+): import('@kilnry/core').WorkflowRunner {
+  const steer = analyze ? { analyze } : {};
+  return {
+    async list() {
+      const catalogue = loadCatalogue(dataDir);
+      return [...catalogue.values()].map((entry) => ({
+        id: entry.workflow.id,
+        name: entry.workflow.name,
+        category: entry.workflow.category,
+        description: entry.workflow.description ?? '',
+        requires: entry.workflow.requires,
+      }));
+    },
+    async get(workflowId) {
+      const entry = getWorkflow(dataDir, workflowId);
+      return entry ? { id: entry.workflow.id, ...(entry.workflow as Record<string, unknown>) } : undefined;
+    },
+    async plan(workflowId, inputs) {
+      const { run_id, plan } = await planWorkflow(db, engine, dataDir, workflowId, inputs);
+      return { run_id, plan };
+    },
+    async run(planRunId, confirmCostUsd) {
+      const state = await startRun(db, engine, dataDir, planRunId, confirmCostUsd, {
+        ...steer,
+        // The MCP client confirmed the cost in this call, apart from planning, so
+        // a stale plan may still run at ≥90% of its estimate (F-WFL-02).
+        costConfirmedIndependently: true,
+      });
+      return { run_id: planRunId, status: state.status, spent_usd: state.spent_usd };
+    },
+    async status(runId) {
+      return (await getRun(db, runId)) as unknown as Record<string, unknown>;
+    },
+    async approve(runId) {
+      const state = await approveRun(db, engine, dataDir, runId, steer.analyze);
+      return { run_id: runId, status: state.status, spent_usd: state.spent_usd };
+    },
+    async deny(runId) {
+      const state = await denyRun(db, runId);
+      return { run_id: runId, status: state.status, spent_usd: state.spent_usd };
+    },
+    async cancel(runId) {
+      const state = await cancelRun(db, engine, runId);
+      return { run_id: runId, status: state.status, spent_usd: state.spent_usd };
+    },
+    async retryStep(runId, stepId, model) {
+      const state = await retryStep(db, engine, dataDir, runId, stepId, model, steer.analyze);
+      return { run_id: runId, status: state.status, spent_usd: state.spent_usd };
+    },
+    async listRuns() {
+      return (await listRuns(db)) as unknown as Array<Record<string, unknown>>;
+    },
+  };
+}
+
+/**
  * A synchronous character resolver for the plan and run scope, backed by a map
  * of every character loaded once. The planner and executor read
  * `characters[@handle]` synchronously through a Proxy, so a workflow that reads a

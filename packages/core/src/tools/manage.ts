@@ -9,7 +9,7 @@
 // Characters and Elements, kilnry_presets and kilnry_workflows browse and run
 // templates, kilnry_skills discovers agent instructions, kilnry_publish posts to
 // social accounts, and kilnry_ui opens a widget. Actions whose provider or
-// pipeline arrives in a later milestone return a clear not-available result.
+// pipeline is not available on a connection return a clear not-available result.
 
 import * as z from 'zod';
 import { rename as fsRename, copyFile, mkdir } from 'node:fs/promises';
@@ -340,7 +340,7 @@ export const charactersManageTool: KilnryTool = {
       }
     }
 
-    return toolError('NO_PROVIDER', `The ${action} action arrives in a later milestone.`);
+    return toolError('INVALID_INPUT', `The ${action} action is not supported by this tool.`);
   },
 };
 
@@ -482,26 +482,115 @@ export const presetsTool: KilnryTool = {
 export const workflowsTool: KilnryTool = {
   name: 'kilnry_workflows',
   description:
-    'Browse, plan, run, and steer multi-step pipelines: list, get, plan (never spends), run, check status, approve or deny a step, cancel, or retry a step. Returns the workflows with their cost range, a plan with per-step estimates, or a run with its steps and spend. The full workflow engine arrives in a later milestone, so listing returns an empty set for now.',
+    'Browse, plan, run, and steer multi-step pipelines: list, get, plan (never spends), run a stored plan by its id, check status, approve or deny a step, cancel, or retry a step. Returns the workflows with their cost range, a plan with per-step estimates, or a run with its steps and spend.',
   inputSchema: {
     action: z
       .enum(['list', 'get', 'plan', 'run', 'status', 'approve', 'deny', 'cancel', 'retry_step', 'list_runs'])
       .default('list'),
     workflow_id: z.string().optional(),
     run_id: z.string().optional(),
+    plan_id: z.string().optional(),
+    step_id: z.string().optional(),
+    model: z.string().optional(),
+    inputs: z.record(z.string(), z.unknown()).optional(),
     confirm_cost_usd: z.number().optional(),
   },
   outputSchema: {
     workflows: z.array(z.record(z.string(), z.unknown())).optional(),
+    workflow: z.record(z.string(), z.unknown()).optional(),
+    plan: z.record(z.string(), z.unknown()).optional(),
+    run: z.record(z.string(), z.unknown()).optional(),
+    runs: z.array(z.record(z.string(), z.unknown())).optional(),
+    run_id: z.string().optional(),
     error: z.record(z.string(), z.unknown()).optional(),
   },
   annotations: { readOnlyHint: false, openWorldHint: true },
-  async execute(input): Promise<ToolResult> {
+  async execute(input, services): Promise<ToolResult> {
     const action = typeof input.action === 'string' ? input.action : 'list';
-    if (action === 'list' || action === 'list_runs') {
-      return { text: 'No workflows yet.', structuredContent: { workflows: [] } };
+    const runner = services?.workflows;
+    if (!runner) {
+      return toolError('NO_PROVIDER', 'Workflows are not available on this connection.');
     }
-    return toolError('NO_PROVIDER', 'Workflows arrive in a later milestone.');
+    try {
+      switch (action) {
+        case 'list': {
+          const workflows = await runner.list();
+          return { text: `${workflows.length} workflows.`, structuredContent: { workflows } };
+        }
+        case 'list_runs': {
+          const runs = await runner.listRuns();
+          return { text: `${runs.length} runs.`, structuredContent: { runs } };
+        }
+        case 'get': {
+          if (!input.workflow_id) return toolError('INVALID_INPUT', 'get needs a workflow_id.');
+          const workflow = await runner.get(String(input.workflow_id));
+          if (!workflow) return toolError('NOT_FOUND', `No workflow called ${String(input.workflow_id)}.`);
+          return { text: `Workflow ${String(input.workflow_id)}.`, structuredContent: { workflow } };
+        }
+        case 'plan': {
+          if (!input.workflow_id) return toolError('INVALID_INPUT', 'plan needs a workflow_id.');
+          const inputs = (input.inputs as Record<string, unknown>) ?? {};
+          const planned = await runner.plan(String(input.workflow_id), inputs);
+          // plan never spends: it returns a stored plan and its run id to run later.
+          return {
+            text: `Planned ${String(input.workflow_id)}.`,
+            structuredContent: { run_id: planned.run_id, plan: planned.plan as Record<string, unknown> },
+          };
+        }
+        case 'run': {
+          // A workflow runs by the id of a stored plan (PRD-10 §2). The MCP client
+          // confirms the cost in this call, independently of planning.
+          const planRunId = input.plan_id ?? input.run_id;
+          if (!planRunId) return toolError('INVALID_INPUT', 'run needs a plan_id.');
+          if (typeof input.confirm_cost_usd !== 'number') {
+            return toolError('CONFIRMATION_REQUIRED', 'run needs confirm_cost_usd.');
+          }
+          const run = await runner.run(String(planRunId), input.confirm_cost_usd);
+          return { text: 'Run started.', structuredContent: { run } };
+        }
+        case 'status': {
+          if (!input.run_id) return toolError('INVALID_INPUT', 'status needs a run_id.');
+          const run = await runner.status(String(input.run_id));
+          if (!run) return toolError('NOT_FOUND', `No run called ${String(input.run_id)}.`);
+          return { text: `Run ${String(input.run_id)}.`, structuredContent: { run } };
+        }
+        case 'approve': {
+          if (!input.run_id) return toolError('INVALID_INPUT', 'approve needs a run_id.');
+          return {
+            text: 'Approved.',
+            structuredContent: { run: await runner.approve(String(input.run_id)) },
+          };
+        }
+        case 'deny': {
+          if (!input.run_id) return toolError('INVALID_INPUT', 'deny needs a run_id.');
+          return { text: 'Denied.', structuredContent: { run: await runner.deny(String(input.run_id)) } };
+        }
+        case 'cancel': {
+          if (!input.run_id) return toolError('INVALID_INPUT', 'cancel needs a run_id.');
+          return {
+            text: 'Cancelled.',
+            structuredContent: { run: await runner.cancel(String(input.run_id)) },
+          };
+        }
+        case 'retry_step': {
+          if (!input.run_id || !input.step_id) {
+            return toolError('INVALID_INPUT', 'retry_step needs a run_id and a step_id.');
+          }
+          const run = await runner.retryStep(
+            String(input.run_id),
+            String(input.step_id),
+            typeof input.model === 'string' ? input.model : undefined,
+          );
+          return { text: 'Step re-run.', structuredContent: { run } };
+        }
+        default:
+          return toolError('INVALID_INPUT', `Unknown workflow action ${action}.`);
+      }
+    } catch (error) {
+      const code =
+        error && typeof error === 'object' && 'code' in error ? String(error.code) : 'PROVIDER_ERROR';
+      return toolError(code, error instanceof Error ? error.message : 'Could not run that workflow action.');
+    }
   },
 };
 
