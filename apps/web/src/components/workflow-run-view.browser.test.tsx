@@ -76,6 +76,60 @@ describe('workflow run view (F-WFL-03)', () => {
     expect(tabs).toEqual(['Inputs', 'Outputs', 'Logs', 'Cost']);
   });
 
+  it('renders real content in each of the four StepDetail tabs (F-WFL-03)', async () => {
+    const step = {
+      step_id: 'board',
+      name: 'Storyboard',
+      kind: 'generate',
+      status: 'completed',
+      model: 'gpt-image-2.5',
+      estimate_usd: 0.22,
+      actual_usd: 0.2,
+      inputs: { prompt: 'a rooftop cafe at golden hour', params: { aspect_ratio: '16:9' } },
+      outputs: { assets: ['01ASSETONE', '01ASSETTWO'] },
+      logs: 'queued\nrunning\ncompleted',
+      unit_price: { per_image_usd: 0.2 },
+    };
+    const host = await render(<StepDetail step={step} />);
+    const tab = (label: string): HTMLButtonElement =>
+      [...host.querySelectorAll('.run-detail-tab')].find((t) => t.textContent === label) as HTMLButtonElement;
+
+    // Inputs: the rendered prompt is shown, not the literal label.
+    await act(async () => tab('Inputs').click());
+    expect(host.querySelector('.run-detail-inputs')?.textContent).toContain('a rooftop cafe at golden hour');
+    expect(host.querySelector('.run-detail-empty')).toBeNull();
+
+    // Outputs: an AssetCard per produced asset, with a thumbnail.
+    await act(async () => tab('Outputs').click());
+    const cards = host.querySelectorAll('.run-output-card');
+    expect(cards).toHaveLength(2);
+    expect(
+      host.querySelector('.run-output-card[data-asset-id="01ASSETONE"] img')?.getAttribute('src'),
+    ).toContain('/api/thumb/01ASSETONE');
+
+    // Logs: a monospaced pane with a follow-tail toggle.
+    await act(async () => tab('Logs').click());
+    expect(host.querySelector('.run-logs-pane')?.textContent).toContain('running');
+    expect(host.querySelector('.run-logs-follow input[type="checkbox"]')).not.toBeNull();
+
+    // Cost: estimate against actual and the unit price.
+    await act(async () => tab('Cost').click());
+    const cost = host.querySelector('.run-detail-cost')?.textContent ?? '';
+    expect(cost).toContain('0.22');
+    expect(cost).toContain('0.20');
+    expect(cost).toContain('per_image_usd');
+  });
+
+  it('shows an empty note when a tab has no content', async () => {
+    const host = await render(<StepDetail step={RUN.steps[1]} />);
+    // The running board step has no inputs/outputs/logs in this fixture.
+    const inputsTab = [...host.querySelectorAll('.run-detail-tab')].find(
+      (t) => t.textContent === 'Inputs',
+    ) as HTMLButtonElement;
+    await act(async () => inputsTab.click());
+    expect(host.querySelector('.run-detail-empty')).not.toBeNull();
+  });
+
   it('renders the full view from an initial run', async () => {
     const host = await render(<WorkflowRunView runId="run_1" initial={RUN} />);
     expect(host.querySelector('.run-header')).not.toBeNull();

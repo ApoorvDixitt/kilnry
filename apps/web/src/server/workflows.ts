@@ -34,11 +34,11 @@ import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { KilnryError, loadConfig, loadRegistry, ulid, listCharacters, loadFullCharacter } from '@kilnry/core';
 import { CanonicalRequestSchema, type CanonicalRequest, type RouteConstraints } from '@kilnry/core';
 import { analyzeTool, capabilityFor, type ToolServices } from '@kilnry/core';
-import { assets, assetTags, runSteps, runs, type DatabaseState } from '@kilnry/db';
+import { assets, assetTags, jobs, runSteps, runs, type DatabaseState } from '@kilnry/db';
 import {
   buildManifest,
   execute,
@@ -1327,11 +1327,26 @@ export async function getRun(
     model: string | null;
     estimate_usd: number | null;
     actual_usd: number | null;
+    inputs: Record<string, unknown> | null;
+    outputs: { assets: string[] } | null;
+    logs: string | null;
+    unit_price: Record<string, unknown> | null;
   }>;
 }> {
   const [run] = await db.db.select().from(runs).where(eq(runs.id, runId)).limit(1);
   if (!run) throw new KilnryError('NOT_FOUND', 'Run not found.');
   const steps = await db.db.select().from(runSteps).where(eq(runSteps.runId, runId));
+  // The unit price a spending step ran at, read from its job (F-WFL-03 cost tab).
+  const jobIds = steps.map((step) => step.jobId).filter((id): id is string => Boolean(id));
+  const jobRows = jobIds.length > 0 ? await db.db.select().from(jobs).where(inArray(jobs.id, jobIds)) : [];
+  const unitPriceByJob = new Map(jobRows.map((job) => [job.id, job.unitPrice] as const));
+  // The asset ids a step produced, from its persisted outputs.
+  const assetIdsOf = (outputs: Record<string, unknown> | null): string[] => {
+    if (!outputs) return [];
+    const single = outputs.asset ?? outputs.assets;
+    if (Array.isArray(single)) return single.filter((v): v is string => typeof v === 'string');
+    return typeof single === 'string' && single !== '' ? [single] : [];
+  };
   return {
     id: run.id,
     workflow_id: run.workflowId,
@@ -1349,6 +1364,13 @@ export async function getRun(
         model: step.modelId ?? null,
         estimate_usd: step.estimateUsd === null ? null : Number(step.estimateUsd),
         actual_usd: step.actualUsd === null ? null : Number(step.actualUsd),
+        inputs: step.inputs ?? null,
+        outputs: { assets: assetIdsOf(step.outputs) },
+        logs: step.logs ?? null,
+        unit_price: (step.jobId ? (unitPriceByJob.get(step.jobId) ?? null) : null) as Record<
+          string,
+          unknown
+        > | null,
       })),
   };
 }

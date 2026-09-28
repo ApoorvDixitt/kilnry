@@ -14,6 +14,10 @@ export interface RunStepView {
   model: string | null;
   estimate_usd: number | null;
   actual_usd: number | null;
+  inputs?: Record<string, unknown> | null;
+  outputs?: { assets: string[] } | null;
+  logs?: string | null;
+  unit_price?: Record<string, unknown> | null;
 }
 
 export interface RunView {

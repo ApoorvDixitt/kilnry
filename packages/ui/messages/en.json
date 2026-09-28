@@ -951,7 +951,15 @@
       },
       "retry": "Retry step",
       "rerunFrom": "Re-run from here",
-      "swapModel": "Swap model (optional)"
+      "swapModel": "Swap model (optional)",
+      "noInputs": "This step has no inputs.",
+      "noOutputs": "No outputs yet.",
+      "noLogs": "No logs yet.",
+      "followTail": "Follow tail",
+      "estimateLabel": "Estimate",
+      "actualLabel": "Actual",
+      "unitPriceLabel": "Unit price",
+      "costPending": "Not yet spent."
     },
     "approval": {
       "title": "Approve before spending",

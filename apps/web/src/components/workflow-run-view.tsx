@@ -11,7 +11,7 @@
 // StepDetail on the right with Inputs, Outputs, Logs and Cost tabs. The view
 // polls while the run is live. The cost figures use the money-green accent.
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { apiFetch } from '../lib/api-client';
 import { message } from '../lib/messages';
 import {
@@ -115,17 +115,10 @@ export function StepDetail({
         ))}
       </div>
       <div className="run-detail-body">
-        {tab === 'cost' ? (
-          <p className="run-detail-cost">
-            {step.actual_usd !== null
-              ? `$${step.actual_usd.toFixed(2)}`
-              : step.estimate_usd !== null
-                ? `≈ $${step.estimate_usd.toFixed(2)}`
-                : message('workflows.costUnknown')}
-          </p>
-        ) : (
-          <p className="run-detail-empty">{message(`workflows.runView.tab.${tab}`)}</p>
-        )}
+        {tab === 'inputs' ? <StepInputs step={step} /> : null}
+        {tab === 'outputs' ? <StepOutputs step={step} /> : null}
+        {tab === 'logs' ? <StepLogs step={step} /> : null}
+        {tab === 'cost' ? <StepCost step={step} /> : null}
       </div>
       {onRetry && (failed || canRerun) ? (
         <div className="run-step-actions">
@@ -161,6 +154,101 @@ export function StepDetail({
         </div>
       ) : null}
     </section>
+  );
+}
+
+// The Inputs tab: the rendered prompt, params and media a step ran with, shown
+// as a definition list. Structural values are JSON-formatted (F-WFL-03).
+function StepInputs({ step }: { step: RunStepView }): React.ReactNode {
+  const entries = Object.entries(step.inputs ?? {});
+  if (entries.length === 0)
+    return <p className="run-detail-empty">{message('workflows.runView.noInputs')}</p>;
+  return (
+    <dl className="run-detail-inputs">
+      {entries.map(([key, value]) => (
+        <div key={key} className="run-detail-input-row">
+          <dt>{key}</dt>
+          <dd>{typeof value === 'string' ? value : JSON.stringify(value)}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+// The Outputs tab: the assets a step produced, as cards with a thumbnail served
+// by the Library media route (PRD-10 §3 Outputs as AssetCards, F-WFL-03).
+function StepOutputs({ step }: { step: RunStepView }): React.ReactNode {
+  const assets = step.outputs?.assets ?? [];
+  if (assets.length === 0)
+    return <p className="run-detail-empty">{message('workflows.runView.noOutputs')}</p>;
+  return (
+    <ul className="run-detail-outputs" aria-label={message('workflows.runView.tab.outputs')}>
+      {assets.map((assetId) => (
+        <li key={assetId} className="run-output-card" data-asset-id={assetId}>
+          <img
+            className="run-output-thumb"
+            src={`/api/thumb/${encodeURIComponent(assetId)}`}
+            alt={assetId}
+            loading="lazy"
+          />
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+// The Logs tab: the step's logs in a monospaced pane with a follow-tail toggle.
+// Follow-tail scrolls to the newest line only while the step is still running; a
+// completed step is left where the reader put it (PRD-10 §3, F-WFL-03).
+function StepLogs({ step }: { step: RunStepView }): React.ReactNode {
+  const [follow, setFollow] = useState(true);
+  const paneRef = useRef<HTMLPreElement | null>(null);
+  const running = step.status === 'running';
+  useEffect(() => {
+    if (follow && running && paneRef.current) {
+      paneRef.current.scrollTop = paneRef.current.scrollHeight;
+    }
+  }, [follow, running, step.logs]);
+  if (!step.logs || step.logs.trim() === '')
+    return <p className="run-detail-empty">{message('workflows.runView.noLogs')}</p>;
+  return (
+    <div className="run-detail-logs">
+      <label className="run-logs-follow">
+        <input type="checkbox" checked={follow} onChange={(event) => setFollow(event.target.checked)} />
+        {message('workflows.runView.followTail')}
+      </label>
+      <pre ref={paneRef} className="run-logs-pane">
+        {step.logs}
+      </pre>
+    </div>
+  );
+}
+
+// The Cost tab: the estimate against the actual spend and the unit price the job
+// ran at (PRD-10 §3, F-WFL-03).
+function StepCost({ step }: { step: RunStepView }): React.ReactNode {
+  const unit = step.unit_price ?? null;
+  return (
+    <dl className="run-detail-cost">
+      <div className="run-detail-input-row">
+        <dt>{message('workflows.runView.estimateLabel')}</dt>
+        <dd>{step.estimate_usd !== null ? `≈ $${step.estimate_usd.toFixed(2)}` : '—'}</dd>
+      </div>
+      <div className="run-detail-input-row">
+        <dt>{message('workflows.runView.actualLabel')}</dt>
+        <dd className="run-cost-actual">
+          {step.actual_usd !== null
+            ? `$${step.actual_usd.toFixed(2)}`
+            : message('workflows.runView.costPending')}
+        </dd>
+      </div>
+      {unit && Object.keys(unit).length > 0 ? (
+        <div className="run-detail-input-row">
+          <dt>{message('workflows.runView.unitPriceLabel')}</dt>
+          <dd>{JSON.stringify(unit)}</dd>
+        </div>
+      ) : null}
+    </dl>
   );
 }
 
