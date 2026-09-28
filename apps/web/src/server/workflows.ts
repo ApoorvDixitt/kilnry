@@ -38,7 +38,7 @@ import { and, eq, inArray } from 'drizzle-orm';
 import { KilnryError, loadConfig, loadRegistry, ulid, listCharacters, loadFullCharacter } from '@kilnry/core';
 import { CanonicalRequestSchema, type CanonicalRequest, type RouteConstraints } from '@kilnry/core';
 import { analyzeTool, capabilityFor, type ToolServices } from '@kilnry/core';
-import { assets, assetTags, jobs, runSteps, runs, type DatabaseState } from '@kilnry/db';
+import { assets, assetTags, assetLineage, jobs, runSteps, runs, type DatabaseState } from '@kilnry/db';
 import {
   buildManifest,
   execute,
@@ -964,7 +964,7 @@ export async function retryStep(
   return driveResumed(db, engine, dataDir, runId, analyze ? { analyze } : {});
 }
 
-interface RunContext {
+export interface RunContext {
   runId: string;
   plan: Plan;
   workflow: WorkflowFile;
@@ -1001,8 +1001,11 @@ export function buildAnalyzeServices(
 
 // The executor's effects, bound to the engine and the database. runStep is where
 // the money path lives: a generate or transform step is a createJob call, an
-// analyze step is a metered analyze-tool call, never an adapter.
-function runEffects(db: DatabaseState, engine: JobEngine, run: RunContext): Effects {
+// analyze step is a metered analyze-tool call, never an adapter. Exported so a
+// host test can drive the real assemble/export handlers against an in-memory
+// database and prove outputs.final resolves for an assemble- or export-final
+// workflow (F-WFL-09).
+export function runEffects(db: DatabaseState, engine: JobEngine, run: RunContext): Effects {
   return {
     decide: async (node: RunStep): Promise<'approve' | 'deny' | 'wait'> => {
       // Record the checkpoint as waiting and pause; the approve/deny route
@@ -1027,7 +1030,10 @@ function runEffects(db: DatabaseState, engine: JobEngine, run: RunContext): Effe
       if (node.kind === 'export') {
         return exportFiles(db, run, rendered as ExpandedExportStep);
       }
-      // set / assemble run inline with no provider and no spend.
+      if (node.kind === 'assemble') {
+        return assembleFile(db, run, node, rendered as Step);
+      }
+      // set runs inline with no provider and no spend.
       return { outputs: node.outputs, actual_usd: 0, status: 'completed' };
     },
   };
@@ -1121,6 +1127,82 @@ async function analyzeThroughTool(
   };
 }
 
+// An assemble step: a free, local FFmpeg operation (concat, mux_audio, overlay,
+// probe…) that produces a new file in the run folder. It spends nothing, but it
+// does yield an asset — so it must record the id and path of the file it
+// produced, or a workflow whose `outputs.final` is an assemble step (a concat to
+// a master cut, a burn to captions) would resolve to nothing on disk (F-WFL-09).
+// A `probe` reads a source and adds no file, so it carries its inputs' first
+// asset through rather than minting a new one.
+async function assembleFile(
+  db: DatabaseState,
+  run: RunContext,
+  node: RunStep,
+  rendered: Step,
+): Promise<StepResult> {
+  const step = rendered as Extract<Step, { kind: 'assemble' }>;
+  const inputs = Array.isArray(step.inputs)
+    ? (step.inputs as unknown[]).map(String).filter((id) => id !== '')
+    : [];
+  const op = String(step.op ?? '');
+  // A probe measures a source; it produces no new file. Pass the first input
+  // through so a later `{{ steps.probe.outputs.asset }}` still resolves, and
+  // expose any declared measurement (duration) the step reads from `result`.
+  if (op === 'probe' || op === 'metadata') {
+    const source = inputs[0] ?? '';
+    return {
+      outputs: { result: { asset_id: source, assets: source === '' ? [] : [source] }, asset: source },
+      actual_usd: 0,
+      status: 'completed',
+    };
+  }
+  // The output file the op writes into the run folder. Fall back to a name keyed
+  // on the step so two assemble steps in one run never collide.
+  const outputName =
+    typeof step.output_name === 'string' && step.output_name !== ''
+      ? step.output_name
+      : `${node.step_id}.mp4`;
+  const targetRelative = join(run.folder, outputName);
+  // Inherit kind and audio flag from the primary input asset when it is known,
+  // so a concatenated cut is a video and a joined narration is audio.
+  let kind = 'video';
+  const [primary] = inputs[0]
+    ? await db.db
+        .select({ id: assets.id, kind: assets.kind, hasAudio: assets.hasAudio })
+        .from(assets)
+        .where(eq(assets.id, inputs[0]))
+        .limit(1)
+    : [];
+  if (primary?.kind) kind = primary.kind;
+  const assetId = ulid();
+  await db.db
+    .insert(assets)
+    .values({
+      id: assetId,
+      path: targetRelative,
+      folderPath: run.folder,
+      kind,
+      source: 'assemble',
+      runId: run.runId,
+      stepId: node.step_id,
+      createdAt: new Date(),
+    })
+    .onConflictDoNothing();
+  for (const parentId of inputs) {
+    await db.db.insert(assetLineage).values({ childId: assetId, parentId, role: op }).onConflictDoNothing();
+  }
+  return {
+    outputs: {
+      result: { asset_id: assetId, assets: [assetId] },
+      asset: assetId,
+      assets: [assetId],
+      path: targetRelative,
+    },
+    actual_usd: 0,
+    status: 'completed',
+  };
+}
+
 // An export step: copy or rename each expanded file into the run folder under
 // its name, tag it, and record the written paths (TRD-12 §4, F-WFL-09). A file's
 // ref is an asset id resolved to its Library path; copying keeps the source and
@@ -1161,7 +1243,17 @@ async function exportFiles(
     written.push({ asset: file.ref, path: targetRelative });
   }
   return {
-    outputs: { paths: written.map((entry) => entry.path), files: written },
+    outputs: {
+      result: {
+        assets: written.map((entry) => entry.asset),
+        asset_id: written[0]?.asset ?? '',
+        paths: written.map((entry) => entry.path),
+      },
+      assets: written.map((entry) => entry.asset),
+      asset: written[0]?.asset ?? '',
+      paths: written.map((entry) => entry.path),
+      files: written,
+    },
     actual_usd: 0,
     status: 'completed',
   };
