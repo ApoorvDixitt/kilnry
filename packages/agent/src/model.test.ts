@@ -43,6 +43,12 @@ const rows: LlmRegistryRow[] = [
     capabilities: ['text2image'],
     price_rule: { kind: 'per_image' },
   },
+  {
+    provider: 'openrouter',
+    model_id: 'kilnry/no-tools',
+    capabilities: ['llm', 'no_tools'],
+    price_rule: { kind: 'per_million_tokens', in: 1, out: 3 },
+  },
 ];
 
 describe('per-million pricing (F-CHT-01)', () => {
@@ -68,6 +74,12 @@ describe('per-million pricing (F-CHT-01)', () => {
   it('marks vision from the vision-language capability', () => {
     expect(llmCaps(rows, { provider: 'openrouter', model: 'anthropic/claude-sonnet-5' }).vision).toBe(true);
     expect(llmCaps(rows, { provider: 'openrouter', model: 'kilnry/text-only' }).vision).toBe(false);
+  });
+
+  it('reads tool support from the registry rather than assuming it', () => {
+    // A hosted chat model calls tools unless the registry marks the exception.
+    expect(llmCaps(rows, { provider: 'openrouter', model: 'anthropic/claude-sonnet-5' }).tools).toBe(true);
+    expect(llmCaps(rows, { provider: 'openrouter', model: 'kilnry/no-tools' }).tools).toBe(false);
   });
 
   it('converts token usage to dollars, billing reasoning at the output rate', () => {

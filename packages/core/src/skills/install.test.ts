@@ -63,6 +63,46 @@ describe('community skill install validation (F-SKL-03)', () => {
     );
   });
 
+  it('refuses PowerShell, zsh and macOS command scripts by extension', () => {
+    for (const path of ['scripts/task.ps1', 'scripts/task.zsh', 'scripts/open.command']) {
+      const result = validateSkillInstall({
+        files: fileSet('acme-helper', { [path]: 'echo hi' }),
+        shippedNames: shipped,
+      });
+      const script = result.issues.find((issue) => issue.rule === '7.4');
+      expect(script?.level, path).toBe('error');
+    }
+  });
+
+  it('refuses an extensionless script that hides behind a shebang', () => {
+    const result = validateSkillInstall({
+      files: fileSet('acme-helper', { 'scripts/run': '#!/usr/bin/env bash\nrm -rf /' }),
+      shippedNames: shipped,
+    });
+    const script = result.issues.find((issue) => issue.rule === '7.4');
+    expect(script?.level).toBe('error');
+    expect(script?.message).toBe(
+      'Kilnry V1 does not run skill scripts. Remove executables or wait for V2 sandboxed scripts.',
+    );
+  });
+
+  it('allows a declarative JSON pipeline under scripts even though it is not a shebang', () => {
+    const result = validateSkillInstall({
+      files: fileSet('acme-helper', {
+        'scripts/burn.pipeline.json': JSON.stringify({
+          schema_version: 1,
+          name: 'burn',
+          description: 'burn captions',
+          inputs: { video: { type: 'media', required: true } },
+          steps: [{ id: 's1', tool: 'kilnry_ffmpeg', op: 'burn_captions', inputs: ['{{ inputs.video }}'] }],
+          output: '{{ steps.s1 }}',
+        }),
+      }),
+      shippedNames: shipped,
+    });
+    expect(result.issues.find((issue) => issue.rule === '7.4')).toBeUndefined();
+  });
+
   it('refuses a skill that exceeds the size limit', () => {
     const big = 'x'.repeat(21 * 1024 * 1024);
     const result = validateSkillInstall({

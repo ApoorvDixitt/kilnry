@@ -35,7 +35,21 @@ export interface InstallResult {
 
 const MAX_TOTAL_BYTES = 20 * 1024 * 1024;
 // D-45: Kilnry V1 does not run skill scripts. Any executable is rejected.
-const EXECUTABLE_EXTENSIONS = ['.sh', '.py', '.js', '.mjs', '.cjs', '.ts', '.rb', '.pl', '.php', '.bat'];
+const EXECUTABLE_EXTENSIONS = [
+  '.sh',
+  '.py',
+  '.js',
+  '.mjs',
+  '.cjs',
+  '.ts',
+  '.rb',
+  '.pl',
+  '.php',
+  '.bat',
+  '.ps1',
+  '.zsh',
+  '.command',
+];
 const SCRIPT_REJECTION =
   'Kilnry V1 does not run skill scripts. Remove executables or wait for V2 sandboxed scripts.';
 // Prompt-injection phrases that flip tool permissions or exfiltrate keys.
@@ -52,6 +66,11 @@ const textDecoder = new TextDecoder('utf8', { fatal: false });
 
 function decode(bytes: Uint8Array): string {
   return textDecoder.decode(bytes);
+}
+
+// True when a file opens with a `#!` shebang line — a script the OS would run.
+function hasShebang(bytes: Uint8Array): boolean {
+  return bytes.byteLength >= 2 && bytes[0] === 0x23 && bytes[1] === 0x21;
 }
 
 function extensionOf(path: string): string {
@@ -133,6 +152,11 @@ export function validateSkillInstall(input: {
     }
     const ext = extensionOf(path);
     if (path.startsWith('scripts/') && EXECUTABLE_EXTENSIONS.includes(ext)) {
+      issues.push({ rule: '7.4', level: 'error', message: SCRIPT_REJECTION });
+    } else if (path.startsWith('scripts/') && ext !== '.json' && hasShebang(bytes)) {
+      // An extensionless (or oddly-named) script that opens with a shebang is an
+      // executable in disguise; reject it the same way (D-45). Declarative JSON
+      // pipelines under scripts/ are the one allowed thing and never carry one.
       issues.push({ rule: '7.4', level: 'error', message: SCRIPT_REJECTION });
     }
   }

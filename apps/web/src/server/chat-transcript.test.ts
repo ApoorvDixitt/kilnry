@@ -71,4 +71,24 @@ describe('chat transcript (F-CHT-12)', () => {
     expect(markdown).toContain('> approval requested for kilnry_generate');
     expect(markdown).toContain('> denied kilnry_voices');
   });
+
+  it('redacts a key-shaped string from message text and tool output (F-CHT-12)', () => {
+    const key = `sk-or-v1-${'0'.repeat(48)}`;
+    const markdown = renderTranscript({ id: 's' }, [
+      { role: 'user', parts: [{ type: 'text', text: `use my key ${key} please` }] },
+      {
+        role: 'assistant',
+        parts: [
+          { type: 'reasoning', text: `the key is ${key}` },
+          {
+            type: 'tool-kilnry_generate',
+            state: 'output-available',
+            output: { _summary: `saved ${key}`, paths: [`Client_A/${key}.png`] },
+          },
+        ],
+      },
+    ]);
+    // The planted key must not survive anywhere in the exported transcript.
+    expect(markdown).not.toContain(key);
+  });
 });

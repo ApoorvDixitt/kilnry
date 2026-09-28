@@ -95,12 +95,15 @@ export function llmPrice(rows: LlmRegistryRow[], ref: LlmRef): LlmPrice | undefi
   return { in: tokensIn, out: tokensOut, ...(typeof cachedIn === 'number' ? { cached_in: cachedIn } : {}) };
 }
 
-/** Capabilities for a registry row: vision when it also serves the vlm capability. */
+/** Capabilities for a registry row: vision when it also serves the vlm capability, tools when it serves the tool-calling capability. */
 export function llmCaps(rows: LlmRegistryRow[], ref: LlmRef, fallbackContext = 200_000): LlmCaps {
   const row = rows.find((r) => r.provider === ref.provider && r.model_id === ref.model);
   return {
     vision: row ? row.capabilities.includes('vlm') : false,
-    tools: true,
+    // A hosted chat model calls tools; the registry marks the rare exception by
+    // omitting the `tools` capability, and a model that cannot call tools cannot
+    // drive Chat. Default to true only when the row is unknown.
+    tools: row ? row.capabilities.includes('tools') || !row.capabilities.includes('no_tools') : true,
     context: row?.supports?.context ?? fallbackContext,
   };
 }
@@ -181,7 +184,13 @@ export async function resolveModel(input: ResolveModelInput): Promise<ResolvedLl
       model: ollama(ref.model, { options: { num_ctx: Math.min(context, 65_536) } }),
       ref,
       price: { in: 0, out: 0 },
-      caps: { vision: show?.capabilities.includes('vision') ?? false, tools: true, context },
+      // The no-tools case was refused above; when /api/show could not be read we
+      // proceed and assume tool support, which the first tool call would surface.
+      caps: {
+        vision: show?.capabilities.includes('vision') ?? false,
+        tools: show ? show.capabilities.includes('tools') : true,
+        context,
+      },
       local: true,
     };
   }
@@ -261,6 +270,9 @@ export function listChatModels(
 ): Array<{ ref: LlmRef; price: LlmPrice; price_label: string; vision: boolean }> {
   return rows
     .filter((row) => row.capabilities.includes('llm') && row.price_rule.kind === 'per_million_tokens')
+    // A model that cannot call tools cannot drive Chat, so it is not offered
+    // rather than listed and then failing opaquely on the first tool call.
+    .filter((row) => !row.capabilities.includes('no_tools'))
     .filter((row) => connected.includes(row.provider as LlmProvider))
     .map((row) => {
       const ref: LlmRef = { provider: row.provider as LlmProvider, model: row.model_id };

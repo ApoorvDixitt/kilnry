@@ -8,7 +8,10 @@
 // thread can be saved into the Project folder and read anywhere: text parts as
 // prose, tool calls as blockquote lines with the job id and cost, approvals as
 // the decision, and attachments and outputs as their Library paths. It is pure
-// text — no bytes — so it stays small and legible.
+// text — so a saved thread cannot leak a key that appeared in a message or a
+// tool's output.
+
+import { redactString } from '@kilnry/core';
 
 interface MessageLike {
   role: string;
@@ -37,9 +40,10 @@ function renderToolPart(type: string, part: Record<string, unknown>): string {
   const output = (part.output ?? {}) as Record<string, unknown>;
   const summary =
     typeof output._summary === 'string' ? output._summary : ((part.state as string) ?? 'called');
-  const bits: string[] = [`> tool ${name} — ${summary}`];
+  const bits: string[] = [`> tool ${name} — ${redactString(summary)}`];
   if (typeof output.job_id === 'string') bits.push(`job ${output.job_id}`);
-  if (Array.isArray(output.paths) && output.paths.length > 0) bits.push(String(output.paths.join(', ')));
+  if (Array.isArray(output.paths) && output.paths.length > 0)
+    bits.push(redactString(String(output.paths.join(', '))));
   const cost = output.actual_usd ?? output.cost_usd ?? output.estimate_usd;
   if (typeof cost === 'number') bits.push(money(cost));
   return bits.join(' · ');
@@ -79,11 +83,11 @@ export function renderTranscript(
       const part = rawPart as Record<string, unknown>;
       const type = typeof part.type === 'string' ? part.type : '';
       if (type === 'text' && typeof part.text === 'string') {
-        lines.push(part.text);
+        lines.push(redactString(part.text));
       } else if (type === 'reasoning' && typeof part.text === 'string') {
-        lines.push(`> thinking · ${part.text}`);
+        lines.push(`> thinking · ${redactString(part.text)}`);
       } else if (type === 'file' && typeof part.url === 'string') {
-        lines.push(`> attachment · ${part.url}`);
+        lines.push(`> attachment · ${redactString(part.url)}`);
       } else if (type.startsWith('tool-')) {
         if (part.state === 'approval-requested') {
           lines.push(`> approval requested for ${type.slice(5)}`);
