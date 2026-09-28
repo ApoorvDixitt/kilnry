@@ -42,6 +42,8 @@ export interface PlanStep {
 export interface Plan {
   workflow_id: string;
   workflow_version: string;
+  /** A stable id for this plan, set by the host when it persists the plan. */
+  id?: string;
   inputs: Record<string, unknown>;
   vars: Record<string, unknown>;
   steps: PlanStep[];

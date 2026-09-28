@@ -30,6 +30,7 @@ import {
   existsSync,
   copyFileSync,
 } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
@@ -187,6 +188,9 @@ export async function planWorkflow(
   // Price each spending leaf through the engine estimate for the real total.
   const priced = await pricePlan(engine, entry.workflow, inputs, ctx);
   const runId = ulid();
+  // Give the plan its own stable id, distinct from the run id, so the manifest
+  // and the MCP run-by-plan path reference the plan rather than the run (F-WFL-09).
+  priced.id = `plan_${ulid()}`;
   await db.db.insert(runs).values({
     id: runId,
     workflowId: entry.workflow.id,
@@ -674,6 +678,11 @@ async function rebuildRunState(
     if (row.outputs) node.outputs = row.outputs;
     if (row.modelId) node.model = row.modelId;
     if (row.provider) node.provider = row.provider;
+    // Restore the job id and rendered inputs the step ran with, so a run that
+    // paused and resumed still names them in the manifest — the node graph is
+    // rebuilt fresh on resume and would otherwise lose them (F-WFL-09).
+    if (row.jobId) node.job_id = row.jobId;
+    if (row.inputs) node.inputs = row.inputs;
     if (row.actualUsd) node.actual_usd = Number(row.actualUsd);
     if (Array.isArray(row.adjustments)) node.adjustments = row.adjustments as string[];
     node.attempts = row.attempts ?? 0;
@@ -1153,6 +1162,7 @@ async function spendThroughEngine(
       actual_usd: actual,
       model: created.route.model,
       provider: created.route.provider,
+      job_id: created.job_id,
       status: 'completed',
     };
   }
@@ -1163,6 +1173,7 @@ async function spendThroughEngine(
     // so neither is charged; only a job the provider actually failed carries the
     // cost the provider reports.
     actual_usd: terminal.status === 'failed' ? actual : 0,
+    job_id: created.job_id,
     status: terminal.status === 'moderated' ? 'moderated' : 'failed',
     // Name the honest outcome: a settled failure says so, an unsettled job says
     // it is still running rather than pretending the provider refused it.
@@ -1195,6 +1206,8 @@ async function upsertStep(db: DatabaseState, runId: string, node: RunStep, statu
     adjustments: node.adjustments,
     ...(node.model === undefined ? {} : { modelId: node.model }),
     ...(node.provider === undefined ? {} : { provider: node.provider }),
+    ...(node.job_id === undefined ? {} : { jobId: node.job_id }),
+    ...(node.inputs === undefined ? {} : { inputs: node.inputs }),
     ...(node.error === undefined ? {} : { error: node.error }),
     attempts: node.attempts,
     // A gated step that is pending again with no cleared gate has been reset for a
@@ -1210,6 +1223,43 @@ async function upsertStep(db: DatabaseState, runId: string, node: RunStep, statu
   } else {
     await db.db.insert(runSteps).values({ runId, stepId: node.step_id, ...values });
   }
+}
+
+// A stable sha256 of a workflow's canonical definition, for the manifest's
+// workflow.sha256 (F-WFL-09).
+function workflowSha256(workflow: WorkflowFile): string {
+  return createHash('sha256').update(JSON.stringify(workflow)).digest('hex');
+}
+
+// The Characters a run used: every registered handle referenced by the plan's
+// inputs, with the version currently resolved, de-duplicated (F-WFL-09).
+async function charactersUsedIn(
+  db: DatabaseState,
+  plan: Plan,
+): Promise<Array<{ handle: string; version: number }>> {
+  const handles = new Set<string>();
+  const scan = (value: unknown): void => {
+    if (typeof value === 'string') {
+      for (const match of value.matchAll(/@([a-z0-9][a-z0-9_-]*)/gi)) {
+        if (match[1]) handles.add(match[1].toLowerCase());
+      }
+      // A workflow input that names a Character carries the bare handle, not an @.
+      if (/^[a-z0-9][a-z0-9_-]*$/i.test(value)) handles.add(value.toLowerCase());
+    } else if (Array.isArray(value)) {
+      for (const item of value) scan(item);
+    } else if (value && typeof value === 'object') {
+      for (const item of Object.values(value as Record<string, unknown>)) scan(item);
+    }
+  };
+  scan(plan.inputs);
+  const out: Array<{ handle: string; version: number }> = [];
+  const heads = await listCharacters(db);
+  const byHandle = new Map(heads.map((head) => [head.handle.toLowerCase(), head] as const));
+  for (const handle of handles) {
+    const head = byHandle.get(handle);
+    if (head) out.push({ handle: head.handle, version: head.current_version });
+  }
+  return out;
 }
 
 // Persist the run's terminal state and rewrite run.kilnry.json atomically.
@@ -1239,6 +1289,8 @@ async function persistRun(
       state,
       folder,
       startedAt,
+      sha256: workflowSha256(workflow),
+      charactersUsed: await charactersUsedIn(db, runPlan),
       ...(finished ? { finishedAt: new Date().toISOString() } : {}),
     });
     try {

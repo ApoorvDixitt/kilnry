@@ -18,6 +18,7 @@
 import type { RunState, RunStep } from './executor.js';
 import type { Plan } from './planner.js';
 import type { WorkflowFile } from './schema.js';
+import { renderString } from './template.js';
 
 export const MANIFEST_SCHEMA_VERSION = 1;
 
@@ -118,9 +119,10 @@ export function buildManifest(input: {
       status: node.status,
       ...(node.model === undefined ? {} : { model: node.model }),
       ...(node.provider === undefined ? {} : { provider: node.provider }),
+      ...(node.job_id === undefined ? {} : { job_id: node.job_id }),
       ...(estimate === undefined ? {} : { estimate_usd: estimate }),
       actual_usd: node.actual_usd,
-      inputs: {},
+      inputs: node.inputs ?? {},
       outputs: { assets: stepAssets(node) },
       attempts: node.attempts,
       adjustments: node.adjustments,
@@ -137,7 +139,7 @@ export function buildManifest(input: {
       ...(input.sha256 === undefined ? {} : { sha256: input.sha256 }),
     },
     inputs: input.plan.inputs,
-    plan_id: input.runId,
+    plan_id: input.plan.id ?? input.runId,
     status: input.state.status,
     started_at: input.startedAt,
     ...(input.finishedAt === undefined ? {} : { finished_at: input.finishedAt }),
@@ -145,7 +147,59 @@ export function buildManifest(input: {
     estimate_usd: input.plan.total_estimate_usd,
     spent_usd: Math.round(input.state.spent_usd * 1_000_000) / 1_000_000,
     steps,
-    outputs: {},
+    outputs: resolveOutputs(input.workflow, input.state, input.plan.vars),
     characters_used: input.charactersUsed ?? [],
   };
+}
+
+// Resolve the workflow's declared run-level outputs (its `outputs.final` and any
+// other named outputs) against the completed steps, so the manifest names the
+// final asset rather than an empty object (F-WFL-09). Each output template reads
+// the `steps` and `vars` namespaces the same way the executor does.
+function resolveOutputs(
+  workflow: WorkflowFile,
+  state: RunState,
+  vars: Record<string, unknown>,
+): Record<string, unknown> {
+  const declared = workflow.outputs as Record<string, unknown> | undefined;
+  if (!declared || Object.keys(declared).length === 0) return {};
+  const scope = { steps: manifestStepsScope(state), vars };
+  const out: Record<string, unknown> = {};
+  for (const [key, template] of Object.entries(declared)) {
+    if (typeof template !== 'string') continue;
+    try {
+      const value = renderString(template, scope);
+      if (value !== undefined && value !== null && value !== '') out[key] = value;
+    } catch {
+      // An output that cannot resolve (a step that did not run) is omitted rather
+      // than failing the manifest.
+    }
+  }
+  return out;
+}
+
+// Build the `steps` namespace for output resolution: each step id maps to its
+// outputs, and a foreach container id maps to its iterations' merged outputs and
+// flattened assets, mirroring the executor's own steps scope.
+function manifestStepsScope(state: RunState): Record<string, unknown> {
+  const steps: Record<string, unknown> = {};
+  const groups = new Map<string, RunStep[]>();
+  for (const node of state.steps) {
+    steps[node.instance_id] = { outputs: node.outputs, ...node.outputs };
+    const list = groups.get(node.step_id) ?? [];
+    list.push(node);
+    groups.set(node.step_id, list);
+  }
+  for (const [stepId, nodes] of groups) {
+    if (steps[stepId] !== undefined && nodes.length === 1) continue;
+    const assets = nodes.flatMap((node) => {
+      const single = node.outputs.asset ?? node.outputs.assets;
+      return Array.isArray(single) ? single : single === undefined ? [] : [single];
+    });
+    steps[stepId] = {
+      outputs: nodes.map((node) => node.outputs),
+      assets,
+    };
+  }
+  return steps;
 }

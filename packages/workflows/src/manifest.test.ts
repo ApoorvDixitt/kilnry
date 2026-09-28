@@ -35,6 +35,7 @@ const effects: Effects = {
     actual_usd: 0.24,
     model: 'fal/x',
     provider: 'fal',
+    job_id: 'job-abc',
     status: 'completed',
   }),
 };
@@ -54,6 +55,7 @@ describe('run folder and manifest (F-WFL-09, TRD-12 §6.1)', () => {
   it('builds a manifest listing every step with actual cost', async () => {
     const wf = parseWorkflow(WF);
     const p = plan(wf, {}, ctx);
+    p.id = 'plan_test1';
     const state = await execute(wf, { inputs: {}, defaults: {}, vars: {} }, effects);
     const manifest = buildManifest({
       runId: 'run_1',
@@ -63,13 +65,24 @@ describe('run folder and manifest (F-WFL-09, TRD-12 §6.1)', () => {
       folder: 'Client_A/UGC_ad_2026-09-18_1120',
       startedAt: '2026-09-18T11:20:00.000Z',
       finishedAt: '2026-09-18T11:25:00.000Z',
+      sha256: 'abc123',
+      charactersUsed: [{ handle: 'maya', version: 2 }],
     });
     expect(manifest.schema_version).toBe(MANIFEST_SCHEMA_VERSION);
-    expect(manifest.workflow).toEqual({ id: 'kilnry-ugc-ad', version: '1.2.0' });
+    expect(manifest.workflow).toEqual({ id: 'kilnry-ugc-ad', version: '1.2.0', sha256: 'abc123' });
     expect(manifest.spent_usd).toBeCloseTo(0.24, 6);
+    // The plan id is distinct from the run id (F-WFL-09).
+    expect(manifest.plan_id).toBe('plan_test1');
+    // characters_used carries what the host supplied.
+    expect(manifest.characters_used).toEqual([{ handle: 'maya', version: 2 }]);
+    // The run-level outputs resolve the workflow's outputs.final to the asset.
+    expect(manifest.outputs.final).toBe('asset-1');
     const gen = manifest.steps.find((step) => step.step_id === 'gen')!;
     expect(gen.actual_usd).toBeCloseTo(0.24, 6);
     expect(gen.estimate_usd).toBeCloseTo(0.25, 6);
     expect(gen.outputs.assets).toContainEqual({ asset_id: 'asset-1' });
+    // The step carries its job id and the rendered prompt it ran with.
+    expect(gen.job_id).toBe('job-abc');
+    expect(gen.inputs.prompt).toBe('x');
   });
 });

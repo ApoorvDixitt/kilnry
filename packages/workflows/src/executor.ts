@@ -44,6 +44,10 @@ export interface RunStep {
   outputs: Record<string, unknown>;
   model?: string;
   provider?: string;
+  /** The rendered, run-time inputs this step actually used (F-WFL-09 manifest). */
+  inputs?: Record<string, unknown>;
+  /** The engine job id a spending step created, for the manifest (F-WFL-09). */
+  job_id?: string;
   actual_usd: number;
   attempts: number;
   adjustments: string[];
@@ -72,6 +76,8 @@ export interface StepResult {
   actual_usd?: number;
   model?: string;
   provider?: string;
+  /** The engine job id a spending step created, recorded on the node (F-WFL-09). */
+  job_id?: string;
   status: 'completed' | 'failed' | 'moderated';
   error?: string;
   retryable?: boolean;
@@ -398,7 +404,13 @@ export async function execute(
       if (node.step.kind !== 'export' && node.model !== undefined && (rendered as Step).kind !== 'assemble') {
         (rendered as { model?: string }).model = node.model;
       }
+      // Record the rendered inputs this step ran with, for the manifest
+      // (F-WFL-09): a generate/transform step's prompt, params and media, an
+      // analyze step's task and instructions. Read from the rendered step so the
+      // manifest shows the resolved values, not the templates.
+      node.inputs = renderedInputs(rendered);
       const result = await runWithRetry(node, rendered, scope, effects);
+      if (result.job_id !== undefined) node.job_id = result.job_id;
       // The step's declared `outputs` are templates over its result (e.g.
       // `ok: '{{ result.structured.ok }}'`, `transcript: '{{ result.assets[0] }}'`).
       // Evaluate them against a scope that binds `result` to what the step
@@ -490,6 +502,20 @@ async function attempt(
 ): Promise<StepResult> {
   node.attempts += 1;
   return effects.runStep(node, rendered, scope);
+}
+
+// The rendered inputs a step ran with, for the manifest (F-WFL-09). Only the
+// fields that describe what was asked of the provider are kept: the prompt,
+// params and media for a generate/transform, the task and instructions for an
+// analyze. Structural keys (id, kind, depends_on, outputs templates) are not
+// inputs and are left out.
+function renderedInputs(rendered: Step | ExpandedExportStep): Record<string, unknown> {
+  const step = rendered as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const key of ['prompt', 'params', 'medias', 'task', 'instructions', 'op', 'source', 'inputs']) {
+    if (step[key] !== undefined) out[key] = step[key];
+  }
+  return out;
 }
 
 // on_fail: fail stops the run; skip marks dependants skipped; continue lets
