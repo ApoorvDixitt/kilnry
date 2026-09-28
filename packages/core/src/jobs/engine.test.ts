@@ -11,6 +11,7 @@ import { eq } from 'drizzle-orm';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   assets,
+  auditEvents,
   budgets,
   characterVersions,
   closeDatabaseState,
@@ -274,6 +275,40 @@ describe('pg-boss job engine', () => {
     expect(await state.db.select().from(spendLedger)).toHaveLength(1);
     await engine.stop();
     await expect(state.client.query('select 1')).resolves.toBeDefined();
+  });
+
+  it('writes a spend-ledger row and an audit event tied to the run and step (F-JOB-02)', async () => {
+    const fake = fakeAdapter();
+    const { engine, state } = await harness(fake.adapter);
+    const priced = await engine.estimate(imageRequest());
+    const created = await engine.createJob({
+      request: imageRequest(),
+      confirmed_cost_usd: priced.estimate.estimate_usd,
+      confirmed_by: 'user',
+      client_request_id: 'run_42:board[0]:0',
+      run_id: 'run_42',
+      step_id: 'board',
+    });
+    const terminal = await engine.waitForJob(created.job_id, 5000);
+    expect(terminal.status).toBe('completed');
+
+    // One ledger row for the job.
+    const ledger = await state.db.select().from(spendLedger).where(eq(spendLedger.jobId, created.job_id));
+    expect(ledger).toHaveLength(1);
+
+    // One audit event tied to the same job, carrying the run and step id so a
+    // run's spend can be audited end to end.
+    const audit = await state.db.select().from(auditEvents).where(eq(auditEvents.target, created.job_id));
+    expect(audit).toHaveLength(1);
+    expect(audit[0]?.action).toBe('job.settled');
+    expect(audit[0]?.actor).toBe('user');
+    expect(audit[0]?.meta).toMatchObject({
+      run_id: 'run_42',
+      step_id: 'board',
+      source: 'ui',
+      actual_usd: 0.0042,
+    });
+    await engine.stop();
   });
 
   it('does not enqueue without confirmation and replays a client request idempotently', async () => {

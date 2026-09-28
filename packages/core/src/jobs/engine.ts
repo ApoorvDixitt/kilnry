@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { and, desc, eq, gte, inArray, sql } from 'drizzle-orm';
 import { PgBoss, fromPglite, type Job } from 'pg-boss';
 import type { DatabaseState } from '@kilnry/db';
-import { jobs, providers, spendLedger, characters, characterVersions } from '@kilnry/db';
+import { jobs, providers, spendLedger, auditEvents, characters, characterVersions } from '@kilnry/db';
 import { resolveMediaInputs } from './media-inputs.js';
 import { assertCostConfirmation, reserveBudget } from '../budget/enforcer.js';
 import { normalizeConfirmedBy } from '../budget/confirmation.js';
@@ -1087,6 +1087,28 @@ export class JobEngine {
       actualUsd: actualUsd.toFixed(6),
       currencyNote: note,
       occurredAt: this.#options.now(),
+    });
+    // Every settled job leaves an audit event beside its ledger row, as every
+    // other spend path does (F-JOB-02). Without it a job — and so every workflow
+    // step, which spends only through the engine — had a ledger entry but no audit
+    // trail tying the spend to its confirmer, run and step. The event is keyed to
+    // the job and carries the run and step id so a run's spend can be audited.
+    await this.#options.state.db.insert(auditEvents).values({
+      id: ulid(),
+      actor: row.confirmedBy ?? 'user',
+      action: 'job.settled',
+      target: row.id,
+      meta: {
+        provider: row.providerId,
+        ...(row.modelId === null ? {} : { model: row.modelId }),
+        kind: row.kind,
+        estimate_usd: Number(row.estimateUsd),
+        actual_usd: actualUsd,
+        source: row.source,
+        note,
+        ...(row.runId === null || row.runId === undefined ? {} : { run_id: row.runId }),
+        ...(row.stepId === null || row.stepId === undefined ? {} : { step_id: row.stepId }),
+      },
     });
   }
 
