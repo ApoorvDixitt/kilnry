@@ -40,11 +40,20 @@ test('@smoke @m3 S-01 AS-01 first run creates a protected local account and Libr
   await page.getByLabel('Confirm password').fill('Kilnry-local-test-42!');
   await page.getByRole('button', { name: 'Continue' }).click();
 
-  await expect(page.getByRole('heading', { name: 'Where should your work live?' })).toBeVisible();
+  // Continue creates the local account server-side — a password hash and the
+  // first database writes — before the next step renders. On a loaded runner
+  // that round-trip runs past Playwright's five-second default, which is the
+  // real cause of the m5 shard's setup flake, not a fault in the flow. Wait for
+  // the step the account creation gates rather than a shorter implicit timer.
+  await expect(page.getByRole('heading', { name: 'Where should your work live?' })).toBeVisible({
+    timeout: 30_000,
+  });
   await page.getByLabel('Library folder').fill(library);
   await page.getByRole('button', { name: 'Continue' }).click();
 
-  await expect(page.getByRole('heading', { name: 'Add one key to generate for real' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Add one key to generate for real' })).toBeVisible({
+    timeout: 30_000,
+  });
   const noProviderStatus = await page.evaluate(async () => {
     const requestBody = JSON.stringify({ kind: 'image', prompt: 'zero egress check', model: 'auto' });
     const missingCsrf = await fetch('/api/estimate', {
@@ -75,7 +84,7 @@ test('@smoke @m3 S-01 AS-01 first run creates a protected local account and Libr
   await page.getByLabel('Provider key').fill(providerKey);
   await expect(page.getByText('openrouter detected', { exact: false })).toBeVisible();
   await page.getByRole('button', { name: 'Test and save key' }).click();
-  await expect(page.getByText(/Connected · \d+ ms/)).toBeVisible();
+  await expect(page.getByText(/Connected · \d+ ms/)).toBeVisible({ timeout: 30_000 });
   const onboardingKit =
     (await page.locator('.onboarding-recovery code').textContent())?.replace(/[\s-]/g, '') ?? '';
   const onboardingGroups = onboardingKit.slice('kilnry1'.length).match(/.{1,4}/g) ?? [];

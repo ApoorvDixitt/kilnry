@@ -1000,11 +1000,12 @@ test('@m5 S-24 asks for the three-video spend, then pauses at the session cap', 
   const jobs = await latestJobs(page, 3);
   expect(jobs.every((job) => job.confirmedBy === 'user')).toBe(true);
   expect(jobs.every((job) => job.source === 'chat')).toBe(true);
-  // The three approved renders reach a terminal state within the test budget, so
-  // the batch is genuinely settled — no call is in flight — before the cap
-  // section reads the submit count. A terminal state (completed under the mock,
-  // or a settled failure) is the true precondition for a stable submit count; it
-  // is reached sooner and more reliably on a loaded runner than full completion.
+  // Wait until the three approved renders have left flight — every one has
+  // reached a terminal state — so the batch is genuinely settled and the cap
+  // section below reads a submit count that can no longer move. The terminal
+  // wait is the precondition; the mock is strict, so once settled every one of
+  // the three must be `completed` — there is no legitimate failure path for a
+  // Kling render here, and accepting one would hide a real fault (F-CHT-03).
   const approvedIds = jobs.map((job) => job.id as string);
   const terminalStatuses = new Set(['completed', 'failed', 'moderated', 'cancelled']);
   await expect
@@ -1017,6 +1018,9 @@ test('@m5 S-24 asks for the three-video spend, then pauses at the session cap', 
       { timeout: 240_000 },
     )
     .toBe(true);
+  // Every one of the three settled as completed under the strict mock.
+  const settled = (await latestJobs(page, 10)).filter((job) => approvedIds.includes(job.id as string));
+  expect(settled.map((job) => job.status).sort()).toEqual(['completed', 'completed', 'completed']);
 
   // The Workspace Cost tab shows the plan total that was approved.
   await page.getByRole('tab', { name: 'Cost' }).click();
