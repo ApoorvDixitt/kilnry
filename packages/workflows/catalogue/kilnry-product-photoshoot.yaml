@@ -51,6 +51,24 @@ inputs:
         description: '@handle for with_person / try_on',
         x-kilnry: { widget: character, kinds: [character], allow_empty: true },
       }
+    direction:
+      {
+        type: string,
+        default: '',
+        x-kilnry: { widget: textarea, help: 'Art direction: mood, surface, props, angle' },
+      }
+    on_image_text:
+      {
+        type: string,
+        default: '',
+        x-kilnry: { widget: text, help: 'Optional headline burned onto the hero/ad frame' },
+      }
+    model:
+      {
+        type: string,
+        default: auto,
+        x-kilnry: { widget: select, help: 'auto picks the best edit model for the mode' },
+      }
 defaults:
   mode_prompts:
     packshot: 'clean studio packshot, seamless background, soft even light, product centred, crisp shadow'
@@ -88,6 +106,33 @@ steps:
       character_ref: "{{ inputs.character ? (characters[inputs.character].references | filter('role','anchor') | first).asset_id : null }}"
       scene: '{{ defaults.mode_prompts[inputs.mode] }}'
 
+  # 01_anchor — one clean hero shot the operator approves before the set is made,
+  # so the whole variant set follows an approved look (PRD-10 §9).
+  - id: anchor
+    kind: generate
+    name: Anchor shot
+    capability: image_edit
+    model: '{{ inputs.model }}'
+    constraints: { quality: premium, refs_count: '{{ 1 + (vars.character_ref ? 1 : 0) }}' }
+    alternates:
+      [openai/gpt-image-2.5-sunburst, fal-ai/nano-banana-pro/edit, fal-ai/bytedance/seedream/v4.5/edit]
+    prompt: >
+      Product photograph of the product in image 1, unchanged in shape, colour and label: {{ vars.scene }}.
+      {{ steps.product_norm.outputs.desc }}. {{ inputs.direction != '' ? inputs.direction + '.' : '' }}
+      {{ vars.character_ref ? 'The person in image 2 is present, natural and secondary to the product.' : '' }}
+      No text, no watermark, no extra products.
+    params: { aspect_ratio: '{{ inputs.aspect }}', resolution: '2K', quality: high }
+    medias:
+      - { role: product, ref: '{{ inputs.product }}', label: product }
+      - { role: reference, ref: '{{ vars.character_ref }}', when: '{{ vars.character_ref }}', label: person }
+    characters: ['{{ inputs.character }}']
+    approval: soft
+    retry: { max: 1, on: [MODERATION_REJECTED, PROVIDER_ERROR], reword: true }
+    outputs: { asset: '{{ result.assets[0] }}' }
+  - id: anchor_reg
+    kind: export
+    files: [{ ref: '{{ steps.anchor.outputs.asset }}', name: '01_anchor/anchor.png', tags: [anchor] }]
+
   - id: shots
     kind: foreach
     over: '{{ range(0, inputs.variants) }}'
@@ -98,27 +143,34 @@ steps:
         kind: generate
         name: 'Shot {{ k + 1 }}/{{ inputs.variants }}'
         capability: image_edit
-        model: auto
+        model: '{{ inputs.model }}'
         constraints: { quality: premium, refs_count: '{{ 1 + (vars.character_ref ? 1 : 0) }}' }
         alternates:
           [openai/gpt-image-2.5-sunburst, fal-ai/nano-banana-pro/edit, fal-ai/bytedance/seedream/v4.5/edit]
         prompt: >
           Product photograph of the product in image 1, unchanged in shape, colour and label: {{ vars.scene }}.
-          {{ steps.product_norm.outputs.desc }}. {{ vars.character_ref ? 'The person in image 2 is present, natural and secondary to the product.' : '' }}
+          Follow the approved look in image 2. {{ steps.product_norm.outputs.desc }}.
+          {{ inputs.direction != '' ? inputs.direction + '.' : '' }}
           {{ len(inputs.brand_colors) > 0 ? 'Keep these brand colours in the scene: ' + (inputs.brand_colors | join(', ')) + '.' : '' }}
           No text, no watermark, no extra products.
         params: { aspect_ratio: '{{ inputs.aspect }}', resolution: '2K', quality: high }
         medias:
           - { role: product, ref: '{{ inputs.product }}', label: product }
-          - {
-              role: reference,
-              ref: '{{ vars.character_ref }}',
-              when: '{{ vars.character_ref }}',
-              label: person,
-            }
+          - { role: reference, ref: '{{ steps.anchor.outputs.asset }}', label: anchor }
         characters: ['{{ inputs.character }}']
         retry: { max: 1, on: [MODERATION_REJECTED, PROVIDER_ERROR], reword: true }
         outputs: { raw: '{{ result.assets[0] }}' }
+      - id: shot_qa
+        kind: analyze
+        name: 'QA {{ k + 1 }}'
+        task: consistency_check
+        model: auto
+        refs: ['{{ steps.shot_gen.outputs.raw }}']
+        instructions: >
+          Does this shot keep the product geometry, colour and label from the product reference, with no extra
+          products and no text? Return JSON {pass, reasons}.
+        on_fail: continue
+        outputs: { pass: '{{ result.structured.pass }}' }
       - id: shot_refine
         kind: generate
         name: 'Refine {{ k + 1 }}'
@@ -129,6 +181,14 @@ steps:
         medias: [{ role: reference, ref: '{{ steps.shot_gen.outputs.raw }}' }]
         on_fail: continue
         outputs: { asset: '{{ result.assets[0] | default(steps.shot_gen.outputs.raw) }}' }
+      - id: shot_upscale
+        kind: transform
+        name: 'Upscale {{ k + 1 }}'
+        op: upscale
+        source: '{{ steps.shot_refine.outputs.asset }}'
+        params: { scale: 2 }
+        on_fail: continue
+        outputs: { asset: '{{ result.assets[0] | default(steps.shot_refine.outputs.asset) }}' }
       - id: shot_bg
         kind: branch
         when: "{{ inputs.background == 'transparent' }}"
@@ -136,19 +196,34 @@ steps:
           - id: cutout
             kind: transform
             op: bg_remove
-            source: '{{ steps.shot_refine.outputs.asset }}'
+            source: '{{ steps.shot_upscale.outputs.asset }}'
             outputs: { asset: '{{ result.assets[0] }}' }
         else: []
       - id: shot_final
         kind: set
-        values: { asset: '{{ steps.cutout.outputs.asset | default(steps.shot_refine.outputs.asset) }}' }
+        values: { asset: '{{ steps.cutout.outputs.asset | default(steps.shot_upscale.outputs.asset) }}' }
+
+  # An optional headline burned onto the first frame for hero/ad modes.
+  - id: text_overlay
+    kind: generate
+    when: "{{ inputs.on_image_text != '' }}"
+    name: Headline overlay
+    capability: image_edit
+    model: '{{ inputs.model }}'
+    prompt: >
+      Add the headline "{{ inputs.on_image_text }}" to this product image as clean, legible marketing typography
+      in the negative space; keep the product and scene unchanged.
+    params: { aspect_ratio: '{{ inputs.aspect }}', resolution: '2K' }
+    medias: [{ role: reference, ref: '{{ steps.shots.outputs[0].asset }}' }]
+    on_fail: continue
+    outputs: { asset: '{{ result.assets[0] }}' }
 
   - id: export
     kind: export
     files:
       - {
           ref: "{{ steps.shots.outputs | map('asset') }}",
-          name: 'product_{{ inputs.mode }}_{{ index + 1 | pad(2) }}.png',
+          name: '03_final/product_{{ inputs.mode }}_{{ index + 1 | pad(2) }}.png',
           tags: [deliverable, '{{ inputs.mode }}'],
         }
 outputs:
