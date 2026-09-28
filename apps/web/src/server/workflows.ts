@@ -34,7 +34,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
 import { and, eq } from 'drizzle-orm';
-import { KilnryError, loadConfig, loadRegistry, ulid } from '@kilnry/core';
+import { KilnryError, loadConfig, loadRegistry, ulid, listCharacters, loadFullCharacter } from '@kilnry/core';
 import { CanonicalRequestSchema, type CanonicalRequest, type RouteConstraints } from '@kilnry/core';
 import { analyzeTool, capabilityFor, type ToolServices } from '@kilnry/core';
 import { assets, assetTags, runSteps, runs, type DatabaseState } from '@kilnry/db';
@@ -126,6 +126,28 @@ function fileRootsFor(entry: CatalogueEntry): FileSourceRoots {
   return { packagesRoot: packagesRootFrom(entry.dir), workflowDir: entry.dir };
 }
 
+/**
+ * A synchronous character resolver for the plan and run scope, backed by a map
+ * of every character loaded once. The planner and executor read
+ * `characters[@handle]` synchronously through a Proxy, so a workflow that reads a
+ * Character — the character sheet reads its anchor, appearance and descriptor —
+ * needs the resolved character present. Without it those reads returned an empty
+ * object and the plan threw on `.references | filter(...)` (F-WFL-06). This is the
+ * same full character the composer and Chat resolve a mention to.
+ */
+async function characterResolver(db: DatabaseState): Promise<(handle: string) => unknown> {
+  const heads = await listCharacters(db);
+  const byHandle = new Map<string, unknown>();
+  for (const head of heads) {
+    try {
+      byHandle.set(head.handle.toLowerCase(), await loadFullCharacter(db, head.handle));
+    } catch {
+      // A character that fails to load is simply absent from the resolver.
+    }
+  }
+  return (handle: string) => byHandle.get(handle.replace(/^@/, '').toLowerCase()) ?? {};
+}
+
 // ── planning ─────────────────────────────────────────────────────────────────
 
 /**
@@ -133,7 +155,10 @@ function fileRootsFor(entry: CatalogueEntry): FileSourceRoots {
  * spending step through engine.estimate (which never spends), so the plan uses
  * the same prices as an actual run.
  */
-function planContext(fileRoots?: FileSourceRoots): PlanContext {
+function planContext(
+  fileRoots?: FileSourceRoots,
+  resolveCharacter?: (handle: string) => unknown,
+): PlanContext {
   return {
     // Inputs default and validate against the workflow's JSON Schema. A full
     // JSON-Schema validation is layered in the drawer; here defaults are applied
@@ -143,6 +168,7 @@ function planContext(fileRoots?: FileSourceRoots): PlanContext {
     // each spending leaf through the engine for the real total.
     priceStep: () => ({ estimate_usd: 0, eta_s: 0, why: 'priced at run' }),
     ...(fileRoots ? { fileRoots } : {}),
+    ...(resolveCharacter ? { resolveCharacter } : {}),
   };
 }
 
@@ -157,7 +183,7 @@ export async function planWorkflow(
   const entry = getWorkflow(dataDir, workflowId);
   if (!entry) throw new KilnryError('NOT_FOUND', `No workflow called ${workflowId} is installed.`);
 
-  const ctx = planContext(fileRootsFor(entry));
+  const ctx = planContext(fileRootsFor(entry), await characterResolver(db));
   // Price each spending leaf through the engine estimate for the real total.
   const priced = await pricePlan(engine, entry.workflow, inputs, ctx);
   const runId = ulid();
@@ -552,12 +578,14 @@ export async function startRun(
   const startedAt = run.createdAt.toISOString();
   await db.db.update(runs).set({ status: 'running', folder }).where(eq(runs.id, runId));
 
+  const resolveChar = await characterResolver(db);
   const baseScope: Scope = withFileSource(
     {
       inputs: persistedPlan.inputs,
       defaults: entry.workflow.defaults,
       vars: persistedPlan.vars,
       run: { id: runId, folder, workflow: entry.workflow.id },
+      characters: new Proxy({}, { get: (_t, handle: string) => resolveChar(String(handle)) }),
     },
     fileRootsFor(entry),
   );
@@ -588,13 +616,23 @@ export async function startRun(
 }
 
 // Rebuild the run's base scope from its persisted plan and folder.
-function buildBaseScope(runId: string, folder: string, workflow: WorkflowFile, persistedPlan: Plan): Scope {
-  return {
-    inputs: persistedPlan.inputs,
-    defaults: workflow.defaults,
-    vars: persistedPlan.vars,
-    run: { id: runId, folder, workflow: workflow.id },
-  };
+function buildBaseScope(
+  runId: string,
+  folder: string,
+  entry: CatalogueEntry,
+  persistedPlan: Plan,
+  resolveChar: (handle: string) => unknown,
+): Scope {
+  return withFileSource(
+    {
+      inputs: persistedPlan.inputs,
+      defaults: entry.workflow.defaults,
+      vars: persistedPlan.vars,
+      run: { id: runId, folder, workflow: entry.workflow.id },
+      characters: new Proxy({}, { get: (_t, handle: string) => resolveChar(String(handle)) }),
+    },
+    fileRootsFor(entry),
+  );
 }
 
 // Rebuild the run's node graph and overlay the persisted status and outputs from
@@ -646,7 +684,7 @@ async function driveResumed(
   const config = await loadConfig();
   const folder = run.folder ?? runFolder(entry.workflow, {});
   const startedAt = run.createdAt.toISOString();
-  const baseScope = buildBaseScope(runId, folder, entry.workflow, persistedPlan);
+  const baseScope = buildBaseScope(runId, folder, entry, persistedPlan, await characterResolver(db));
   const existing = await rebuildRunState(db, runId, entry.workflow, baseScope);
   const effects = runEffects(db, engine, {
     runId,
@@ -795,7 +833,7 @@ export async function retryStep(
   if (!entry) throw new KilnryError('NOT_FOUND', `Workflow ${runRow.workflowId} is no longer installed.`);
   const persistedPlan = runRow.plan as unknown as Plan;
   const folder = runRow.folder ?? runFolder(entry.workflow, {});
-  const baseScope = buildBaseScope(runId, folder, entry.workflow, persistedPlan);
+  const baseScope = buildBaseScope(runId, folder, entry, persistedPlan, await characterResolver(db));
   const rebuilt = await rebuildRunState(db, runId, entry.workflow, baseScope);
   // A model swap validates before it re-runs: the chosen model must be in the
   // registry and serve the step's own capability, so an image model pinned on a

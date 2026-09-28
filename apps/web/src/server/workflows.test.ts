@@ -698,6 +698,66 @@ describe('a gated step still does its own work in the shipped workflows (F-WFL-0
   });
 });
 
+describe('the character-sheet plan prices with a resolved character (F-WFL-06)', () => {
+  function sheetCatalogueRoot(): string {
+    const here = dirname(fileURLToPath(import.meta.url));
+    return join(here, '..', '..', '..', '..', 'packages', 'workflows', 'catalogue');
+  }
+  const sheetInputs = {
+    character: 'nova',
+    look: 'photoreal',
+    model: 'fal/x',
+    views: ['front', 'three_quarter_left', 'profile_left', 'back'],
+    expressions: true,
+  };
+  const priceStub: PlanContext['priceStep'] = () => ({
+    model: 'fal/x',
+    provider: 'fal',
+    estimate_usd: 0.05,
+    eta_s: 3,
+    why: 'fixture',
+  });
+  const applyDefaults: PlanContext['resolveInputs'] = (workflow, given) => {
+    const properties =
+      (workflow.inputs as { properties?: Record<string, { default?: unknown }> }).properties ?? {};
+    const withDefaults: Record<string, unknown> = { ...given };
+    for (const [key, schema] of Object.entries(properties)) {
+      if (withDefaults[key] === undefined && schema.default !== undefined) withDefaults[key] = schema.default;
+    }
+    return withDefaults;
+  };
+  const sheetCharacter = {
+    references: [{ role: 'anchor', asset_id: 'asset-anchor-1' }],
+    appearance: {
+      descriptor: 'A tall woman with short dark hair. Wears a green jacket.',
+      anchors: ['short dark hair', 'green jacket'],
+      outfit: 'a green jacket',
+    },
+  };
+
+  it('throws when no character resolver is supplied (the production defect)', () => {
+    const workflow = parseWorkflow(
+      readFileSync(join(sheetCatalogueRoot(), 'kilnry-character-sheet.yaml'), 'utf8'),
+    );
+    expect(() =>
+      plan(workflow, sheetInputs, { resolveInputs: applyDefaults, priceStep: priceStub }),
+    ).toThrow();
+  });
+
+  it('prices without throwing when the plan context resolves the character', () => {
+    const workflow = parseWorkflow(
+      readFileSync(join(sheetCatalogueRoot(), 'kilnry-character-sheet.yaml'), 'utf8'),
+    );
+    const priced = plan(workflow, sheetInputs, {
+      resolveInputs: applyDefaults,
+      priceStep: priceStub,
+      resolveCharacter: () => sheetCharacter,
+    });
+    expect(priced.vars.anchor_ref).toBe('asset-anchor-1');
+    expect(priced.steps.length).toBeGreaterThan(0);
+  });
+});
+
 describe('a swapped model validates against the step it re-runs (F-WFL-05)', () => {
   const models = [
     { provider: 'fal', model_id: 'flux/text2image', capabilities: ['text2image', 'image_edit'] },
