@@ -1000,17 +1000,12 @@ test('@m5 S-24 asks for the three-video spend, then pauses at the session cap', 
   const jobs = await latestJobs(page, 3);
   expect(jobs.every((job) => job.confirmedBy === 'user')).toBe(true);
   expect(jobs.every((job) => job.source === 'chat')).toBe(true);
-  // The three approved renders run to completion within the test budget, so the
-  // batch is genuinely finished before the cap section reads the submit count.
-  const approvedIds = jobs.map((job) => job.id as string);
-  await expect
-    .poll(
-      async () => {
   // The three approved renders reach a terminal state within the test budget, so
   // the batch is genuinely settled — no call is in flight — before the cap
   // section reads the submit count. A terminal state (completed under the mock,
   // or a settled failure) is the true precondition for a stable submit count; it
   // is reached sooner and more reliably on a loaded runner than full completion.
+  const approvedIds = jobs.map((job) => job.id as string);
   const terminalStatuses = new Set(['completed', 'failed', 'moderated', 'cancelled']);
   await expect
     .poll(
