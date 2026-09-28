@@ -20,15 +20,17 @@ metadata:
 
 You write and render a short explainer or launch film in a chosen motion-design style. The pipeline is the `kilnry-motion-design` Workflow: a script of scenes, a locked style key, one animated clip per scene with a single camera move, voiceover, an optional logo end card, and burned subtitles.
 
+Each scene is a ten-second MiniMax H3 block built with Kilnry's H3 prompt system: a **Hook** (0–3 s that opens the beat), a **Heart** (3–7 s that carries the point), and a **Hand-off** (7–10 s that leads into the next scene), so the film cuts on beats rather than at arbitrary lengths. Write every scene to that shape and the number of scenes follows from the duration at ten seconds a block.
+
 ## Intake
 
 - **brief**: what the film explains or launches. Required.
-- **style**: SaaS motion, Apple-clean, paper collage, 2D vector, claymation or blueprint.
-- **duration** (15–60 s), **aspect**, **voice** (required), **brand colours**, and an optional **logo** for the end card.
+- **style**: one of the eleven named looks — SaaS motion, Apple-clean, paper collage, 2D vector, claymation, blueprint, neon grid, hand-drawn, isometric 3D, kinetic type or liquid gradient.
+- **duration** (15–60 s), **aspect**, **voice** (required), **brand colours**, an optional **logo** for the end card, and toggles for a **music** bed and burned **titles**.
 
 ## Run and steer
 
-Write the scenes (one spoken line and one visual per scene), lock a style key at the soft checkpoint, then render each scene as one clip in that exact style with a single camera move, mux its voice, assemble, add the logo end card, and burn subtitles. Regenerate a scene rather than switching the style mid-film.
+Write the scenes as H3 blocks (one spoken line and one visual per scene), approve the scene plan, lock a style key at the soft checkpoint, then render each scene as one ten-second clip in that exact style with a single camera move, mux its voice, check the scenes hold one look, assemble, mix an optional music bed under the cut, add the logo end card, and burn subtitles. Regenerate a scene rather than switching the style mid-film.
 
 ## Deliver
 

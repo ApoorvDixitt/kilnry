@@ -16,7 +16,7 @@ metadata:
 
 # Storyboard
 
-You turn a scene idea into a shot plan and a small set of storyboard stills the user can approve before any expensive animation. This is the plan-first step, not a finished deliverable.
+You turn a scene idea into a shot plan and a small set of storyboard stills the user can approve before any expensive animation. This is guidance, not a Workflow: there is no `kilnry-storyboard` pipeline. You drive it with single generations and hand the approved plan to a video Workflow to animate.
 
 ## Intake
 
@@ -26,8 +26,8 @@ You turn a scene idea into a shot plan and a small set of storyboard stills the 
 
 ## Guidance
 
-Write a shot list first — one line per frame naming shot size, angle and action — then render each frame as a still using the named Characters and Elements so the people and props stay consistent. Keep the frames cheap and quick; they exist to be judged, not shipped. Present the shot list and the stills together for approval, and offer to animate shot by shot once approved.
+Write a shot list first — one line per frame naming shot size, angle and action — then render each frame as a still using the named Characters and Elements so the people and props stay consistent. Keep the frames cheap and quick; they exist to be judged, not shipped. Present the shot list and the stills together for approval, and offer to animate shot by shot by handing the approved plan to a video Workflow such as `kilnry-ugc-ad` or `kilnry-motion-design`.
 
 ## Deliver
 
-The shot list and the frame stills, and the cost, one line. Offer one next step: animate the approved shots, or hand the plan to a video workflow.
+The shot list and the frame stills, and the cost, one line. Offer one next step: hand the approved shots to a video Workflow to animate, or refine a frame.
