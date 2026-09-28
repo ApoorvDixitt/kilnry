@@ -532,12 +532,27 @@ export function buildSpendInput(
 }
 
 // ── running ──────────────────────────────────────────────────────────────────
-/** Assert a plan is fresh enough to run (TRD-10 §3.5). */
-function assertFreshPlan(persistedPlan: Plan, confirmCostUsd: number, now: Date): void {
+/**
+ * Assert a plan is fresh enough to run (TRD-10 §3.5). Past fifteen minutes the
+ * plan is stale and must be re-planned. The web route always requires the
+ * re-plan, because it supplies the confirmed cost in the same request as the run,
+ * so a client that echoes the total could otherwise run an arbitrarily old plan.
+ * Only the MCP path — where the cost is confirmed independently of the run call —
+ * may run a stale plan when the confirmed cost still covers at least 90% of the
+ * estimate (F-WFL-02).
+ */
+export function assertFreshPlan(
+  persistedPlan: Plan,
+  confirmCostUsd: number,
+  now: Date,
+  costConfirmedIndependently: boolean,
+): void {
   const ageMs = now.getTime() - new Date(persistedPlan.created_at).getTime();
   const fresh = ageMs <= 15 * 60_000;
-  const confirmedEnough = confirmCostUsd >= 0.9 * persistedPlan.total_estimate_usd;
-  if (!fresh && !confirmedEnough) {
+  if (fresh) return;
+  const confirmedEnough =
+    costConfirmedIndependently && confirmCostUsd >= 0.9 * persistedPlan.total_estimate_usd;
+  if (!confirmedEnough) {
     throw new KilnryError(
       'INVALID_INPUT',
       'This plan is more than fifteen minutes old. Re-plan the workflow before running it.',
@@ -562,12 +577,16 @@ export async function startRun(
     skipApprovals?: boolean;
     targetFolder?: string;
     analyze?: WorkflowAnalyzeServices;
+    // The MCP run path confirms the cost independently of the run call, so it may
+    // run a plan up to the estimate's 90% even once stale; the web route, which
+    // supplies the cost in the same request, never may (F-WFL-02).
+    costConfirmedIndependently?: boolean;
   } = {},
 ): Promise<RunState> {
   const [run] = await db.db.select().from(runs).where(eq(runs.id, runId)).limit(1);
   if (!run) throw new KilnryError('NOT_FOUND', 'Run not found.');
   const persistedPlan = run.plan as unknown as Plan;
-  assertFreshPlan(persistedPlan, confirmCostUsd, new Date());
+  assertFreshPlan(persistedPlan, confirmCostUsd, new Date(), options.costConfirmedIndependently ?? false);
 
   const entry = getWorkflow(dataDir, run.workflowId);
   if (!entry) throw new KilnryError('NOT_FOUND', `Workflow ${run.workflowId} is no longer installed.`);

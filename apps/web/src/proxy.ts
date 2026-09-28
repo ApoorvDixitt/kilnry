@@ -87,7 +87,7 @@ function sameSecret(left: string | undefined, right: string | null): boolean {
   return first.length === second.length && timingSafeEqual(first, second);
 }
 
-function ratePolicy(path: string): { name: string; limit: number } {
+export function ratePolicy(path: string): { name: string; limit: number } {
   if (
     path.startsWith('/api/media/') ||
     path.startsWith('/api/thumb/') ||
@@ -96,7 +96,19 @@ function ratePolicy(path: string): { name: string; limit: number } {
   )
     return { name: 'media', limit: 2000 };
   if (path === '/api/estimate') return { name: 'estimate', limit: 120 };
-  if (path === '/api/generate') return { name: 'spend', limit: 60 };
+  // Every route that spends money shares the 60/min spend bucket (TRD-16 §4): a
+  // direct generation, a workflow run, a standalone transform and a voice clone.
+  // Only /api/generate was here before, so the others fell into the 600/min
+  // default (F-SET-08). A preset spends through /api/generate, so it is already
+  // covered; /api/voices/manage also carries the free bind/unbind actions, but
+  // sharing the spend bucket only tightens a low-frequency management route.
+  if (
+    path === '/api/generate' ||
+    path === '/api/transform' ||
+    path === '/api/voices/manage' ||
+    /^\/api\/workflows\/[^/]+\/run$/.test(path)
+  )
+    return { name: 'spend', limit: 60 };
   if (/^\/api\/providers\/[^/]+\/test$/.test(path)) return { name: 'provider-test', limit: 20 };
   if (path.startsWith('/api/auth/sign-in/')) {
     // Production keeps a strict sign-in limit. The acceptance harness signs in

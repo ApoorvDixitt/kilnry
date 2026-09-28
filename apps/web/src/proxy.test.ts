@@ -5,7 +5,7 @@
 
 import { NextRequest } from 'next/server';
 import { afterEach, describe, expect, it } from 'vitest';
-import { proxy } from './proxy';
+import { proxy, ratePolicy } from './proxy';
 
 const original = { release: process.env.KILNRY_RELEASE_BUILD, msw: process.env.KILNRY_TEST_MSW };
 afterEach(() => {
@@ -55,5 +55,22 @@ describe('request proxy security boundaries (F-SET-08)', () => {
       }),
     );
     expect(allowed.status).not.toBe(403);
+  });
+
+  it('puts every spending route in the 60/min spend bucket (F-SET-08)', () => {
+    // TRD-16 §4: a direct generation, a workflow run, a standalone transform and
+    // a voice clone all spend and share the strict spend bucket.
+    for (const path of [
+      '/api/generate',
+      '/api/transform',
+      '/api/voices/manage',
+      '/api/workflows/kilnry-ugc-ad/run',
+    ]) {
+      expect(ratePolicy(path)).toEqual({ name: 'spend', limit: 60 });
+    }
+    // A non-spending route stays on the generous default bucket.
+    expect(ratePolicy('/api/runs/abc/approve')).toEqual({ name: 'default', limit: 600 });
+    // The workflow plan route does not spend, so it is not in the spend bucket.
+    expect(ratePolicy('/api/workflows/kilnry-ugc-ad/plan').name).not.toBe('spend');
   });
 });

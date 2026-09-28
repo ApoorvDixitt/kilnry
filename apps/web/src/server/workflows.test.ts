@@ -20,6 +20,7 @@ import {
   withFileSource,
   type Effects,
   type ExpandedExportStep,
+  type Plan,
   type PlanContext,
   type RunState,
   type RunStep,
@@ -27,7 +28,7 @@ import {
   type Step,
   type StepResult,
 } from '@kilnry/workflows';
-import { buildSpendInput, importWorkflow, assertModelServes } from './workflows';
+import { buildSpendInput, importWorkflow, assertModelServes, assertFreshPlan } from './workflows';
 import { mkdtempSync, readFileSync, existsSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -695,6 +696,42 @@ describe('a gated step still does its own work in the shipped workflows (F-WFL-0
     expect(styleKey?.outputs.asset).toMatch(/^asset-/);
     expect(styleKey?.outputs).not.toMatchObject({ choice: 'approve' });
     expect(styleKey?.actual_usd).toBeCloseTo(0.05, 6);
+  });
+});
+
+describe('a stale plan requires a re-plan on the web, not just an echoed cost (F-WFL-02)', () => {
+  function planAged(minutes: number): Plan {
+    return {
+      workflow_id: 'kilnry-ugc-ad',
+      workflow_version: '1.0.0',
+      inputs: {},
+      vars: {},
+      steps: [],
+      expansions: [],
+      routes: [],
+      total_estimate_usd: 2,
+      eta_s: 60,
+      warnings: [],
+      created_at: new Date(Date.now() - minutes * 60_000).toISOString(),
+    };
+  }
+  const now = new Date();
+
+  it('allows a fresh plan on either path', () => {
+    expect(() => assertFreshPlan(planAged(5), 2, now, false)).not.toThrow();
+    expect(() => assertFreshPlan(planAged(5), 2, now, true)).not.toThrow();
+  });
+
+  it('refuses a stale plan on the web path even when the confirmed cost covers the estimate', () => {
+    // The web route supplies the cost in the same request, so echoing the total
+    // must not run an arbitrarily old plan.
+    expect(() => assertFreshPlan(planAged(20), 2, now, false)).toThrow(/more than fifteen minutes old/i);
+  });
+
+  it('allows a stale plan on the MCP path when the independently confirmed cost still covers 90%', () => {
+    expect(() => assertFreshPlan(planAged(20), 2, now, true)).not.toThrow();
+    // But not when the confirmed cost is short.
+    expect(() => assertFreshPlan(planAged(20), 1, now, true)).toThrow(/more than fifteen minutes old/i);
   });
 });
 
