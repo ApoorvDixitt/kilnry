@@ -328,7 +328,15 @@
       "preview": "Preview",
       "previewLabel": "Skill preview",
       "close": "Close",
-      "remove": "Remove"
+      "remove": "Remove",
+      "dropLabel": "Drop a skill folder with its SKILL.md",
+      "dropHint": "Drop a folder or a SKILL.md here, or choose files",
+      "dropChoose": "Choose files",
+      "edit": "Edit",
+      "save": "Save",
+      "saved": "Saved and reloaded.",
+      "saveFailed": "That edit did not pass the skill checks.",
+      "editLabel": "Edit skill body"
     },
     "mcp": {
       "eyebrow": "Give an agent a studio",
