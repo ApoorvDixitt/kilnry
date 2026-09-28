@@ -15,6 +15,20 @@ inputs:
   required: [topic]
   properties:
     topic: { type: string, x-kilnry: { widget: text } }
+    reference_thumbnail:
+      {
+        type: string,
+        default: '',
+        description: 'A thumbnail to echo the style of',
+        x-kilnry: { widget: media, accept: [image], roles: [reference], allow_url: true, allow_empty: true },
+      }
+    logo:
+      {
+        type: string,
+        default: '',
+        description: 'A logo to place, optionally in 3D',
+        x-kilnry: { widget: media, accept: [image], roles: [reference], allow_empty: true },
+      }
     face_refs:
       {
         type: array,
@@ -25,17 +39,44 @@ inputs:
       }
     headline: { type: string, maxLength: 48, x-kilnry: { widget: text, help: 'At most six words' } }
     aspect: { type: string, enum: ['16:9', '9:16', '1:1'], default: '16:9', x-kilnry: { widget: segment } }
-    emotion:
+    style_key:
       {
         type: string,
-        enum: [surprised, serious, delighted, curious, alarmed],
-        default: surprised,
-        x-kilnry: { widget: select },
+        default: '',
+        description: 'A named look to hold across takes',
+        x-kilnry: { widget: text, help: 'e.g. neon-noir, bright-vlog' },
       }
+    emotion:
+      {
+        type: array,
+        items:
+          {
+            type: string,
+            enum:
+              [
+                surprised,
+                serious,
+                delighted,
+                curious,
+                alarmed,
+                thrilled,
+                skeptical,
+                shocked,
+                proud,
+                worried,
+                amused,
+              ],
+          },
+        default: [surprised],
+        maxItems: 3,
+        x-kilnry: { widget: tags, help: 'One or more expressions to try' },
+      }
+    logo_3d:
+      { type: boolean, default: false, x-kilnry: { widget: toggle, label: 'Render the logo in 3D' } }
     takes:
       { type: integer, minimum: 1, maximum: 4, default: 2, x-kilnry: { widget: chips, options: [1, 2, 4] } }
     palette: { type: array, items: { type: string }, default: [], x-kilnry: { widget: tags } }
-budget: { max_usd: 1, warn_usd: 0.5 }
+budget: { max_usd: 1.5, warn_usd: 0.9 }
 steps:
   - id: concept
     kind: analyze
@@ -68,10 +109,24 @@ steps:
     constraints: { quality: standard, refs_count: '{{ len(inputs.face_refs) }}' }
     alternates: [fal-ai/nano-banana-pro/edit, fal-ai/bytedance/seedream/v4.5/edit]
     prompt: >
-      The person in image 1, {{ inputs.emotion }}, half-body, looking straight at the lens, dramatic key light.
+      The person in image 1, {{ inputs.emotion | first }}, half-body, looking straight at the lens, dramatic key light.
       Keep the face identity exact. Plain background for now. No text.
     params: { aspect_ratio: '{{ inputs.aspect }}', resolution: '2K' }
     medias: "{{ inputs.face_refs | map_role('reference') }}"
+    outputs: { asset: '{{ result.assets[0] }}' }
+
+  - id: logo_3d
+    kind: generate
+    when: "{{ inputs.logo != '' && inputs.logo_3d }}"
+    name: 3D logo
+    capability: image_edit
+    model: auto
+    prompt: >
+      Render the logo in image 1 as a glossy three-dimensional object with soft studio reflections on a transparent
+      background. Keep the mark and its colours exact. No text.
+    params: { aspect_ratio: '1:1', resolution: '1K' }
+    medias: [{ role: reference, ref: '{{ inputs.logo }}' }]
+    on_fail: continue
     outputs: { asset: '{{ result.assets[0] }}' }
 
   - id: scene
@@ -79,24 +134,62 @@ steps:
     name: Compose the scene
     capability: image_edit
     model: auto
-    constraints: { quality: premium, refs_count: '{{ len(inputs.face_refs) > 0 ? 1 : 0 }}' }
+    constraints:
+      {
+        quality: premium,
+        refs_count: '{{ (len(inputs.face_refs) > 0 ? 1 : 0) + (inputs.reference_thumbnail != "" ? 1 : 0) }}',
+      }
     alternates: [openai/gpt-image-2.5-sunburst, fal-ai/nano-banana-pro/edit]
     prompt: >
       A {{ inputs.aspect }} video thumbnail about {{ inputs.topic }}: high contrast, one clear focal element, bold rim light,
       readable at 200 px wide. {{ len(inputs.face_refs) > 0 ? 'Use the subject from image 1.' : '' }}
+      {{ inputs.reference_thumbnail != '' ? 'Echo the composition and mood of the reference thumbnail.' : '' }}
+      {{ inputs.style_key != '' ? 'Hold this named look across takes: ' + inputs.style_key + '.' : '' }}
       Leave the {{ inputs.aspect == '16:9' ? 'left third' : 'top third' }} clear for a title.
       {{ len(inputs.palette) > 0 ? 'Palette: ' + (inputs.palette | join(', ')) + '.' : '' }} No text yet.
     params: { aspect_ratio: '{{ inputs.aspect }}', resolution: '2K', quality: high }
     medias:
-      [{ role: reference, ref: '{{ steps.cast.outputs.asset }}', when: '{{ steps.cast.outputs.asset }}' }]
+      - { role: reference, ref: '{{ steps.cast.outputs.asset }}', when: '{{ steps.cast.outputs.asset }}' }
+      - {
+          role: reference,
+          ref: '{{ inputs.reference_thumbnail }}',
+          when: "{{ inputs.reference_thumbnail != '' }}",
+          label: reference_thumbnail,
+        }
     count: '{{ inputs.takes }}'
     outputs: { assets: '{{ result.assets }}' }
+
+  - id: check_k
+    kind: analyze
+    name: Check the takes
+    task: consistency_check
+    model: auto
+    refs: '{{ steps.scene.outputs.assets }}'
+    instructions: >
+      For each take, is the focal element clear at 200 px, the title area clear, and the look consistent with the
+      others? Return JSON {pass, reasons, weakest_index}.
+    on_fail: continue
+    outputs: { pass: '{{ result.structured.pass }}', weakest: '{{ result.structured.weakest_index }}' }
+
+  - id: tweak
+    kind: generate
+    when: '{{ steps.check_k.outputs.pass == false }}'
+    name: Tweak the weakest take
+    capability: image_edit
+    model: auto
+    prompt: >
+      Improve contrast and focal clarity on this thumbnail take while keeping its composition and the clear title area.
+      No text.
+    params: { aspect_ratio: '{{ inputs.aspect }}', resolution: '2K' }
+    medias: [{ role: reference, ref: '{{ steps.scene.outputs.assets | first }}' }]
+    on_fail: continue
+    outputs: { asset: '{{ result.assets[0] }}' }
 
   - id: text
     kind: assemble
     when: '{{ inputs.headline }}'
     op: overlay_text
-    inputs: ['{{ steps.scene.outputs.assets | first }}']
+    inputs: ['{{ steps.tweak.outputs.asset | default(steps.scene.outputs.assets | first) }}']
     params:
       {
         text: '{{ inputs.headline }}',
