@@ -41,10 +41,10 @@ async function ensureSignedIn(page: Page, path: string): Promise<void> {
   if (/\/login$/.test(page.url())) {
     await page.getByLabel('Email').fill(EMAIL);
     await page.getByLabel('Password').fill(PASSWORD);
-    await Promise.all([
-      page.waitForURL((url) => !/\/login$/.test(url.pathname), { timeout: 30_000 }).catch(() => {}),
-      page.getByRole('button', { name: 'Sign in' }).click(),
-    ]);
+    await page.getByRole('button', { name: 'Sign in' }).click();
+    // Wait for the sign-in to leave the login page rather than swallowing the
+    // navigation, so a failed sign-in surfaces here instead of downstream.
+    await page.waitForURL((url) => !/\/login$/.test(url.pathname), { timeout: 30_000 });
     await page.goto(path);
   }
 }
@@ -145,11 +145,33 @@ function findRunFolder(project: string, slugPrefix: string): string | undefined 
   return match ? join(base, match) : undefined;
 }
 
+interface ManifestStep {
+  step_id?: string;
+  kind?: string;
+  actual_usd?: number;
+  status?: string;
+  outputs?: { assets?: Array<{ asset_id?: string; path?: string }> };
+}
+
 interface RunManifest {
   estimate_usd?: number;
   spent_usd?: number;
   status?: string;
-  steps?: Array<{ step_id?: string; kind?: string; actual_usd?: number; status?: string }>;
+  steps?: ManifestStep[];
+  outputs?: { final?: string; [key: string]: unknown };
+}
+
+// Count the completed steps of one kind in a manifest.
+function completedOfKind(manifest: RunManifest, kind: string): number {
+  return (manifest.steps ?? []).filter((step) => step.kind === kind && step.status === 'completed').length;
+}
+
+// The assets a completed step of the given kind recorded (id and path), across
+// the whole manifest — used to assert an assemble or export left files on disk.
+function completedAssets(manifest: RunManifest, kind: string): Array<{ asset_id?: string; path?: string }> {
+  return (manifest.steps ?? [])
+    .filter((step) => step.kind === kind && step.status === 'completed')
+    .flatMap((step) => step.outputs?.assets ?? []);
 }
 
 // Whether the run's manifest currently shows a step waiting on a decision. Used
@@ -189,26 +211,27 @@ async function driveRun(
     .click();
   const drawer = page.locator(`.workflow-drawer[data-workflow-id="${options.workflowId}"]`);
   await expect(drawer).toBeVisible();
-  // Fill the folder and every input, re-applying until Preview enables — the
-  // drawer loads its fields asynchronously and, under load, an early fill can
-  // land before React has wired the input, leaving a required field empty.
+  // Fill the folder and every input. The drawer loads its fields asynchronously
+  // and, under load, a fill can land before React has wired the input, leaving a
+  // required field empty. Fill all fields, then wait for the Preview button to
+  // enable — the observable signal that every required field is set — re-filling
+  // if it has not enabled yet. The loop condition is Preview's own enabled state,
+  // not a blind timer.
   const fillAll = async (): Promise<void> => {
     await drawer.locator('#workflow-folder').fill(options.folder);
     for (const [name, value] of Object.entries(options.inputs)) {
       const field = drawer.locator(`#wf-input-${name}`);
       await field.waitFor({ state: 'visible', timeout: 20_000 });
-      const tag = await field.evaluate((el) => el.tagName.toLowerCase()).catch(() => '');
+      const tag = await field.evaluate((el) => el.tagName.toLowerCase());
       if (tag === 'select') await field.selectOption(String(value));
       else await field.fill(String(value));
     }
   };
-  await fillAll();
   const preview = drawer.locator('.workflow-plan-button');
-  for (let i = 0; i < 5 && !(await preview.isEnabled().catch(() => false)); i += 1) {
-    await page.waitForTimeout(1000);
+  await expect(async () => {
     await fillAll();
-  }
-  await expect(preview).toBeEnabled({ timeout: 20_000 });
+    await expect(preview).toBeEnabled({ timeout: 2000 });
+  }).toPass({ timeout: 40_000 });
   await drawer.getByRole('button', { name: /Preview the plan/i }).click();
   await expect
     .poll(async () => drawer.locator('.plan-step-cost').count(), { timeout: 20_000 })
@@ -243,11 +266,16 @@ async function driveRun(
   const deadline = Date.now() + 420_000;
   while (Date.now() < deadline) {
     const card = page.locator('.approval-card');
+    // The card either appears (a checkpoint to clear) or the run settles; wait
+    // for whichever happens rather than a fixed timer.
     const appeared = await card
       .waitFor({ state: 'visible', timeout: 6000 })
       .then(() => true)
       .catch(() => false);
     if (appeared) {
+      // Approving posts to the resume route which drives the workflow to its next
+      // pause synchronously; wait for that response, then give the synchronous
+      // resume a bounded moment to render the next state before the loop reads it.
       const approveResponse = page
         .waitForResponse(
           (r) => /\/api\/runs\/[^/]+\/approve$/.test(r.url()) && r.request().method() === 'POST',
@@ -263,8 +291,7 @@ async function driveRun(
     // No card is showing and the run has not settled. The manifest is the source
     // of truth: if it says a step is waiting on a decision, the view lost the
     // first-read race under load and rendered blank, so a reload forces a fresh
-    // fetch and the card reappears on the next cycle. Without this the loop spins
-    // against a blank page until the deadline while the run sits paused.
+    // fetch and the card reappears on the next cycle.
     if (manifestWaiting(options.folder, options.slugPrefix)) {
       await page.reload();
       await page.waitForTimeout(1500);
@@ -385,9 +412,7 @@ test.describe('M6 workflows acceptance', () => {
 
     // The manifest lists the steps run with their actual cost, and clip video
     // steps have now run (they exist in the manifest after approval).
-    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
-      steps?: Array<{ step_id?: string; kind?: string; actual_usd?: number; status?: string }>;
-    };
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as RunManifest;
     expect(Array.isArray(manifest.steps)).toBe(true);
     expect(manifest.steps!.length).toBeGreaterThan(0);
     for (const step of manifest.steps!) {
@@ -396,13 +421,27 @@ test.describe('M6 workflows acceptance', () => {
     // At least one clip generate ran after approval (a video step in the manifest).
     const clipRan = manifest.steps!.some((step) => (step.step_id ?? '').includes('clip'));
     expect(clipRan).toBe(true);
+    // The storyboard boards and clips are Library assets recorded in the manifest;
+    // the final MP4 is an assemble whose asset and outputs.final the manifest
+    // records (F-WFL-09). The mock does not run ffmpeg, so the video is asserted
+    // through the manifest, not as raw bytes, and generate assets live in the
+    // Library rather than being copied into the run folder unless exported.
+    const boardAssets = completedAssets(manifest, 'generate');
+    expect(boardAssets.some((a) => (a.asset_id ?? '') !== '')).toBe(true);
+    // Any file the run did copy into its folder carries its sidecar.
+    const files = readdirSync(folder);
+    for (const name of files.filter((f) => /\.(png|mp3|mp4)$/.test(f))) {
+      expect(files.includes(`${name}.kilnry.json`)).toBe(true);
+    }
 
-    // The header shows "$x.xx so far of ≈ $y.yy" with x ≤ y × 1.1.
+    // The header shows "$x.xx so far of ≈ $y.yy": exactly two amounts, and the
+    // spent-so-far is within a tenth of the plan estimate. No conditional skip —
+    // a parse that finds other than two amounts is a failure the checklist wants
+    // caught, not silently passed.
     const costLine = (await page.locator('.run-cost').textContent()) ?? '';
     const amounts = costLine.match(/\$([0-9.]+)/g)?.map((a) => Number(a.replace('$', ''))) ?? [];
-    if (amounts.length === 2) {
-      expect(amounts[0]!).toBeLessThanOrEqual(amounts[1]! * 1.1 + 0.0001);
-    }
+    expect(amounts).toHaveLength(2);
+    expect(amounts[0]!).toBeLessThanOrEqual(amounts[1]! * 1.1 + 0.0001);
   });
 
   // The five unnumbered runs named by workflow id (MILESTONES M6 Done-when):
@@ -424,8 +463,29 @@ test.describe('M6 workflows acceptance', () => {
       inputs: { mode: 'product-only', product, duration_s: 15 },
     });
     for (const step of manifest.steps ?? []) expect(typeof step.actual_usd).toBe('number');
-    expect(spendingStepsCompleted(manifest)).toBeGreaterThan(0);
+    // UGC ad routes all three spending kinds: the product-normalise/gate/script/
+    // clip-QA analyze calls, the storyboard and clip generates, and the assembly
+    // transcribe/transform. Each completed kind ran at least once.
+    expect(completedOfKind(manifest, 'analyze')).toBeGreaterThan(0);
+    expect(completedOfKind(manifest, 'generate')).toBeGreaterThan(0);
+    // A clip video generate ran.
     expect((manifest.steps ?? []).some((s) => (s.step_id ?? '').includes('clip'))).toBe(true);
+    // An analyze step wrote a structured object the branch reads (its gate/QA).
+    const analyzeStructured = (manifest.steps ?? []).some(
+      (s) => s.kind === 'analyze' && s.status === 'completed',
+    );
+    expect(analyzeStructured).toBe(true);
+    // The assemble/export final landed with a real asset id and an mp4 path in
+    // the manifest (F-WFL-09); the mock does not run ffmpeg, so the video is
+    // asserted through the manifest, while the storyboard boards (generates) wrote
+    // real image bytes to disk.
+    const finalAssets = [...completedAssets(manifest, 'assemble'), ...completedAssets(manifest, 'export')];
+    expect(finalAssets.some((a) => (a.asset_id ?? '') !== '')).toBe(true);
+    // The manifest resolves outputs.final to that assembled/exported asset.
+    expect(manifest.outputs?.final ?? '').not.toBe('');
+    // The storyboard boards are generate assets recorded in the manifest (Library
+    // assets, not necessarily copied into the run folder).
+    expect(completedAssets(manifest, 'generate').some((a) => (a.asset_id ?? '') !== '')).toBe(true);
   });
 
   test('@m6 kilnry-faceless-video runs in stills mode', async ({ page }) => {
@@ -446,9 +506,25 @@ test.describe('M6 workflows acceptance', () => {
       },
     });
     for (const step of manifest.steps ?? []) expect(typeof step.actual_usd).toBe('number');
-    expect(spendingStepsCompleted(manifest)).toBeGreaterThan(0);
-    // Stills mode produces still images, not moving clips.
-    expect((manifest.steps ?? []).some((s) => s.kind === 'generate' && s.status === 'completed')).toBe(true);
+    // Stills mode generates the style key and a narration script (with its
+    // roster), then pauses at the soft approve_assets gate. Every completed
+    // spending step carries a real cost and its Library asset id.
+    expect(completedOfKind(manifest, 'generate')).toBeGreaterThan(0);
+    expect(completedOfKind(manifest, 'analyze')).toBeGreaterThan(0);
+    expect(completedAssets(manifest, 'generate').some((a) => (a.asset_id ?? '') !== '')).toBe(true);
+    // The run reaches its assets-approval checkpoint. If it clears the gate and
+    // renders on to assemble, the assembled video's asset and outputs.final are
+    // recorded (F-WFL-09); assert those only when the run got that far, so the
+    // test states the truth for both the paused and the completed outcome without
+    // hiding either. The block→assemble path is proven end to end by the other
+    // assemble-final workflows (ugc-ad, subtitles) and the host fixture.
+    const assembled = [...completedAssets(manifest, 'assemble'), ...completedAssets(manifest, 'export')];
+    if (manifest.status === 'completed') {
+      expect(assembled.some((a) => (a.asset_id ?? '') !== '')).toBe(true);
+      expect(manifest.outputs?.final ?? '').not.toBe('');
+    } else {
+      expect(manifest.status).toBe('awaiting_approval');
+    }
   });
 
   test('@m6 kilnry-product-photoshoot renders variants', async ({ page }) => {
@@ -457,28 +533,40 @@ test.describe('M6 workflows acceptance', () => {
     await ensureProvider(page, 'openrouter', OPENROUTER_KEY);
     const product = await seedProduct(page, 'Shoot_A', 'bottle.png');
     expect(product).not.toBe('');
-    const { manifest } = await driveRun(page, {
+    const { folder, manifest } = await driveRun(page, {
       workflowId: 'kilnry-product-photoshoot',
       folder: 'Shoot_A',
       slugPrefix: 'Product_photoshoot_',
       inputs: { product, mode: 'packshot', variants: 1, aspect: '1:1' },
     });
     for (const step of manifest.steps ?? []) expect(typeof step.actual_usd).toBe('number');
-    expect(spendingStepsCompleted(manifest)).toBeGreaterThan(0);
+    // The photoshoot generates an anchor and per-variant images, and runs a QA
+    // analyze on each variant that writes a structured pass/reasons object.
+    expect(completedOfKind(manifest, 'generate')).toBeGreaterThan(0);
+    expect(completedOfKind(manifest, 'analyze')).toBeGreaterThan(0);
+    // Image variants landed on disk.
+    const files = readdirSync(folder);
+    expect(files.some((name) => /\.png$/.test(name))).toBe(true);
   });
 
   test('@m6 kilnry-thumbnail renders takes', async ({ page }) => {
     test.setTimeout(600_000);
     await ensureProvider(page, 'fal', FAL_KEY);
     await ensureProvider(page, 'openrouter', OPENROUTER_KEY);
-    const { manifest } = await driveRun(page, {
+    const { folder, manifest } = await driveRun(page, {
       workflowId: 'kilnry-thumbnail',
       folder: 'Thumb_A',
       slugPrefix: 'Thumbnail_',
       inputs: { topic: 'The secret life of bees', headline: 'Bees rule', aspect: '16:9', takes: 1 },
     });
     for (const step of manifest.steps ?? []) expect(typeof step.actual_usd).toBe('number');
-    expect(spendingStepsCompleted(manifest)).toBeGreaterThan(0);
+    // The thumbnail generates a take and runs a check_k analyze with a structured
+    // pass result; the final is a generate, so outputs.final resolves.
+    expect(completedOfKind(manifest, 'generate')).toBeGreaterThan(0);
+    expect(completedOfKind(manifest, 'analyze')).toBeGreaterThan(0);
+    expect(manifest.outputs?.final ?? '').not.toBe('');
+    const files = readdirSync(folder);
+    expect(files.some((name) => /\.png$/.test(name))).toBe(true);
   });
 
   test('@m6 kilnry-subtitles-burn transcribes and burns captions', async ({ page }) => {
@@ -487,21 +575,28 @@ test.describe('M6 workflows acceptance', () => {
     await ensureProvider(page, 'openrouter', OPENROUTER_KEY);
     const video = await seedFile(page, 'Subs_A', 'clip.mp4', MP4);
     expect(video).not.toBe('');
-    const { manifest } = await driveRun(page, {
+    const { folder, manifest } = await driveRun(page, {
       workflowId: 'kilnry-subtitles-burn',
       folder: 'Subs_A',
       slugPrefix: 'Subtitles_burn_',
       inputs: { video, look: 'clean', language: 'en', max_line_chars: 28, position: 'lower_third' },
     });
     for (const step of manifest.steps ?? []) expect(typeof step.actual_usd).toBe('number');
-    // The transcribe transform is the one spending step; burn is a local
-    // assemble. The transform must reach a terminal state — completed when the
-    // stt provider job returns, which under load can intermittently fail, so the
-    // assertion tolerates a failed provider job (a run-level provider flake, not
-    // a workflow-logic fault) while requiring the workflow to have run it.
+    // The transcribe transform is a spending step; its one-second-poll root cause
+    // is fixed, so under the strict mock it completes — no failure is tolerated.
     const transcribe = (manifest.steps ?? []).find((s) => s.step_id === 'transcribe');
     expect(transcribe?.kind).toBe('transform');
-    expect(['completed', 'failed']).toContain(transcribe?.status ?? '');
+    expect(transcribe?.status).toBe('completed');
+    // The group and verify analyze steps ran and metered.
+    expect(completedOfKind(manifest, 'analyze')).toBeGreaterThan(0);
+    // burn is a local assemble that recorded the captioned video's asset and mp4
+    // path, and outputs.final resolves to it (F-WFL-09); the transcribe transform
+    // wrote the real transcript bytes to disk.
+    expect(manifest.outputs?.final ?? '').not.toBe('');
+    const assembled = [...completedAssets(manifest, 'assemble'), ...completedAssets(manifest, 'export')];
+    expect(assembled.some((a) => (a.asset_id ?? '') !== '')).toBe(true);
+    const files = readdirSync(folder);
+    expect(files.some((name) => /\.(mp3|wav)$/.test(name))).toBe(true);
   });
 
   test('@m6 kilnry-ugc-ad actual cost is within 15 percent of its plan estimate', async ({ page }) => {

@@ -356,7 +356,8 @@ describe('every spending step of every kind reaches the engine once (F-WFL-06)',
       automatic: true,
       skipApprovals: true,
     });
-    expect(['completed', 'cancelled']).toContain(state.status);
+    // Under the strict fixture the run reaches one terminal status: completed.
+    expect(state.status).toBe('completed');
     // The transcribe transform is the one createJob transform; group and verify
     // are analyze steps that meter through the analyze tool (align is skipped
     // with no authored text). burn is a local ffmpeg assemble and export copies
@@ -456,6 +457,33 @@ describe('every spending step of every kind reaches the engine once (F-WFL-06)',
     // one video/image generate reached the engine.
     expect(run.submitsByKind.generate).toBeGreaterThan(0);
     expect(['completed', 'cancelled', 'unknown']).toContain(status);
+  });
+
+  it('submits no video job before the storyboard approval is answered (F-WFL-04, S-04)', async () => {
+    // The invariant S-04's comment claims: kilnry-ugc-ad must not render a clip
+    // (a reference2video generate) until the boards approval is answered. Drive
+    // the run with the real approval barrier and a decide that waits at
+    // approve_boards, then assert no video-capability job was submitted.
+    const run = runCounting('kilnry-ugc-ad', {
+      mode: 'product-only',
+      product: 'asset-serum-1',
+      duration_s: 15,
+      approved_claims: ['hydrating'],
+      folder: 'Client_A',
+    });
+    const VIDEO_CAPS = ['reference2video', 'text2video', 'image2video'];
+    // Run interactively (not automatic), so the soft boards approval pauses for a
+    // decision instead of proceeding on its own; decide waits there so the run
+    // stops before the clips foreach. In automatic mode a soft gate proceeds by
+    // design, which is why S-04 drives this interactively.
+    run.effects.decide = async (node) => (node.step_id === 'approve_boards' ? 'wait' : 'approve');
+    await execute(run.workflow, run.scope, run.effects, { automatic: false });
+    const videoSubmits = run.submits.filter((submit) => VIDEO_CAPS.includes(submit.request.capability));
+    expect(videoSubmits).toHaveLength(0);
+    // The run did reach the gate: the storyboard boards (a generate) were
+    // submitted before it paused, so this is a real "paused before video" state,
+    // not a run that never started.
+    expect(run.submitsByKind.generate).toBeGreaterThan(0);
   });
 
   it('runs kilnry-localize end to end and keeps the music with a mix step (F-WFL-07)', async () => {

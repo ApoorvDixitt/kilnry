@@ -217,10 +217,15 @@ function analyzeJson(prompt: string): string {
     negative_traits: ['no text', 'no watermark'],
     palette_hex: ['#e8e2d9', '#3b3a36'],
     gendered_noun: 'person',
-    // faceless video
+    // faceless video — the roster the assets foreach expands (expect: 7); each
+    // item is an object the asset prompt reads as {name, kind, description}.
     title: 'Scripted narration',
     blocks,
-    roster: ['narrator'],
+    roster: Array.from({ length: 7 }, (_, i) => ({
+      name: `Asset ${i + 1}`,
+      kind: i === 0 ? 'character' : i === 1 ? 'location' : 'prop',
+      description: `A scripted ${i === 0 ? 'character' : i === 1 ? 'location' : 'prop'} reference.`,
+    })),
     sources: [],
     // motion design
     scenes,
