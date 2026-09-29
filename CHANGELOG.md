@@ -4,6 +4,8 @@ All notable changes to Kilnry are documented here. The format follows Keep a Cha
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-09-29
+
 ### Fixed
 
 - A workflow's inline approval now gates only the work behind it: the step it guards no longer runs on the same pass as the checkpoint, so a storyboard is truly approved before any clip renders, and the run view keeps polling a run it first read as null rather than leaving the card unanswerable (F-WFL-04).
