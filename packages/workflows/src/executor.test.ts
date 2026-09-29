@@ -409,4 +409,250 @@ outputs:
     expect(expanded.files).toHaveLength(1);
     expect(expanded.files[0]).toEqual({ ref: 'asset-final', name: 'final.mp4', tags: ['deliverable'] });
   });
+
+  // The six executor and planner behaviours 5e7a502 carried without a named test
+  // each (F-WFL-06). One focused case per behaviour, driving the pure executor.
+  describe('5e7a502 executor and planner behaviours (F-WFL-06)', () => {
+    const scope = { inputs: {}, defaults: {}, vars: {} };
+
+    it('evaluates a step declared output against its result for a downstream step to read', async () => {
+      // `probe` declares `dur` from its result; `use` reads steps.probe.outputs.dur.
+      const wf = parseWorkflow(`
+id: kilnry-decl-out
+name: Declared out
+version: 1.0.0
+category: video
+steps:
+  - id: probe
+    kind: assemble
+    op: probe
+    inputs: ["asset-1"]
+    outputs: { dur: "{{ result.duration_s }}" }
+  - id: use
+    kind: generate
+    capability: text2image
+    depends_on: [probe]
+    prompt: "duration was {{ steps.probe.outputs.dur }}"
+    outputs: { asset: "used" }
+`);
+      let usePrompt = '';
+      const effects: Effects = {
+        runStep: async (node, rendered): Promise<StepResult> => {
+          if (node.step_id === 'probe')
+            return { outputs: { duration_s: 7 }, actual_usd: 0, status: 'completed' };
+          if (node.step_id === 'use') usePrompt = (rendered as Extract<Step, { kind: 'generate' }>).prompt;
+          return { outputs: { asset: 'used' }, actual_usd: 0.1, status: 'completed' };
+        },
+      };
+      const state = await execute(wf, scope, effects, { automatic: true });
+      expect(state.status).toBe('completed');
+      // The declared output `dur` resolved from the probe result and rendered into
+      // the downstream prompt.
+      expect(usePrompt).toBe('duration was 7');
+      expect(Number(state.steps.find((s) => s.step_id === 'probe')?.outputs.dur)).toBe(7);
+    });
+
+    it('aggregates a foreach container so a later step reads its iterations', async () => {
+      // `boards` runs twice; `pick` reads steps.boards.outputs (the aggregate) and
+      // steps.boards.assets (the flattened asset list).
+      const wf = parseWorkflow(`
+id: kilnry-agg
+name: Aggregate
+version: 1.0.0
+category: image
+steps:
+  - id: boards
+    kind: foreach
+    over: "{{ [0, 1, 2] }}"
+    steps:
+      - id: board
+        kind: generate
+        capability: text2image
+        prompt: "board {{ index }}"
+        outputs: { asset: "asset-{{ index }}" }
+  - id: pick
+    kind: generate
+    capability: text2image
+    depends_on: [boards]
+    prompt: "from {{ len(steps.boards.outputs) }} boards"
+    outputs: { asset: "picked" }
+`);
+      let pickPrompt = '';
+      const effects: Effects = {
+        runStep: async (node, rendered): Promise<StepResult> => {
+          if (node.step_id === 'pick') pickPrompt = (rendered as Extract<Step, { kind: 'generate' }>).prompt;
+          const index = typeof node.scope_extra.index === 'number' ? node.scope_extra.index : 0;
+          return {
+            outputs: { asset: `asset-${index}`, result: { assets: [`asset-${index}`] } },
+            actual_usd: 0.1,
+            status: 'completed',
+          };
+        },
+      };
+      const state = await execute(wf, scope, effects, { automatic: true });
+      expect(state.status).toBe('completed');
+      // The container aggregated its three iterations' assets, read by the later step.
+      expect(pickPrompt).toBe('from 3 boards');
+    });
+
+    it('evaluates a branch condition only once its dependencies are ready, not during expansion', async () => {
+      // The branch's `when` reads steps.gate.outputs.ok, which only exists after
+      // gate runs; eager evaluation at expansion would throw or read undefined.
+      const wf = parseWorkflow(`
+id: kilnry-lazy-branch
+name: Lazy branch
+version: 1.0.0
+category: image
+steps:
+  - id: gate
+    kind: analyze
+    task: describe
+    instructions: "check"
+    outputs: { ok: "{{ result.structured.ok }}" }
+  - id: guarded
+    kind: branch
+    when: "{{ steps.gate.outputs.ok }}"
+    then:
+      - id: yes_step
+        kind: generate
+        capability: text2image
+        prompt: "ran"
+        outputs: { asset: "yes" }
+    else: []
+`);
+      const effects: Effects = {
+        runStep: async (node): Promise<StepResult> => {
+          if (node.step_id === 'gate')
+            return {
+              outputs: { result: { structured: { ok: true } } },
+              actual_usd: 0.05,
+              status: 'completed',
+            };
+          return { outputs: { asset: 'yes' }, actual_usd: 0.1, status: 'completed' };
+        },
+      };
+      const state = await execute(wf, scope, effects, { automatic: true });
+      expect(state.status).toBe('completed');
+      // The then-side ran because the gate's ok resolved true at run time.
+      expect(state.steps.some((s) => s.step_id === 'yes_step' && s.status === 'completed')).toBe(true);
+    });
+
+    it('does not treat a step referencing its own enclosing foreach as a self-dependency', async () => {
+      // A child step whose template mentions its container id must not deadlock
+      // waiting on the container it lives in.
+      const wf = parseWorkflow(`
+id: kilnry-self-dep
+name: Self dep
+version: 1.0.0
+category: image
+steps:
+  - id: shots
+    kind: foreach
+    over: "{{ [0, 1] }}"
+    steps:
+      - id: shot
+        kind: generate
+        capability: text2image
+        prompt: "shot {{ index }} of shots"
+        outputs: { asset: "shot-{{ index }}" }
+`);
+      const effects: Effects = {
+        runStep: async (node): Promise<StepResult> => ({
+          outputs: { asset: `shot-${node.scope_extra.index ?? 0}` },
+          actual_usd: 0.1,
+          status: 'completed',
+        }),
+      };
+      const state = await execute(wf, scope, effects, { automatic: true });
+      // Both iterations completed; no self-deadlock left a shot pending.
+      expect(state.status).toBe('completed');
+      expect(
+        state.steps.filter((s) => s.instance_id.startsWith('shots[') && s.status === 'completed'),
+      ).toHaveLength(2);
+    });
+
+    it('resolves a dependency on an undeclared foreach container id through byStepId', async () => {
+      // `after` depends on `shots` — the container id, which is not a node itself;
+      // it must resolve to the container's child instances being done.
+      const wf = parseWorkflow(`
+id: kilnry-container-dep
+name: Container dep
+version: 1.0.0
+category: image
+steps:
+  - id: shots
+    kind: foreach
+    over: "{{ [0, 1] }}"
+    steps:
+      - id: shot
+        kind: generate
+        capability: text2image
+        prompt: "shot {{ index }}"
+        outputs: { asset: "shot-{{ index }}" }
+  - id: after
+    kind: generate
+    capability: text2image
+    depends_on: [shots]
+    prompt: "after the shots"
+    outputs: { asset: "after" }
+`);
+      const order: string[] = [];
+      const effects: Effects = {
+        runStep: async (node): Promise<StepResult> => {
+          order.push(node.step_id);
+          return { outputs: { asset: node.step_id }, actual_usd: 0.1, status: 'completed' };
+        },
+      };
+      const state = await execute(wf, scope, effects, { automatic: true });
+      expect(state.status).toBe('completed');
+      // `after` ran, and only after both container children — the container-id
+      // dependency resolved through the child instances.
+      const afterIndex = order.indexOf('after');
+      expect(afterIndex).toBeGreaterThan(-1);
+      expect(order.filter((id) => id === 'shot').length).toBe(2);
+      expect(order.slice(0, afterIndex).filter((id) => id === 'shot').length).toBe(2);
+    });
+
+    it("keeps a branch's kept side when the planner's whenHolds tolerates an unresolved condition", async () => {
+      // A branch whose condition reads a not-yet-run step's output is kept
+      // (conditional) at plan time rather than dropped, so it can run later.
+      const wf = parseWorkflow(`
+id: kilnry-when-holds
+name: When holds
+version: 1.0.0
+category: image
+steps:
+  - id: score
+    kind: analyze
+    task: describe
+    instructions: "score"
+    outputs: { pass: "{{ result.structured.pass }}" }
+  - id: refine
+    kind: branch
+    when: "{{ steps.score.outputs.pass == false }}"
+    then:
+      - id: redo
+        kind: generate
+        capability: text2image
+        prompt: "redo"
+        outputs: { asset: "redo" }
+    else: []
+`);
+      const effects: Effects = {
+        runStep: async (node): Promise<StepResult> => {
+          if (node.step_id === 'score')
+            return {
+              outputs: { result: { structured: { pass: false } } },
+              actual_usd: 0.05,
+              status: 'completed',
+            };
+          return { outputs: { asset: 'redo' }, actual_usd: 0.1, status: 'completed' };
+        },
+      };
+      const state = await execute(wf, scope, effects, { automatic: true });
+      expect(state.status).toBe('completed');
+      // The condition held at run time (pass == false), so the redo ran.
+      expect(state.steps.some((s) => s.step_id === 'redo' && s.status === 'completed')).toBe(true);
+    });
+  });
 });

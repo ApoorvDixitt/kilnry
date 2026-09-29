@@ -29,9 +29,14 @@ function countTokens(text: string): number {
 }
 
 describe('prompt library (F-SKL-05)', () => {
-  it('ships the base system prompt with a token count at or under 1300 (PRD-13 §1)', () => {
+  it('ships the base system prompt at the measured 1,215 tokens, inside the 1,300 budget (PRD-13 §1, F-SKL-05)', () => {
     const body = promptBody('base-system.md');
     expect(body.startsWith('You are Kilnry')).toBe(true);
+    // The o200k_base count is the figure 8e07a71 recorded — 1,215 tokens, close
+    // to PRD-13 §1's ~1,250 and inside the 1,300 budget the instructions assembly
+    // starts from. Asserting the measured number, not only the ceiling, so a
+    // change to the base prompt that moves the budget is caught here.
+    expect(countTokens(body)).toBe(1215);
     expect(countTokens(body)).toBeLessThanOrEqual(1300);
   });
 
