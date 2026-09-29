@@ -4,13 +4,41 @@ All notable changes to Kilnry are documented here. The format follows Keep a Cha
 
 ## [Unreleased]
 
+### Fixed
+
+- A workflow's inline approval now gates only the work behind it: the step it guards no longer runs on the same pass as the checkpoint, so a storyboard is truly approved before any clip renders, and the run view keeps polling a run it first read as null rather than leaving the card unanswerable (F-WFL-04).
+- A retried step makes a fresh request each attempt instead of replaying the failed job's request id, and re-running from a step subtracts that step's prior spend from the run total so a re-run is not double-counted (F-WFL-05).
+- A model swapped onto a step actually routes on the swapped model, and a re-run validates the pinned model against the step's capability, refusing an unknown model or a capability mismatch before it spends (F-WFL-05).
+- Every settled job — generate and transform included — now writes one audit event beside its spend-ledger row, tied to its run and step (F-JOB-02).
+- A workflow resolves a Character reference when planning and running, so a character-sheet plan no longer throws on `characters[@handle]` (F-WFL-06); a bundled prompt is read with `file(path)` or `file(path#EXPORT)` (TRD-12 §3).
+- A stale plan is re-planned before it runs on the web the same way the tool path already did, and every spending route the app exposes is bucketed by the spend rate limiter (F-WFL-02, F-SET-08).
+- The run manifest carries each step's rendered inputs, its job id, the real plan id, the workflow's checksum, the characters used, and a resolved `outputs.final` (F-WFL-09).
+- The run view's Inputs, Outputs, Logs and Cost tabs render real content — a definition list, asset cards, a monospaced follow-tail, and estimate against actual with the unit price — where three of the four had shown only their label (F-WFL-03).
+- The catalogue shows a real step count and duration range, the intake previews an estimated time, the approval card answers Enter and Escape, and status and cost strings come from the message catalogue (F-WFL-01).
+- The approval card shows the waiting step's outputs as zoomable asset cards and offers Edit, Regenerate and Stop besides Approve and Deny (F-WFL-04).
+- The `kilnry_workflows` tool is wired to the shipped planner and executor — list, get, plan, run, status, approve, deny, cancel and retry — instead of returning not-available, and the stale milestone strings are gone (F-MCP-01).
+- A skill folder can be dropped into Settings to install, and an installed skill edited in place, each re-validated through every install rule before it is enabled (F-SKL-03, F-SKL-04).
+- A Presets tab lists the installed presets with an enable toggle and an import, and a disabled preset is hidden from the grid (F-SET-06).
+- The six non-flagship workflows are filled out to their subsections: the product photoshoot's anchor gate and per-variant quality branch, the thumbnail's logo and emotion controls, the subtitles pipeline's align/group/verify steps, the narrator's refit loop and presenter mode, the explainer's ten-second MiniMax H3 blocks with a plan gate, scene check, music and titles, and the localize pipeline's music-preserving mix with a keep-music input (F-WFL-07).
+- An assemble or export step records the asset it produces, so `outputs.final` resolves for a workflow whose final step is an assembled cut or an exported deliverable, not only a generated image (F-WFL-09).
+- A workflow text-to-speech step's `provider:voice_id` is split into the object the canonical request expects, so the narrator, explainer and localize voices route (F-WFL-07).
+- The prompting skill ships the per-model guides it advertised, the explainer skill text carries its ten-second MiniMax H3 block mechanic, and the storyboard skill no longer implies a pipeline it does not have (F-SKL-02).
+- Chat reads a model's tool-calling support from the registry and drops a model that cannot call tools from the list rather than failing opaquely; the skill executable check blocks PowerShell, zsh and command scripts and an extensionless script hiding behind a shebang; and the transcript export redacts a key with the same redactor the provider errors use (F-CHT-11, F-SKL-03, F-CHT-12).
+- A start-and-end template pair — a string that opens with one placeholder and closes with another — is interpolated placeholder by placeholder rather than parsed as one expression, so a preset scaffold renders correctly (F-PRE-03).
+
+### Changed
+
+- The M6 acceptance scenarios assert the truth: each named run's completed step counts per kind, an analyze step's structured result, and the assemble or export asset the manifest resolves its final to; the subtitles transform must complete; the golden ad asserts two parsed cost amounts and the invariant that no video renders before the storyboard is approved; and the first-run setup and intake wait on observable state rather than a fixed timer (F-WFL-07).
+- The six executor and planner behaviours that shipped together now have a named test each, and the base system prompt's budget is asserted at its measured 1,215 tokens (F-WFL-06, F-SKL-05).
+- The install-route database test runs in its own worker so its embedded database cannot abort a shared test process (F-JOB-02).
+
 ## [0.4.0] - 2026-09-27
 
 ### Added
 
-- A workflow catalogue at `/workflows` listing each pipeline with its cost range, typical duration, required inputs and a Run button (F-WFL-01).
+- A workflow catalogue at `/workflows` listing each pipeline with its cost range, required inputs and a Run button (F-WFL-01). _Correction: the typical duration this line named was not shown until it was added in the Unreleased fixes._
 - An intake drawer per workflow that fills the inputs, previews a plan with a per-step model, cost and total, and an Approve button that starts the run at that confirmed total (F-WFL-02).
-- A run view at `/workflows/runs/:id` with a header (status, steps done of total, cost so far versus estimate, Cancel), a step list and a step detail with Inputs, Outputs, Logs and Cost tabs (F-WFL-03).
+- A run view at `/workflows/runs/:id` with a header (status, steps done of total, cost so far versus estimate, Cancel), a step list and a step detail with Inputs, Outputs, Logs and Cost tabs (F-WFL-03). _Correction: only the Cost tab rendered real content at 0.4.0; the Inputs, Outputs and Logs tabs were filled in the Unreleased fixes._
 - Checkpoints: a step marked for approval pauses the run with an approval card, so storyboards are approved before clips render (F-WFL-04).
 - Retry a failed step, swap its model, and re-run from a step in the run view (F-WFL-05).
 - The workflow definition language: inputs as JavaScript Object Notation Schema with interface hints, steps for generate, transform, assemble, analyze, branch, foreach and approval, templating, and outputs routed to a folder — with a planner that prices the graph and an executor that runs it (F-WFL-06).
@@ -26,7 +54,7 @@ All notable changes to Kilnry are documented here. The format follows Keep a Cha
 
 ### Fixed
 
-- A workflow transform or analyze step now prices, budget-checks and charges through the engine like a generate step, writing one spend-ledger row and one audit event each, instead of completing without any spend (F-WFL-06).
+- A workflow transform or analyze step now prices, budget-checks and charges through the engine like a generate step, writing one spend-ledger row, instead of completing without any spend (F-WFL-06). _Correction: this line said "and one audit event each"; no audit event was written for a generate or transform job until that was added in the Unreleased fixes._
 - A workflow analyze step returns a validated structured result, so a branch that reads `steps.<id>.outputs.result.structured` takes the right arm; a schema forces JavaScript Object Notation with one repair retry, metered as a language or vision-language spend (F-WFL-06).
 - A generate step now routes and prices on its own declared capability, so a reference-to-video clip is priced as video rather than an image and finds an audio-capable model (F-WFL-06).
 - An export step expands a files list whose reference is an array into one file each, binding the per-file index and name before writing them into the run folder (F-WFL-09).
