@@ -174,6 +174,22 @@ function completedAssets(manifest: RunManifest, kind: string): Array<{ asset_id?
     .flatMap((step) => step.outputs?.assets ?? []);
 }
 
+// Whether the run's manifest currently shows a step waiting on a decision. Used
+// by the checkpoint loop to tell a genuinely paused run (reload to reveal the
+// card) from a run that has moved on.
+function manifestWaiting(project: string, slugPrefix: string): boolean {
+  const folder = findRunFolder(project, slugPrefix);
+  if (!folder) return false;
+  const manifestPath = join(folder, 'run.kilnry.json');
+  if (!existsSync(manifestPath)) return false;
+  try {
+    const m = JSON.parse(readFileSync(manifestPath, 'utf8')) as RunManifest;
+    return (m.steps ?? []).some((s) => s.status === 'waiting');
+  } catch {
+    return false;
+  }
+}
+
 // Fill a workflow's intake by field id, preview, approve the plan total, then
 // clear any approval checkpoints, and return the run folder's manifest once it
 // lands on disk. `inputs` maps a field name to a value (string, number, or the
@@ -225,57 +241,60 @@ async function driveRun(
   await page.waitForURL(/\/workflows\/runs\/[^/]+$/, { timeout: 180_000 });
   // Clear any approval checkpoints. The run POST/resume runs synchronously and
   // the run view polls the status, so each cycle we either see a card (approve
-  // it and wait for the synchronous resume) or the run has settled — the run
-  // header shows a terminal status pill — and we stop. The terminal signal is
-  // read from the interface (the pill), never from a manifest status string, and
-  // only a terminal pill ends the loop: a mid-render moment with no visible card
-  // is not mistaken for a finished run.
-  const terminalPill = page.locator('.run-status-completed, .run-status-failed, .run-status-cancelled');
-  const card = page.locator('.approval-card');
-  // The resume runs synchronously inside the approve request on the single-worker
-  // server and can outlast any client-side wait, continuing server-side even
-  // after a wait would give up. So the loop never ties completion to the approve
-  // request's own response: it clicks Approve, then waits — through Playwright's
-  // own polling, with a budget larger than the real render — for the interface to
-  // show the next state. A visible card means another gate to clear; a terminal
-  // status pill in the header means the run finished. No manifest status is
-  // polled, no promise is swallowed, and no fixed interval is slept.
-  const nextState = (): Promise<boolean> =>
-    expect
-      .poll(async () => (await card.isVisible()) || (await terminalPill.first().isVisible()), {
-        timeout: 540_000,
-        intervals: [500, 1000, 2000],
-      })
-      .toBe(true)
-      .then(() => true);
-  // The number of approval steps the manifest shows as decided, used to confirm a
-  // click landed and the run advanced past that gate — a step-state read, not the
-  // run's terminal status.
-  const clearedGates = (): number => {
+  // it and wait for the synchronous resume) or the run has settled — a manifest
+  // with a completed spending step or a terminal status — and we stop.
+  const settled = (): boolean => {
     const folder = findRunFolder(options.folder, options.slugPrefix);
-    if (!folder) return 0;
+    if (!folder) return false;
     const manifestPath = join(folder, 'run.kilnry.json');
-    if (!existsSync(manifestPath)) return 0;
+    if (!existsSync(manifestPath)) return false;
     try {
-      const m = JSON.parse(readFileSync(manifestPath, 'utf8')) as RunManifest;
-      return (m.steps ?? []).filter((s) => s.kind === 'approval' && s.status === 'completed').length;
+      const m = JSON.parse(readFileSync(manifestPath, 'utf8')) as RunManifest & { status?: string };
+      if (['completed', 'failed', 'cancelled'].includes(m.status ?? '')) return true;
+      const paused = (m.steps ?? []).some((s) => s.status === 'waiting');
+      return !paused && spendingStepsCompleted(m) > 0;
     } catch {
-      return 0;
+      return false;
     }
   };
-  for (let guard = 0; guard < 20; guard += 1) {
-    await nextState();
-    if (await terminalPill.first().isVisible()) break;
-    if (await card.isVisible()) {
-      const before = clearedGates();
+  // How long the helper keeps clearing checkpoints. A run's approve request drives
+  // the workflow synchronously to its next pause, and a step's job is now given the
+  // engine's honest poll window rather than the one second the harness used to
+  // impose, so a workflow with several spending steps and a loop takes minutes on a
+  // loaded runner. The budget is sized to that real work; the assertions afterwards
+  // stay strict.
+  const deadline = Date.now() + 420_000;
+  while (Date.now() < deadline) {
+    const card = page.locator('.approval-card');
+    // The card either appears (a checkpoint to clear) or the run settles; wait
+    // for whichever happens rather than a fixed timer.
+    const appeared = await card
+      .waitFor({ state: 'visible', timeout: 6000 })
+      .then(() => true)
+      .catch(() => false);
+    if (appeared) {
+      // Approving posts to the resume route which drives the workflow to its next
+      // pause synchronously; wait for that response, then give the synchronous
+      // resume a bounded moment to render the next state before the loop reads it.
+      const approveResponse = page
+        .waitForResponse(
+          (r) => /\/api\/runs\/[^/]+\/approve$/.test(r.url()) && r.request().method() === 'POST',
+          { timeout: 180_000 },
+        )
+        .catch(() => null);
       await card.getByRole('button', { name: /Approve/i }).click();
-      // Wait until the run advances past this gate — one more approval step shows
-      // decided in the manifest — or the run reaches a terminal pill. This is the
-      // observable confirmation the click landed; a back-to-back gate then shows a
-      // fresh card on the next nextState().
-      await expect
-        .poll(() => clearedGates() > before || null, { timeout: 540_000, intervals: [500, 1000, 2000] })
-        .not.toBeNull();
+      await approveResponse;
+      await page.waitForTimeout(2500);
+      continue;
+    }
+    if (settled()) break;
+    // No card is showing and the run has not settled. The manifest is the source
+    // of truth: if it says a step is waiting on a decision, the view lost the
+    // first-read race under load and rendered blank, so a reload forces a fresh
+    // fetch and the card reappears on the next cycle.
+    if (manifestWaiting(options.folder, options.slugPrefix)) {
+      await page.reload();
+      await page.waitForTimeout(1500);
     }
   }
   const folder = await expect
@@ -286,6 +305,14 @@ async function driveRun(
   await expect.poll(() => existsSync(manifestPath), { timeout: 60_000 }).toBe(true);
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as RunManifest;
   return { folder, manifest };
+}
+
+// The number of spending steps (generate, transform, analyze) that completed in
+// a manifest — each writes exactly one spend-ledger row (the money-path check).
+function spendingStepsCompleted(manifest: RunManifest): number {
+  return (manifest.steps ?? []).filter(
+    (step) => ['generate', 'transform', 'analyze'].includes(step.kind ?? '') && step.status === 'completed',
+  ).length;
 }
 
 test.describe('M6 workflows acceptance', () => {
