@@ -118,12 +118,13 @@ jobs:
   # past that job's half-hour budget once the workflow runs started doing their
   # real work, and a single flake meant re-running every scenario together with
   # the lint, typecheck, unit, browser and build steps. Sharded, no shard comes
-  # close to its own budget and a flake re-runs only its own scenarios. Each shard
-  # runs the first-run smoke scenario before its own, because a fresh server
-  # rewrites the setup token and a later scenario would otherwise be
-  # unauthenticated. @visual and @matrix stay out: the visual baselines are
-  # platform-specific and regenerated locally, and the client matrix needs clients
-  # installed on the build machine.
+  # close to its own budget and a flake re-runs only its own scenarios. The m7
+  # shard carries the M7 robustness scenarios (S-21 LAN access, S-22 recovery
+  # kit) and the per-feature P2 checks. Each shard runs the first-run smoke
+  # scenario before its own, because a fresh server rewrites the setup token and
+  # a later scenario would otherwise be unauthenticated. @visual and @matrix stay
+  # out: the visual baselines are platform-specific and regenerated locally, and
+  # the client matrix needs clients installed on the build machine.
   e2e:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
@@ -137,6 +138,8 @@ jobs:
             grep: '@m5'
           - name: m6-gate
             grep: '@m6|@gate'
+          - name: m7
+            grep: '@m7'
     name: e2e (${{ matrix.shard.name }})
     steps:
       - name: Check out repository
