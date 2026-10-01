@@ -21,10 +21,11 @@ All notable changes to Kilnry are documented here. The format follows Keep a Cha
 > session-cap scenario was changed three times (`012aea0`, `2ddf175`, `c9e2a84`)
 > before its true cause — a first-run onboarding step awaiting the five-second
 > default while the account was created — was found and its assertion restored
-> to three completed renders; and the M6 checkpoint-clearing loop kept a bounded
-> interval after each approve (removed in M7's unit 0, which drives that loop on
-> observable state alone). F-SKL-04 and F-SET-06 are implemented; the base-prompt
-> budget is 1,215 tokens.
+> to three completed renders; and the M6 checkpoint-clearing loop keeps a bounded
+> interval after each approve, because pure observable waits could not clear the
+> multi-gate faceless-video run (an M7 attempt to remove it was deferred with
+> that evidence). F-SKL-04 and F-SET-06 are implemented; the base-prompt budget
+> is 1,215 tokens.
 
 ### Fixed
 
