@@ -42,6 +42,7 @@ export interface ManifestStep {
 export interface RunManifest {
   schema_version: number;
   run_id: string;
+  parent_run_id?: string;
   workflow: { id: string; version: string; sha256?: string };
   inputs: Record<string, unknown>;
   plan_id: string;
@@ -76,11 +77,17 @@ function stamp(date: Date): string {
  * The run folder relative to the Library root:
  * `<project>/<Workflow name>_<YYYY-MM-DD_HHmm>/` (F-WFL-09). `project` is the
  * target folder the intake chose, or the workflow inputs' folder, or `inbox`.
+ * A re-run (F-WFL-05) passes `rerun` as the ordinal (2 for the first re-run) so
+ * the child run lands beside its parent with a `_rerun2` suffix.
  */
-export function runFolder(workflow: WorkflowFile, options: { project?: string; date?: Date }): string {
+export function runFolder(
+  workflow: WorkflowFile,
+  options: { project?: string; date?: Date; rerun?: number },
+): string {
   const project = options.project && options.project !== '' ? options.project : 'inbox';
   const when = options.date ?? new Date();
-  return `${project}/${slugSegment(workflow.name)}_${stamp(when)}`;
+  const suffix = options.rerun && options.rerun > 1 ? `_rerun${options.rerun}` : '';
+  return `${project}/${slugSegment(workflow.name)}_${stamp(when)}${suffix}`;
 }
 
 /** Collect the asset ids a step produced, from its outputs. */
@@ -101,6 +108,7 @@ function stepAssets(node: RunStep): Array<{ asset_id: string; path?: string }> {
  */
 export function buildManifest(input: {
   runId: string;
+  parentRunId?: string;
   workflow: WorkflowFile;
   plan: Plan;
   state: RunState;
@@ -133,6 +141,7 @@ export function buildManifest(input: {
   return {
     schema_version: MANIFEST_SCHEMA_VERSION,
     run_id: input.runId,
+    ...(input.parentRunId === undefined ? {} : { parent_run_id: input.parentRunId }),
     workflow: {
       id: input.workflow.id,
       version: input.workflow.version,

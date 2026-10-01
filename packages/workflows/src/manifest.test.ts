@@ -52,6 +52,44 @@ describe('run folder and manifest (F-WFL-09, TRD-12 §6.1)', () => {
     expect(runFolder(wf, { date: new Date('2026-09-18T09:05:00') })).toBe('inbox/UGC_ad_2026-09-18_0905');
   });
 
+  it('suffixes a re-run folder with _rerunN beside its parent (F-WFL-05)', () => {
+    const wf = parseWorkflow(WF);
+    const base = { project: 'Client_A', date: new Date('2026-09-18T11:20:00') };
+    // The first re-run is _rerun2, the next _rerun3; ordinal 1 and undefined add
+    // no suffix so the original run keeps its plain name.
+    expect(runFolder(wf, { ...base, rerun: 2 })).toBe('Client_A/UGC_ad_2026-09-18_1120_rerun2');
+    expect(runFolder(wf, { ...base, rerun: 3 })).toBe('Client_A/UGC_ad_2026-09-18_1120_rerun3');
+    expect(runFolder(wf, { ...base, rerun: 1 })).toBe('Client_A/UGC_ad_2026-09-18_1120');
+  });
+
+  it('records parent_run_id in a child run manifest (F31)', async () => {
+    const wf = parseWorkflow(WF);
+    const p = plan(wf, {}, ctx);
+    p.id = 'plan_child';
+    const state = await execute(wf, { inputs: {}, defaults: {}, vars: {} }, effects);
+    const manifest = buildManifest({
+      runId: 'run_child',
+      parentRunId: 'run_parent',
+      workflow: wf,
+      plan: p,
+      state,
+      folder: 'Client_A/UGC_ad_2026-09-18_1120_rerun2',
+      startedAt: '2026-09-18T12:00:00.000Z',
+    });
+    expect(manifest.parent_run_id).toBe('run_parent');
+    expect(manifest.folder).toBe('Client_A/UGC_ad_2026-09-18_1120_rerun2');
+    // A run with no parent omits the field rather than carrying undefined.
+    const solo = buildManifest({
+      runId: 'run_solo',
+      workflow: wf,
+      plan: p,
+      state,
+      folder: 'inbox/UGC_ad_2026-09-18_1120',
+      startedAt: '2026-09-18T12:00:00.000Z',
+    });
+    expect('parent_run_id' in solo).toBe(false);
+  });
+
   it('builds a manifest listing every step with actual cost', async () => {
     const wf = parseWorkflow(WF);
     const p = plan(wf, {}, ctx);

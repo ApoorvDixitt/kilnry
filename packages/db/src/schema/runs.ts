@@ -17,6 +17,10 @@ export const runs = pgTable('runs', {
   spentUsd: numeric('spent_usd', { precision: 12, scale: 6 }).notNull().default('0'),
   source: text('source'),
   chatSessionId: text('chat_session_id'),
+  // The run this one re-runs from (F-WFL-05 / F31): a child run copies the
+  // parent's inputs and plan, reuses the outputs of the steps before the chosen
+  // step at no cost, and re-executes from there into a _rerun folder.
+  parentRunId: text('parent_run_id'),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
   finishedAt: timestamp('finished_at', { withTimezone: true, mode: 'date' }),
 });

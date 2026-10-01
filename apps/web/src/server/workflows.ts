@@ -989,6 +989,92 @@ export async function retryStep(
   return driveResumed(db, engine, dataDir, runId, analyze ? { analyze } : {});
 }
 
+/**
+ * Re-run from a step as a new child run (F-WFL-05 / F31, PRD-10 section 5):
+ * create a new run that copies the parent's workflow, inputs and plan, reuses
+ * the outputs of every step before the chosen one at no cost, re-executes the
+ * chosen step and everything after it, records parent_run_id, and writes into a
+ * sibling folder with a _rerun suffix. The upstream steps are never re-billed.
+ */
+export async function rerunFromStep(
+  db: DatabaseState,
+  engine: JobEngine,
+  dataDir: string,
+  runId: string,
+  stepId: string,
+  analyze?: WorkflowAnalyzeServices,
+): Promise<{ run_id: string; parent_run_id: string; folder: string }> {
+  const [parent] = await db.db.select().from(runs).where(eq(runs.id, runId)).limit(1);
+  if (!parent) throw new KilnryError('NOT_FOUND', 'Run not found.');
+  const entry = getWorkflow(dataDir, parent.workflowId);
+  if (!entry) throw new KilnryError('NOT_FOUND', `Workflow ${parent.workflowId} is no longer installed.`);
+
+  const parentSteps = await db.db.select().from(runSteps).where(eq(runSteps.runId, runId));
+  const pivot = parentSteps.find((row) => row.stepId === stepId);
+  if (!pivot) throw new KilnryError('NOT_FOUND', `Step ${stepId} is not part of this run.`);
+  const pivotPosition = pivot.position ?? 0;
+
+  // Count the existing re-runs of this chain so the folder suffix increments:
+  // the first re-run is _rerun2, the next _rerun3, matching PRD-10 section 5.
+  const rootId = parent.parentRunId ?? parent.id;
+  const siblings = await db.db.select({ id: runs.id }).from(runs).where(eq(runs.parentRunId, rootId));
+  const rerunOrdinal = siblings.length + 2;
+
+  const project = (parent.inputs as { folder?: string }).folder;
+  const folder = runFolder(entry.workflow, {
+    ...(project === undefined ? {} : { project }),
+    rerun: rerunOrdinal,
+  });
+
+  const childId = ulid();
+  await db.db.insert(runs).values({
+    id: childId,
+    workflowId: parent.workflowId,
+    workflowVersion: parent.workflowVersion,
+    status: 'running',
+    inputs: parent.inputs,
+    plan: parent.plan,
+    folder,
+    estimateUsd: parent.estimateUsd,
+    source: 'workflow',
+    parentRunId: rootId,
+  });
+
+  // Seed the child's steps: every step before the pivot is reused from the
+  // parent as a completed step at zero cost (its output already exists on disk),
+  // so the re-run never re-bills the work it keeps. The pivot and later steps are
+  // left unseeded so the executor treats them as pending and runs them.
+  const reused = parentSteps.filter((row) => {
+    const position = row.position ?? 0;
+    return position < pivotPosition && row.status === 'completed';
+  });
+  for (const row of reused) {
+    await db.db.insert(runSteps).values({
+      runId: childId,
+      stepId: row.stepId,
+      position: row.position,
+      name: row.name,
+      kind: row.kind,
+      status: 'completed',
+      jobId: row.jobId,
+      modelId: row.modelId,
+      provider: row.provider,
+      estimateUsd: row.estimateUsd,
+      // Reused output: zero actual cost on the child so the re-run total counts
+      // only the steps it re-executes.
+      actualUsd: '0',
+      inputs: row.inputs,
+      outputs: row.outputs,
+      logs: row.logs,
+      attempts: row.attempts,
+      adjustments: row.adjustments,
+    });
+  }
+
+  await driveResumed(db, engine, dataDir, childId, analyze ? { analyze } : {});
+  return { run_id: childId, parent_run_id: rootId, folder };
+}
+
 export interface RunContext {
   runId: string;
   plan: Plan;
@@ -1465,8 +1551,15 @@ async function persistRun(
     .where(eq(runs.id, runId));
 
   if (libraryRoot && libraryRoot !== '') {
+    const rows = await db.db
+      .select({ parentRunId: runs.parentRunId })
+      .from(runs)
+      .where(eq(runs.id, runId))
+      .limit(1);
+    const parentRunId = rows[0]?.parentRunId ?? undefined;
     const manifest = buildManifest({
       runId,
+      ...(parentRunId ? { parentRunId } : {}),
       workflow,
       plan: runPlan,
       state,

@@ -86,10 +86,12 @@ export function StepList({
 export function StepDetail({
   step,
   onRetry,
+  onRerunFrom,
   busy = false,
 }: {
   step: RunStepView | undefined;
   onRetry?: (stepId: string, model?: string) => void;
+  onRerunFrom?: (stepId: string) => void;
   busy?: boolean;
 }): React.ReactNode {
   const [tab, setTab] = useState<DetailTab>('outputs');
@@ -120,9 +122,9 @@ export function StepDetail({
         {tab === 'logs' ? <StepLogs step={step} /> : null}
         {tab === 'cost' ? <StepCost step={step} /> : null}
       </div>
-      {onRetry && (failed || canRerun) ? (
+      {(onRetry && failed) || (onRerunFrom && canRerun) ? (
         <div className="run-step-actions">
-          {failed ? (
+          {failed && onRetry ? (
             <>
               <input
                 type="text"
@@ -141,16 +143,16 @@ export function StepDetail({
                 {message('workflows.runView.retry')}
               </button>
             </>
-          ) : (
+          ) : canRerun && onRerunFrom ? (
             <button
               type="button"
               className="run-step-rerun-button"
               disabled={busy}
-              onClick={() => onRetry(step.step_id, undefined)}
+              onClick={() => onRerunFrom(step.step_id)}
             >
               {message('workflows.runView.rerunFrom')}
             </button>
-          )}
+          ) : null}
         </div>
       ) : null}
     </section>
@@ -435,6 +437,23 @@ export function WorkflowRunView({ runId, initial }: { runId: string; initial?: R
     [runId, reload],
   );
 
+  // Re-run from a completed step as a new child run (F-WFL-05 / F31): the server
+  // copies the inputs and plan, reuses the earlier outputs at no cost and writes
+  // into a _rerun folder; the view navigates to the child run it returns.
+  const rerunFrom = useCallback(
+    async (stepId: string): Promise<void> => {
+      const response = await apiFetch(`/api/runs/${encodeURIComponent(runId)}/rerun-from`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ step_id: stepId }),
+      });
+      if (!response.ok) return;
+      const body = (await response.json()) as { run_id?: string };
+      if (body.run_id) window.location.assign(`/workflows/runs/${encodeURIComponent(body.run_id)}`);
+    },
+    [runId],
+  );
+
   const current = useMemo(
     () => run?.steps.find((step) => step.step_id === selected) ?? run?.steps[0],
     [run, selected],
@@ -457,7 +476,11 @@ export function WorkflowRunView({ runId, initial }: { runId: string; initial?: R
       ) : null}
       <div className="run-body">
         <StepList steps={run.steps} selected={selected} onSelect={setSelected} />
-        <StepDetail step={current} onRetry={(stepId, model) => void retry(stepId, model)} />
+        <StepDetail
+          step={current}
+          onRetry={(stepId, model) => void retry(stepId, model)}
+          onRerunFrom={(stepId) => void rerunFrom(stepId)}
+        />
       </div>
     </section>
   );
