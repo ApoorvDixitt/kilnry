@@ -19,6 +19,12 @@ export const KilnryConfigSchema = z.object({
   density: DensitySchema.default('comfortable'),
   reduced_motion: ReducedMotionSchema.default('system'),
   lan_enabled: z.boolean().default(false),
+  // The hosts the deployer explicitly added when turning on LAN access
+  // (F-SET-03). Empty until the user adds their machine's LAN IP in the "Allow
+  // access from your network?" confirm. The proxy still gates on the private
+  // IPv4 ranges; this list records what the user acknowledged and is surfaced
+  // in the audit event and the top-bar reachability tooltip.
+  allowed_hosts: z.array(z.string()).default([]),
   onboarding_complete: z.boolean().default(false),
   update_check: z.boolean().default(false),
   update_channel: z.enum(['stable', 'beta']).default('stable'),

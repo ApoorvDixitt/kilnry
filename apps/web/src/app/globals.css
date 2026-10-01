@@ -430,6 +430,79 @@ kbd {
   padding: 2px 7px;
 }
 
+.network-confirm {
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: var(--shadow-popover-theme);
+  display: grid;
+  gap: 12px;
+  padding: 20px 22px;
+  width: min(440px, calc(100vw - 32px));
+}
+
+.network-confirm h2 {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.network-confirm p {
+  color: var(--text-muted);
+  font-size: 13px;
+  margin: 0;
+}
+
+.network-confirm label {
+  display: grid;
+  font-size: 13px;
+  gap: 4px;
+}
+
+.network-confirm label small {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.network-confirm input {
+  background: var(--surface-2);
+  border: 1px solid var(--border-control);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 13px;
+  padding: 7px 10px;
+}
+
+.network-confirm-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+
+.network-confirm-actions button,
+.network-allow {
+  background: var(--surface-2);
+  border: 1px solid var(--border-control);
+  border-radius: 8px;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 7px 14px;
+}
+
+.network-confirm-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.lan-lock {
+  align-items: center;
+  color: var(--text-muted);
+  display: inline-flex;
+  margin-right: 6px;
+}
+
 .palette-search {
   align-items: center;
   border-bottom: 1px solid var(--border);

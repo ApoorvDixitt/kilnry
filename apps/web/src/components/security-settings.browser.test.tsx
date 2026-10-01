@@ -84,3 +84,72 @@ describe('SecuritySettings audit log', () => {
     expect(host.querySelector('.audit-table')).toBeNull();
   });
 });
+
+describe('SecuritySettings LAN access (S-21)', () => {
+  it('opens the network confirm dialog and turns LAN on with an allowed host', async () => {
+    const calls: Array<{ url: string; body?: unknown }> = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (init?.body) calls.push({ url, body: JSON.parse(String(init.body)) });
+        if (url.includes('/api/security/key-store') && init?.method === 'POST')
+          return Promise.resolve(Response.json({}));
+        if (url.includes('/api/security/key-store'))
+          return Promise.resolve(
+            Response.json({
+              status: { initialized: true, locked: false, source: 'keychain', weaker_machine_key: false },
+            }),
+          );
+        if (url.includes('/api/security/network') && init?.method === 'PUT')
+          return Promise.resolve(
+            Response.json({
+              configured: true,
+              active: false,
+              restart_required: true,
+              allowed_hosts: ['192.168.1.42'],
+            }),
+          );
+        if (url.includes('/api/security/network'))
+          return Promise.resolve(
+            Response.json({ configured: false, active: false, restart_required: false, allowed_hosts: [] }),
+          );
+        if (url.includes('/api/security/sessions')) return Promise.resolve(Response.json({ sessions: [] }));
+        if (url.includes('/api/security/audit')) return Promise.resolve(Response.json({ events: [] }));
+        return Promise.resolve(Response.json({}));
+      }),
+    );
+    const host = await render();
+
+    const allow = host.querySelector<HTMLButtonElement>('.network-allow');
+    expect(allow).not.toBeNull();
+    await act(async () => allow!.click());
+
+    const dialog = host.querySelector('.network-confirm');
+    expect(dialog).not.toBeNull();
+    expect(dialog?.querySelector('h2')?.textContent).toBe('Allow access from your network?');
+    expect(dialog?.querySelector('p')?.textContent).toContain("Don't do this on a café or shared Wi-Fi.");
+
+    const [hostInput, passwordInput] = Array.from(dialog!.querySelectorAll('input'));
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')!.set!;
+      setter.call(hostInput, '192.168.1.42');
+      hostInput!.dispatchEvent(new Event('input', { bubbles: true }));
+      setter.call(passwordInput, 'correct horse');
+      passwordInput!.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+
+    const turnOn = dialog!.querySelector<HTMLButtonElement>('.network-turn-on');
+    expect(turnOn?.textContent).toBe('Turn on and restart');
+    expect(turnOn?.hasAttribute('disabled')).toBe(false);
+    await act(async () => turnOn!.click());
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
+    const put = calls.find((call) => call.url.includes('/api/security/network'));
+    expect(put?.body).toMatchObject({ enabled: true, allowed_hosts: ['192.168.1.42'] });
+    // The dialog closes once the change is accepted.
+    expect(host.querySelector('.network-confirm')).toBeNull();
+  });
+});

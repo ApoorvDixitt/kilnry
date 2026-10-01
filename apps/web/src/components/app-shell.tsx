@@ -14,6 +14,7 @@ import {
   Images,
   LayoutGrid,
   ListTodo,
+  Lock,
   MessageCircle,
   PanelLeftClose,
   PanelLeftOpen,
@@ -55,8 +56,18 @@ export function AppShell({ children }: { children: ReactNode }): React.ReactNode
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [pendingChord, setPendingChord] = useState(false);
   const [activeJobs, setActiveJobs] = useState(0);
+  const [lanActive, setLanActive] = useState(false);
 
   useEffect(() => setCollapsed(localStorage.getItem('kilnry-sidebar') === 'collapsed'), []);
+
+  // Show the reachability lock in the top bar when LAN access is live, so a
+  // second device on the network can tell token login is on (S-21).
+  useEffect(() => {
+    void fetch('/api/security/network')
+      .then((response) => (response.ok ? (response.json() as Promise<{ active?: boolean }>) : null))
+      .then((body) => setLanActive(body?.active === true))
+      .catch(() => setLanActive(false));
+  }, []);
 
   // Keep the Jobs badge showing how many jobs are running or queued, refreshed
   // from the server-sent-events stream so it ticks as jobs change.
@@ -183,6 +194,15 @@ export function AppShell({ children }: { children: ReactNode }): React.ReactNode
       <main className="main-stage">
         <header className="topbar">
           <h1>{title}</h1>
+          {lanActive ? (
+            <span
+              className="lan-lock"
+              title={message('settings.security.networkReachable')}
+              aria-label={message('settings.security.networkReachable')}
+            >
+              <Lock size={16} strokeWidth={1.75} />
+            </span>
+          ) : null}
           <div className="budget-meter" data-money="true">
             <span>{message('shell.budget')}</span>
             <i>

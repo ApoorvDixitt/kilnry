@@ -7,9 +7,10 @@
 // writes, §3.5 and §3.6). kilnry_library_manage changes the Library,
 // kilnry_import brings media in, kilnry_characters_manage creates and changes
 // Characters and Elements, kilnry_presets and kilnry_workflows browse and run
-// templates, kilnry_skills discovers agent instructions, kilnry_publish posts to
-// social accounts, and kilnry_ui opens a widget. Actions whose provider or
-// pipeline is not available on a connection return a clear not-available result.
+// templates, kilnry_skills discovers agent instructions, kilnry_publish is a
+// gated social-publishing tool reserved for after V1 (D-53), and kilnry_ui opens
+// a widget. Actions whose provider or pipeline is not available on a connection
+// return a clear not-available result.
 
 import * as z from 'zod';
 import { rename as fsRename, copyFile, mkdir } from 'node:fs/promises';
@@ -652,10 +653,11 @@ export const skillsTool: KilnryTool = {
 };
 
 // kilnry_publish — TikTok (gated).
+// kilnry_publish — social publishing (deferred out of V1, D-53).
 export const publishTool: KilnryTool = {
   name: 'kilnry_publish',
   description:
-    'Publish to a connected social account (TikTok first, gated): list accounts, connect, prepare a post, publish, check status, or list trending music. Returns accounts, an authorize link, a prepared session with its required confirmations, or a publish status. Returns not-available until the deployer configures a provider app.',
+    'Publish to a connected social account (TikTok). Social publishing is not part of Kilnry V1; this tool is present but gated and always answers not-available. The action set and request shapes are reserved for a post-1.0 publishing milestone.',
   inputSchema: {
     action: z
       .enum(['accounts', 'connect', 'prepare', 'publish', 'status', 'music_trending'])
@@ -669,7 +671,7 @@ export const publishTool: KilnryTool = {
   },
   annotations: { openWorldHint: true, destructiveHint: false },
   async execute(): Promise<ToolResult> {
-    return toolError('NO_PROVIDER', 'Publishing needs a provider app that the deployer configures.');
+    return toolError('NO_PROVIDER', 'Publishing is not part of Kilnry V1.');
   },
 };
 

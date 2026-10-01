@@ -27,6 +27,7 @@ interface NetworkStatus {
   configured: boolean;
   active: boolean;
   restart_required: boolean;
+  allowed_hosts?: string[];
 }
 
 interface SessionSummary {
@@ -55,6 +56,8 @@ export function SecuritySettings(): React.ReactNode {
   const [restore, setRestore] = useState('');
   const [network, setNetwork] = useState<NetworkStatus>();
   const [networkPassword, setNetworkPassword] = useState('');
+  const [networkDialog, setNetworkDialog] = useState(false);
+  const [allowedHost, setAllowedHost] = useState('');
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [auditLog, setAuditLog] = useState<AuditEvent[]>([]);
   const [error, setError] = useState<string>();
@@ -155,19 +158,29 @@ export function SecuritySettings(): React.ReactNode {
     }
   }
 
-  async function changeNetwork(): Promise<void> {
+  async function changeNetwork(enabled: boolean): Promise<void> {
     setPending(true);
     setError(undefined);
     try {
+      const hosts = allowedHost
+        .split(/[\s,]+/)
+        .map((value) => value.trim())
+        .filter(Boolean);
       const response = await apiFetch('/api/security/network', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled: !network?.configured, password: networkPassword }),
+        body: JSON.stringify({
+          enabled,
+          password: networkPassword,
+          ...(enabled ? { allowed_hosts: hosts } : {}),
+        }),
       });
       const body = (await response.json()) as NetworkStatus & { error?: { message?: string } };
       if (!response.ok) throw new Error(body.error?.message ?? message('settings.security.loadFailed'));
       setNetwork(body);
       setNetworkPassword('');
+      setAllowedHost('');
+      setNetworkDialog(false);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : message('settings.security.loadFailed'));
     } finally {
@@ -317,26 +330,81 @@ export function SecuritySettings(): React.ReactNode {
                   : 'settings.security.networkOff',
             )}
           </p>
-          <div className="password-confirm-row">
-            <input
-              type="password"
-              aria-label={message('settings.security.networkPassword')}
-              placeholder={message('settings.security.passwordPlaceholder')}
-              value={networkPassword}
-              onChange={(event) => setNetworkPassword(event.target.value)}
-            />
+          {network?.configured ? (
+            <div className="password-confirm-row">
+              <input
+                type="password"
+                aria-label={message('settings.security.networkPassword')}
+                placeholder={message('settings.security.passwordPlaceholder')}
+                value={networkPassword}
+                onChange={(event) => setNetworkPassword(event.target.value)}
+              />
+              <button
+                type="button"
+                disabled={pending || !networkPassword}
+                onClick={() => void changeNetwork(false)}
+              >
+                {message('settings.security.disableNetwork')}
+              </button>
+            </div>
+          ) : (
             <button
               type="button"
-              disabled={pending || !networkPassword || !network}
-              onClick={() => void changeNetwork()}
+              className="network-allow"
+              disabled={pending || !network}
+              onClick={() => setNetworkDialog(true)}
             >
-              {message(
-                network?.configured ? 'settings.security.disableNetwork' : 'settings.security.enableNetwork',
-              )}
+              {message('settings.security.networkAllow')}
             </button>
-          </div>
+          )}
         </div>
       </section>
+      {networkDialog ? (
+        <div className="palette-backdrop" onClick={() => setNetworkDialog(false)}>
+          <section
+            className="network-confirm"
+            role="dialog"
+            aria-modal="true"
+            aria-label={message('settings.security.networkConfirmTitle')}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h2>{message('settings.security.networkConfirmTitle')}</h2>
+            <p>{message('settings.security.networkConfirmBody')}</p>
+            <label>
+              {message('settings.security.networkHostsLabel')}
+              <input
+                type="text"
+                autoComplete="off"
+                value={allowedHost}
+                onChange={(event) => setAllowedHost(event.target.value)}
+              />
+              <small>{message('settings.security.networkHostsHint')}</small>
+            </label>
+            <label>
+              {message('settings.security.networkPassword')}
+              <input
+                type="password"
+                value={networkPassword}
+                onChange={(event) => setNetworkPassword(event.target.value)}
+              />
+            </label>
+            <div className="network-confirm-actions">
+              <button type="button" onClick={() => setNetworkDialog(false)}>
+                {message('settings.security.networkCancel')}
+              </button>
+              <button
+                type="button"
+                className="network-turn-on"
+                data-money="false"
+                disabled={pending || !networkPassword || allowedHost.trim().length === 0}
+                onClick={() => void changeNetwork(true)}
+              >
+                {message('settings.security.networkTurnOn')}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
       <section className="session-card">
         <h3>{message('settings.security.sessionsTitle')}</h3>
         <p>{message('settings.security.sessionsBody')}</p>
