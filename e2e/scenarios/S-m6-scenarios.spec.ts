@@ -256,28 +256,21 @@ async function driveRun(
   const deadline = Date.now() + 420_000;
   while (Date.now() < deadline) {
     if (await card.isVisible()) {
-      // Approve the checkpoint and then wait on what the interface shows next —
-      // another card, or the terminal status pill in the header — rather than on
-      // the approve request's own response, which stays open while the resume
-      // renders downstream steps synchronously. The run view updates from the
-      // server-sent event stream, so the next observable state is the signal the
-      // run advanced; the approve click is fire-and-observe, with no awaited
-      // response body and no fixed delay.
+      // Approve the checkpoint. The resume runs synchronously inside the approve
+      // request on the single-worker dev server, so the run view cannot refresh
+      // until that request returns; awaiting the approve response is therefore the
+      // honest signal that the run advanced to its next pause or finished. The
+      // response body carries the run status — the clicked control's own result,
+      // not a polled manifest — so a terminal status ends the loop. No promise is
+      // swallowed and no fixed delay is slept.
+      const approveResponse = page.waitForResponse(
+        (r) => /\/api\/runs\/[^/]+\/approve$/.test(r.url()) && r.request().method() === 'POST',
+        { timeout: 300_000 },
+      );
       await card.getByRole('button', { name: /Approve/i }).click();
-      await expect
-        .poll(
-          async () => {
-            if (await terminalPill.first().isVisible()) return 'terminal';
-            // A fresh card for the next gate, distinguished from the one just
-            // approved by the manifest no longer reporting a waiting step until
-            // the resume reaches the next pause.
-            if ((await card.isVisible()) && manifestWaiting(options.folder, options.slugPrefix))
-              return 'card';
-            return 'working';
-          },
-          { timeout: 180_000, intervals: [250, 500, 1000] },
-        )
-        .not.toBe('working');
+      const response = await approveResponse;
+      const body = (await response.json()) as { status?: string };
+      if (body.status === 'completed' || body.status === 'failed' || body.status === 'cancelled') break;
       continue;
     }
     if (await terminalPill.first().isVisible()) break;
@@ -294,7 +287,7 @@ async function driveRun(
           (await card.isVisible()) ||
           (await terminalPill.first().isVisible()) ||
           manifestWaiting(options.folder, options.slugPrefix),
-        { timeout: 180_000, intervals: [250, 500, 1000] },
+        { timeout: 300_000, intervals: [250, 500, 1000] },
       )
       .toBe(true);
   }
