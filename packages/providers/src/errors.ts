@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
-import { KilnryError, redactString, type ProviderId } from '@kilnry/core';
+import { KilnryError, markNetworkOffline, redactString, type ProviderId } from '@kilnry/core';
 
 interface ProviderBody {
   error?: { code?: string | number; message?: string; metadata?: Record<string, unknown> };
@@ -170,6 +170,9 @@ export function providerNetworkError(
   error: unknown,
   ambiguousSubmit: boolean,
 ): KilnryError {
+  // A provider request that never reached the network marks the process offline,
+  // so chat drops its spend tools until a later request succeeds (F40).
+  markNetworkOffline();
   const timedOut = error instanceof DOMException && error.name === 'TimeoutError';
   const aborted = error instanceof DOMException && error.name === 'AbortError';
   const reason = timedOut || aborted ? 'timed out' : 'lost the connection';

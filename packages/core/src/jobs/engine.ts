@@ -15,6 +15,7 @@ import { normalizeConfirmedBy } from '../budget/confirmation.js';
 import { KilnryError } from '../errors.js';
 import { eventHub, type EventHub } from '../events/hub.js';
 import { ulid } from '../ids.js';
+import { markNetworkOnline } from '../net/network-state.js';
 import type { ProviderKeyStore } from '../security/key-store.js';
 import { redact, redactString } from '../security/redact.js';
 import { loadRegistry, providerRouteStates, seedRegistry } from '../registry/store.js';
@@ -980,6 +981,9 @@ export class JobEngine {
     context: AdapterContext,
   ): Promise<void> {
     const actualUsd = result.billing?.actual_usd ?? estimate.authoritative_usd ?? estimate.estimate_usd;
+    // A provider request that completed proves the network is reachable, so chat
+    // regains its spend tools (F40).
+    markNetworkOnline();
     await this.#options.state.db.update(jobs).set({ stepLabel: 'downloading' }).where(eq(jobs.id, row.id));
     let downloaded: Awaited<ReturnType<ProviderAdapter['download']>>;
     try {

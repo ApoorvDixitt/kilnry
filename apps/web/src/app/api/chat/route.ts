@@ -26,7 +26,7 @@ import {
   type LlmRef,
   type LlmRegistryRow,
 } from '@kilnry/agent';
-import { loadConfig, loadRegistry } from '@kilnry/core';
+import { isNetworkOnline, loadConfig, loadRegistry } from '@kilnry/core';
 import { assets as assetsTable, chatMessages, chatSessions, settings, spendLedger } from '@kilnry/db';
 import { adapters, detectOllama } from '@kilnry/providers';
 import { promptLibraryRoot } from '@kilnry/skills';
@@ -184,6 +184,10 @@ export async function POST(request: Request): Promise<Response> {
       session,
       messages,
       llm,
+      // Offline mode is keyed on the observed network state, not on the model
+      // being local (F40). A local model stays fully capable while online; any
+      // model drops its spend tools while the network is down.
+      online: isNetworkOnline(),
       promptsRoot: promptLibraryRoot(),
       ...(session.folder && config.library_root
         ? { memoryBody: projectMemoryBody(config.library_root, session.folder) }

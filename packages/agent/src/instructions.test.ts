@@ -128,7 +128,7 @@ describe('assembleInstructions (F-CHT-07, TRD-11 §3)', () => {
     expect(blocks.mode).not.toContain('${');
   });
 
-  it('appends the offline addendum for a local model', () => {
+  it('appends the offline addendum when the network is unreachable (F40)', () => {
     const { blocks } = assembleInstructions({
       promptsRoot,
       autonomy: 'run_automatically',

@@ -54,6 +54,13 @@ export interface ChatTurnInput {
   messages: UIMessage[];
   /** The resolved language model, its price and its capabilities. */
   llm: ResolvedLlm;
+  /**
+   * Whether the process can currently reach the network (F40). Offline mode is
+   * keyed on this, not on whether the model is a local Ollama one: a cloud model
+   * with the network down drops its spend tools, a local model with the network
+   * up keeps them. Defaults to online when the caller does not supply it.
+   */
+  online?: boolean;
   /** Where the prompt library lives, passed in by the application. */
   promptsRoot: string;
   /** The registered Kilnry tools for this turn. */
@@ -108,7 +115,7 @@ export function turnInstructions(input: ChatTurnInput): string {
   const assembled = assembleInstructions({
     promptsRoot: input.promptsRoot,
     autonomy: input.session.autonomy,
-    offline: input.llm.local,
+    offline: input.online === false,
     vars,
     ...(input.routingTable ? { routingTable: input.routingTable } : {}),
     ...(input.skills ? { skills: input.skills } : {}),

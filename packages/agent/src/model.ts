@@ -51,7 +51,7 @@ export interface ResolvedLlm {
   ref: LlmRef;
   price: LlmPrice;
   caps: LlmCaps;
-  /** True for a local Ollama model: the offline prompt addendum applies. */
+  /** True for a local Ollama model: free, and runnable while the network is down. */
   local: boolean;
 }
 

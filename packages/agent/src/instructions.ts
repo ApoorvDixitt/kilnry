@@ -76,7 +76,7 @@ export interface AssembleInput {
   /** Absolute path to packages/skills/prompts (resolved by the caller). */
   promptsRoot: string;
   autonomy: Autonomy;
-  /** True when the session's model is a local Ollama model: append offline.md. */
+  /** True when the network is unreachable: append offline.md (F40). */
   offline?: boolean;
   vars: PromptVars;
   /** Rendered Markdown routing table (block 3); omitted when empty. */
@@ -257,7 +257,7 @@ export function assembleInstructions(input: AssembleInput): AssembledInstruction
     warnings.push(`base block exceeds ${BLOCK_BUDGETS.base} bytes`);
   }
 
-  // Block 2 — mode addendum (+ offline when the model is local).
+  // Block 2 — mode addendum (+ offline when the network is unreachable).
   const modeFile = input.autonomy === 'ask_first' ? 'ask-first.md' : 'run-automatically.md';
   let mode = renderPrompt(readPromptFile(promptsRoot, join('modes', modeFile)), vars, {
     promptsRoot,
