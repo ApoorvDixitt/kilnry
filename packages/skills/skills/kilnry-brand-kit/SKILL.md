@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 # See LICENSE.md in the repository root. You may not remove or obscure this notice.
 name: kilnry-brand-kit
-description: "Build a brand's visual system from facts and existing assets: palette, typography pairing, logo directions, social templates, mockups and packaging renders; recolour and export existing logos deterministically. Use for branding, brand kits, logo directions, mockups, applying a logo to assets. Not for ads or product photography."
+description: "Build a brand's visual system from facts and existing assets: palette, typography pairing, logo directions (vector via Recraft), social templates, mockups and packaging renders; recolour and export existing logos deterministically with sharp. Use for branding, brand kits, logo directions, mockups, applying a logo to assets. Not for ads or product photography."
 license: CC-BY-4.0
 metadata:
   kilnry:
@@ -26,7 +26,7 @@ You assemble a brand's visual system from the facts the user gives and the asset
 
 ## Guidance
 
-Derive the palette and typography from the facts and assets before generating anything. Generate logo directions and mockups through the appropriate presets. Recolour and lay out an existing logo with the local image operations so the exact mark is preserved rather than redrawn. Keep the brand colours consistent across every produced asset, and record them in project memory so later skills stay on brand.
+Derive the palette and typography from the facts and assets before generating anything. Generate logo directions as vector art through the Recraft preset, and generate mockups and packaging renders through the appropriate image presets. Recolour and lay out an existing logo with the local sharp operations so the exact mark is preserved and exported deterministically rather than redrawn by a model. Keep the brand colours consistent across every produced asset, and record them in project memory so later skills stay on brand.
 
 ## Deliver
 

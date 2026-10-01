@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 # See LICENSE.md in the repository root. You may not remove or obscure this notice.
 name: kilnry-thumbnail
-description: "Design and render YouTube, Instagram or video cover thumbnails: concept from proven frameworks, identity-locked faces from Characters, high-resolution render, surgical tweaks, deterministic local text overlay. Use for thumbnails, video covers, previews, big bold packaging for a video. Not for posters or product stills."
+description: "Design and render YouTube, Instagram or video cover thumbnails: concept from proven frameworks, identity-locked faces from Characters, 4K render, surgical tweaks, deterministic local text overlay. Use for thumbnails, video covers, previews, big bold packaging for a video. Not for posters or product stills."
 license: CC-BY-4.0
 metadata:
   kilnry:
@@ -29,7 +29,7 @@ You design a high-contrast cover that reads at a glance. The pipeline is the `ki
 
 ## Run and steer
 
-Propose three framings and let the user pick one at the soft checkpoint. Cast the subject with the chosen emotion when face references exist, compose the scene leaving the title third clear, then overlay the headline with the local text op — never a model-generated caption. Regenerate a take rather than editing baked-in text.
+Propose three framings and let the user pick one at the soft checkpoint. Cast the subject with the chosen emotion when face references exist, compose the scene leaving the title third clear, render at 4K, then overlay the headline with the local text op — never a model-generated caption. Regenerate a take rather than editing baked-in text.
 
 ## Deliver
 
