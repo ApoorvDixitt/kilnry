@@ -399,15 +399,34 @@ export function WorkflowRunView({ runId, initial }: { runId: string; initial?: R
   }, [initial, reload]);
 
   useEffect(() => {
-    // Keep polling while the run has not loaded yet as well as while it is live.
-    // Stopping when `run` was still null meant a first fetch that lost the race
-    // with the run being written left the view blank for good: no header, no step
-    // list and no approval card, so a run waiting for a decision could never be
-    // answered. Polling stops only once a run has loaded and reached a terminal
-    // state (F-WFL-03: the view survives a reload).
+    // Drive the run view from the pg-boss event hub over server-sent events
+    // rather than a fixed 2-second poll (F32, PRD-10 §3). Every job update,
+    // completion, failure or moderation the run's steps produce arrives on the
+    // same /api/events stream the shell already listens to, so the view
+    // refreshes the instant a step changes instead of on the next tick. The
+    // stream stays open only while the run is live or has not loaded yet; a
+    // loaded, terminal run needs no further updates (F-WFL-03). When the browser
+    // has no EventSource, fall back to a slow safety poll so the view still
+    // advances.
     if (run && !isLive(run.status)) return;
-    const timer = setInterval(() => void reload(), 2000);
-    return () => clearInterval(timer);
+    if (typeof EventSource === 'undefined') {
+      const timer = setInterval(() => void reload(), 2000);
+      return () => clearInterval(timer);
+    }
+    const source = new EventSource('/api/events');
+    const onJob = (): void => void reload();
+    for (const type of ['job.updated', 'job.completed', 'job.failed', 'job.moderated']) {
+      source.addEventListener(type, onJob);
+    }
+    source.addEventListener('error', () => source.close());
+    // A low-frequency safety poll covers the first-write race (a run row that
+    // appears just after the stream opened) and any missed event, without the
+    // old two-second churn.
+    const safety = setInterval(() => void reload(), 10_000);
+    return () => {
+      source.close();
+      clearInterval(safety);
+    };
   }, [run, reload]);
 
   const cancel = useCallback(async (): Promise<void> => {

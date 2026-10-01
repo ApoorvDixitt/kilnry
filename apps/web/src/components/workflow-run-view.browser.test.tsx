@@ -274,4 +274,44 @@ describe('workflow run view (F-WFL-03)', () => {
     await act(async () => retryButton.click());
     expect(onRetryStepId).toBe('clip');
   });
+
+  it('reloads the run on a server-sent job event instead of a fixed poll (F32)', async () => {
+    // Capture the EventSource the live run opens and the job-event listeners it
+    // registers, so the test can push a job.completed and assert the view
+    // reloaded — without waiting on any timer.
+    const listeners = new Map<string, (event: MessageEvent) => void>();
+    let opened = '';
+    class FakeEventSource {
+      constructor(url: string) {
+        opened = url;
+      }
+      addEventListener(type: string, handler: (event: MessageEvent) => void): void {
+        listeners.set(type, handler);
+      }
+      close(): void {}
+    }
+    vi.stubGlobal('EventSource', FakeEventSource as unknown as typeof EventSource);
+    const reloadUrls: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) => {
+        reloadUrls.push(String(input));
+        return Promise.resolve(
+          new Response(JSON.stringify({ run: { ...RUN, status: 'running' } }), { status: 200 }),
+        );
+      }),
+    );
+    const live: RunView = { ...RUN, status: 'running' };
+    await render(<WorkflowRunView runId="run_1" initial={live} />);
+    // The live run subscribes to the shared event stream.
+    expect(opened).toBe('/api/events');
+    expect(listeners.has('job.completed')).toBe(true);
+    reloadUrls.length = 0;
+    // A job finishing pushes an event; the view reloads the run from the server.
+    await act(async () => {
+      listeners.get('job.completed')!(new MessageEvent('job.completed', { data: '{}' }));
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    expect(reloadUrls.some((url) => url.endsWith('/api/runs/run_1'))).toBe(true);
+  });
 });
