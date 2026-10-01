@@ -6,6 +6,26 @@ All notable changes to Kilnry are documented here. The format follows Keep a Cha
 
 ## [0.4.1] - 2026-09-29
 
+> Review record (moved here from `docs/STATUS.md` M6 to keep that section under
+> 400 words). M6 proper took eleven extra continuous-integration attempts, not
+> nine: most were transient — recurring `@m5` acceptance failures (S-23, S-24
+> and S-16) and a PGlite WebAssembly teardown crash on the runner, each green
+> locally on the same commit — but three were fixed forward for a real fault
+> (`4fb9634` a compile error, `fecb078` a templating bug, `2861afb` whose body
+> claim about dropped skill files was only made true later in the review); these
+> are recorded separately from infrastructure re-runs (a webServer boot failure
+> and a pnpm download failure). The Phase 2 review fixed twenty-one approved
+> findings under D-50b. Deviations, for the record: several intermediate pushes
+> went through red and were fixed forward within the same unit (a duplicated
+> poll block, an unformatted edit, a shortened commit subject); the S-24
+> session-cap scenario was changed three times (`012aea0`, `2ddf175`, `c9e2a84`)
+> before its true cause — a first-run onboarding step awaiting the five-second
+> default while the account was created — was found and its assertion restored
+> to three completed renders; and the M6 checkpoint-clearing loop kept a bounded
+> interval after each approve (removed in M7's unit 0, which drives that loop on
+> observable state alone). F-SKL-04 and F-SET-06 are implemented; the base-prompt
+> budget is 1,215 tokens.
+
 ### Fixed
 
 - A workflow's inline approval now gates only the work behind it: the step it guards no longer runs on the same pass as the checkpoint, so a storyboard is truly approved before any clip renders, and the run view keeps polling a run it first read as null rather than leaving the card unanswerable (F-WFL-04).
