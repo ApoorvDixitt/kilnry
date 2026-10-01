@@ -17,7 +17,12 @@ import { providerKeys, providers } from '@kilnry/db';
 import { KilnryError } from '../errors.js';
 import { ulid } from '../ids.js';
 import type { ProviderId } from '../types.js';
-import { decodeRecoveryKit, encodeRecoveryKit, formatRecoveryKit } from './recovery-kit.js';
+import {
+  decodeRecoveryKit,
+  encodeRecoveryKit,
+  formatRecoveryKit,
+  recoveryChecksumWords,
+} from './recovery-kit.js';
 import { maskProviderKey } from './key-detection.js';
 
 const EnvelopeSchema = z.object({
@@ -52,6 +57,10 @@ export interface KeyStoreStatus {
   source?: 'keychain' | 'env' | 'file' | 'machine';
   weaker_machine_key: boolean;
   fingerprint?: string;
+  // Four words derived from the fingerprint of the key this installation
+  // expects, shown so the owner can match their recovery kit against the key
+  // the machine is missing (S-22).
+  checksum_words?: string;
 }
 
 interface ResolvedKek {
@@ -165,6 +174,7 @@ export class ProviderKeyStore {
   #salt?: Buffer;
   #initialized = false;
   #locked = false;
+  #envelopeFingerprint?: string;
 
   constructor(options: KeyStoreOptions) {
     this.#options = options;
@@ -269,6 +279,7 @@ export class ProviderKeyStore {
       return this.status();
     }
     const resolved = await this.#resolveForEnvelope(envelope);
+    this.#envelopeFingerprint = envelope.kek_fingerprint;
     if (!resolved || fingerprint(resolved.key) !== envelope.kek_fingerprint) {
       this.#locked = true;
       this.#initialized = true;
@@ -283,12 +294,14 @@ export class ProviderKeyStore {
   }
 
   status(): KeyStoreStatus {
+    const fingerprintHex = this.#kek ? fingerprint(this.#kek) : this.#envelopeFingerprint;
     return {
       initialized: this.#initialized,
       locked: this.#locked,
       ...(this.#source ? { source: this.#source } : {}),
       weaker_machine_key: this.#source === 'machine',
       ...(this.#kek ? { fingerprint: fingerprint(this.#kek) } : {}),
+      ...(fingerprintHex ? { checksum_words: recoveryChecksumWords(fingerprintHex) } : {}),
     };
   }
 
@@ -407,7 +420,9 @@ export class ProviderKeyStore {
     if (!envelope) throw new KilnryError('NOT_FOUND', 'There is no encrypted key store to recover.');
     const kek = Buffer.from(decodeRecoveryKit(kit));
     if (fingerprint(kek) !== envelope.kek_fingerprint) {
-      throw new KilnryError('INVALID_INPUT', 'That recovery kit does not match this installation.');
+      throw new KilnryError('INVALID_INPUT', 'That recovery kit does not match this installation.', {
+        details: { checksum_words: recoveryChecksumWords(envelope.kek_fingerprint) },
+      });
     }
     const dek = unwrap(kek, envelope.wrapped_dek, 'kilnry-dek:v1');
     const configured = await this.#configuredKey();

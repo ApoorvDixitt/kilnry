@@ -2947,6 +2947,48 @@ kbd {
   padding: 18px;
 }
 
+.provider-locked {
+  align-items: start;
+  background: var(--surface);
+  border: 1px solid var(--border-control);
+  border-radius: 14px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 24px 1fr;
+  margin-bottom: 16px;
+  padding: 18px;
+}
+
+.provider-locked h3 {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0 0 4px;
+}
+
+.provider-locked p {
+  color: var(--text-muted);
+  font-size: 13px;
+  margin: 0 0 10px;
+}
+
+.provider-locked label {
+  display: block;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.provider-locked textarea {
+  background: var(--surface-2);
+  border: 1px solid var(--border-control);
+  border-radius: 8px;
+  color: var(--text);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 12px;
+  min-height: 60px;
+  padding: 8px 10px;
+  width: 100%;
+}
+
 .provider-connect-icon {
   align-items: center;
   background: #f1e7d2;

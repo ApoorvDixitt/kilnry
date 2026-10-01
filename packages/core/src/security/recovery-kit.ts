@@ -99,3 +99,55 @@ export function formatRecoveryKit(kit: string): string {
       ?.join(' ') ?? '';
   return `${prefix} ${rest}`.trim();
 }
+
+// A short, human-readable fingerprint of the key this installation expects. The
+// four words are derived deterministically from the key-encryption-key
+// fingerprint, so the recovery screen can show the words of the key the machine
+// expects and the owner can compare them against the words they wrote down when
+// they first saw the kit (S-22). The words carry no secret: they are a lossy
+// digest of a value that is itself only a fingerprint, not the key.
+const CHECKSUM_WORDS = [
+  'amber',
+  'basalt',
+  'cedar',
+  'delta',
+  'ember',
+  'flint',
+  'granite',
+  'harbor',
+  'indigo',
+  'juniper',
+  'kiln',
+  'lumen',
+  'marble',
+  'nimbus',
+  'onyx',
+  'pewter',
+  'quartz',
+  'river',
+  'slate',
+  'tundra',
+  'umber',
+  'verdant',
+  'willow',
+  'cinder',
+  'yarrow',
+  'zephyr',
+  'auburn',
+  'birch',
+  'copper',
+  'dune',
+  'elm',
+  'frost',
+];
+
+export function recoveryChecksumWords(fingerprintHex: string): string {
+  const clean = fingerprintHex.replace(/[^0-9a-f]/gi, '').toLowerCase();
+  const words: string[] = [];
+  for (let index = 0; index < 4; index += 1) {
+    const slice = clean.slice(index * 4, index * 4 + 4) || '0';
+    const value = Number.parseInt(slice, 16) % CHECKSUM_WORDS.length;
+    words.push(CHECKSUM_WORDS[value]!);
+  }
+  return words.join(' ');
+}

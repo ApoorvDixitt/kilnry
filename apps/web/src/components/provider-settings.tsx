@@ -92,6 +92,9 @@ export function ProviderSettings({
   const [caps, setCaps] = useState<Record<string, string>>({});
   const [concurrency, setConcurrency] = useState<Record<string, string>>({});
   const [ollama, setOllama] = useState<OllamaDetection>();
+  const [locked, setLocked] = useState(false);
+  const [restoreKit, setRestoreKit] = useState('');
+  const [restoreError, setRestoreError] = useState<string>();
   const [higgsfieldAccepted, setHiggsfieldAccepted] = useState(false);
   const [noticeExpanded, setNoticeExpanded] = useState(false);
   // Once the training clause is acknowledged the full notice collapses to one line
@@ -127,6 +130,50 @@ export function ProviderSettings({
       body.providers.filter((item) => ['fal', 'openrouter', 'pollinations', 'higgsfield'].includes(item.id)),
     );
   }, []);
+
+  // Check whether the master key is missing from this machine's keychain. When
+  // it is, the Providers page leads with the recovery-kit banner so the owner
+  // can restore the encrypted keys without re-entering them (S-22).
+  useEffect(() => {
+    void fetch('/api/security/key-store')
+      .then((response) =>
+        response.ok ? (response.json() as Promise<{ status?: { locked?: boolean } }>) : null,
+      )
+      .then((body) => setLocked(body?.status?.locked === true))
+      .catch(() => setLocked(false));
+  }, []);
+
+  async function restore(): Promise<void> {
+    setRestoreError(undefined);
+    setPending(true);
+    try {
+      const response = await apiFetch('/api/security/key-store', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'restore', recovery_kit: restoreKit }),
+      });
+      const body = (await response.json()) as {
+        status?: { locked?: boolean };
+        error?: { message?: string; details?: { checksum_words?: string } };
+      };
+      if (!response.ok) {
+        const words = body.error?.details?.checksum_words;
+        throw new Error(
+          words
+            ? message('settings.providers.lockedMismatch').replace('{words}', words)
+            : (body.error?.message ?? message('settings.providers.requestFailed')),
+        );
+      }
+      setLocked(body.status?.locked === true);
+      setRestoreKit('');
+      setNotice(message('settings.providers.lockedRestored'));
+      await load();
+    } catch (cause) {
+      setRestoreError(cause instanceof Error ? cause.message : message('settings.providers.requestFailed'));
+    } finally {
+      setPending(false);
+    }
+  }
 
   useEffect(() => {
     if (initialProviders) return;
@@ -274,6 +321,31 @@ export function ProviderSettings({
         <h2>{message('settings.providers.title')}</h2>
         <span>{message('settings.providers.subtitle')}</span>
       </header>
+      {locked ? (
+        <section className="provider-locked" role="alert">
+          <KeyRound size={19} />
+          <div>
+            <h3>{message('settings.providers.lockedTitle')}</h3>
+            <p>{message('settings.providers.lockedBody')}</p>
+            <label htmlFor="provider-recovery-kit">{message('settings.providers.lockedKitLabel')}</label>
+            <textarea
+              id="provider-recovery-kit"
+              value={restoreKit}
+              autoComplete="off"
+              onChange={(event) => setRestoreKit(event.target.value)}
+            />
+            <button
+              type="button"
+              className="settings-primary"
+              disabled={pending || restoreKit.replace(/[\s-]/g, '').length < 20}
+              onClick={() => void restore()}
+            >
+              {message('settings.providers.lockedRestore')}
+            </button>
+            {restoreError ? <p className="form-error">{restoreError}</p> : null}
+          </div>
+        </section>
+      ) : null}
       <form className="provider-connect" onSubmit={(event) => void connect(event)}>
         <div className="provider-connect-icon" aria-hidden="true">
           <KeyRound size={19} />

@@ -58,4 +58,81 @@ describe('M2 provider UI', () => {
     expect(host.textContent).toContain('abcde••••wxyz');
     expect(host.querySelector('input[type="password"]')).not.toBeNull();
   });
+
+  it('shows the locked recovery banner and surfaces the checksum words on a wrong kit (S-22)', async () => {
+    const calls: Array<{ url: string; body?: unknown }> = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (init?.body) calls.push({ url, body: JSON.parse(String(init.body)) });
+        if (url.includes('/api/security/key-store')) {
+          const body = init?.body ? (JSON.parse(String(init.body)) as { recovery_kit?: string }) : undefined;
+          if (body?.recovery_kit?.includes('wrong')) {
+            return Promise.resolve(
+              Response.json(
+                {
+                  error: {
+                    code: 'INVALID_INPUT',
+                    message: 'That recovery kit does not match this installation.',
+                    details: { checksum_words: 'kiln slate amber river' },
+                  },
+                },
+                { status: 400 },
+              ),
+            );
+          }
+          if (body?.recovery_kit) {
+            return Promise.resolve(Response.json({ ok: true, status: { locked: false } }));
+          }
+          return Promise.resolve(
+            Response.json({ status: { locked: true, checksum_words: 'kiln slate amber river' } }),
+          );
+        }
+        if (url.includes('/api/providers/ollama/detect'))
+          return Promise.resolve(Response.json({ detected: false, base_url: '', models: [] }));
+        if (url.includes('/api/providers')) return Promise.resolve(Response.json({ providers: [] }));
+        return Promise.resolve(Response.json({}));
+      }),
+    );
+    const host = await render(<ProviderSettings />);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
+
+    const banner = host.querySelector('.provider-locked');
+    expect(banner).not.toBeNull();
+    expect(banner?.textContent).toContain(
+      "Your provider keys are encrypted but the master key is missing from this machine's keychain.",
+    );
+    expect(banner?.textContent).toContain('Enter recovery kit');
+
+    const textarea = banner!.querySelector('textarea')!;
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')!.set!;
+    await act(async () => {
+      setter.call(textarea, `kilnry1${'wrong'.repeat(4)}`);
+      textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    const restoreButton = Array.from(banner!.querySelectorAll('button')).find(
+      (button) => button.textContent === 'Restore keys',
+    )!;
+    await act(async () => restoreButton.click());
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(host.querySelector('.provider-locked .form-error')?.textContent).toBe(
+      "That kit doesn't match. Check the checksum words: kiln slate amber river.",
+    );
+
+    // The correct kit clears the locked banner.
+    await act(async () => {
+      setter.call(textarea, `kilnry1${'0'.repeat(40)}`);
+      textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () => restoreButton.click());
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(host.querySelector('.provider-locked')).toBeNull();
+  });
 });

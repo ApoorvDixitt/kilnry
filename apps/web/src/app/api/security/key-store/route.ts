@@ -6,7 +6,8 @@
 import { headers } from 'next/headers';
 import { NextResponse } from 'next/server';
 import * as z from 'zod';
-import { getSetting, putSetting } from '@kilnry/db';
+import { ulid } from '@kilnry/core';
+import { auditEvents, getSetting, putSetting } from '@kilnry/db';
 import { errorResponse, requireSession } from '../../../../server/http';
 import { auth } from '../../../../server/auth';
 import { createRecoveryChallenge, verifyRecoveryChallenge } from '../../../../server/recovery-challenge';
@@ -55,6 +56,15 @@ export async function POST(request: Request): Promise<Response> {
     if (input.action === 'restore') {
       await services.keyStore.restoreRecoveryKit(input.recovery_kit);
       await putSetting('recovery_kit_used_at', new Date().toISOString());
+      // Record the recovery in the audit log so S-22 can assert recovery_kit.used
+      // after the keys are restored from a lost master key.
+      await services.database.db.insert(auditEvents).values({
+        id: ulid(),
+        actor: `user:${session.user.id}`,
+        action: 'recovery_kit.used',
+        target: null,
+        meta: {},
+      });
       return NextResponse.json({ ok: true, status: services.keyStore.status() });
     }
     verifyRecoveryChallenge(session.session.id, input.challenge_token, input.answers);

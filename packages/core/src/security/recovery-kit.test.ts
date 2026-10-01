@@ -4,7 +4,12 @@
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
 import { describe, expect, it } from 'vitest';
-import { decodeRecoveryKit, encodeRecoveryKit, formatRecoveryKit } from './recovery-kit.js';
+import {
+  decodeRecoveryKit,
+  encodeRecoveryKit,
+  formatRecoveryKit,
+  recoveryChecksumWords,
+} from './recovery-kit.js';
 
 describe('recovery kit', () => {
   it('round-trips a 32-byte KEK with a Bech32m checksum', () => {
@@ -18,5 +23,14 @@ describe('recovery kit', () => {
     const encoded = encodeRecoveryKit(new Uint8Array(32));
     const changed = `${encoded.slice(0, -1)}${encoded.endsWith('q') ? 'p' : 'q'}`;
     expect(() => decodeRecoveryKit(changed)).toThrow(/checksum/i);
+  });
+
+  it('derives four deterministic checksum words from a fingerprint', () => {
+    const words = recoveryChecksumWords('deadbeef');
+    expect(words.split(' ')).toHaveLength(4);
+    // Deterministic: the same fingerprint always yields the same words.
+    expect(recoveryChecksumWords('deadbeef')).toBe(words);
+    // Different fingerprints generally differ.
+    expect(recoveryChecksumWords('0000ffff')).not.toBe(words);
   });
 });
