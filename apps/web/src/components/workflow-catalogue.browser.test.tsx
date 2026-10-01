@@ -87,4 +87,31 @@ describe('workflow catalogue (F-WFL-01)', () => {
     await act(async () => runButton.click());
     expect(host.querySelector('.workflow-drawer')).not.toBeNull();
   });
+
+  it('greys unmet capability chips, dims the row and disables Run without a provider (F-WFL-01)', async () => {
+    const host = await render(<WorkflowCatalogue initial={[row({ unmet_requires: ['reference2video'] })]} />);
+    const article = host.querySelector('[data-workflow-id="kilnry-ugc-ad"]') as HTMLElement;
+    expect(article.classList.contains('is-dimmed')).toBe(true);
+    const unmetChip = host.querySelector('.workflow-cap-chip.is-unmet');
+    expect(unmetChip?.textContent).toBe('reference2video');
+    // The met capability keeps a normal chip.
+    const metChips = [...host.querySelectorAll('.workflow-cap-chip:not(.is-unmet)')].map(
+      (chip) => chip.textContent,
+    );
+    expect(metChips).toContain('text2image');
+    expect(host.querySelector('.workflow-needs-note')?.textContent).toContain('reference2video');
+    expect((host.querySelector('.workflow-run-button') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('runs the focused row on Enter and carries the cost hover copy (F-WFL-01)', async () => {
+    const host = await render(<WorkflowCatalogue initial={[row()]} />);
+    const article = host.querySelector('[data-workflow-id="kilnry-ugc-ad"]') as HTMLElement;
+    expect(host.querySelector('.workflow-cost')?.getAttribute('title')).toContain(
+      'priced before you approve',
+    );
+    await act(async () => {
+      article.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    });
+    expect(host.querySelector('.workflow-drawer')).not.toBeNull();
+  });
 });

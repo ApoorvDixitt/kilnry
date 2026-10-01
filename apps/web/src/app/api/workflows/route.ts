@@ -9,10 +9,11 @@
 // files rather than the database.
 
 import { NextResponse } from 'next/server';
-import { loadConfig } from '@kilnry/core';
+import { loadConfig, loadRegistry, providerRouteStates } from '@kilnry/core';
 import type { Step } from '@kilnry/workflows';
 import { errorResponse, requireSession } from '../../../server/http';
 import { loadCatalogue } from '../../../server/workflows';
+import { runtimeServices } from '../../../server/runtime';
 
 export interface WorkflowCatalogueRow {
   id: string;
@@ -20,6 +21,9 @@ export interface WorkflowCatalogueRow {
   category: string;
   description: string;
   requires: string[];
+  // The required capabilities no connected provider offers yet; the catalogue
+  // greys these chips and dims the row with a "needs a provider" note (F-WFL-01).
+  unmet_requires: string[];
   cost_range?: { min_usd: number; max_usd: number };
   input_count: number;
   step_count: number;
@@ -68,15 +72,36 @@ export async function GET(): Promise<Response> {
     await requireSession();
     const config = await loadConfig();
     const catalogue = loadCatalogue(config.data_dir);
+    // Which capabilities does a connected provider offer right now? A required
+    // capability with no connected model is "unmet" and greys the row.
+    const services = await runtimeServices();
+    const connectedCapabilities = new Set<string>();
+    try {
+      const [registry, providerStates] = await Promise.all([
+        loadRegistry(services.database),
+        providerRouteStates(services.database),
+      ]);
+      for (const model of registry.models) {
+        if (!providerStates[model.provider]?.connected) continue;
+        for (const capability of model.capabilities as readonly string[]) {
+          connectedCapabilities.add(capability);
+        }
+      }
+    } catch {
+      // With no registry or providers yet, every requirement is unmet; the rows
+      // dim until a provider is connected.
+    }
     const rows: WorkflowCatalogueRow[] = [...catalogue.values()].map((entry) => {
       const properties = (entry.workflow.inputs as { properties?: Record<string, unknown> }).properties ?? {};
       const eta = etaRange(entry.workflow.steps);
+      const unmet = entry.workflow.requires.filter((capability) => !connectedCapabilities.has(capability));
       return {
         id: entry.workflow.id,
         name: entry.workflow.name,
         category: entry.workflow.category,
         description: entry.workflow.description ?? '',
         requires: entry.workflow.requires,
+        unmet_requires: unmet,
         ...(entry.workflow.budget === undefined
           ? {}
           : { cost_range: { min_usd: 0, max_usd: entry.workflow.budget.max_usd } }),

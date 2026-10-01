@@ -27,9 +27,27 @@ import {
 const DETAIL_TABS = ['inputs', 'outputs', 'logs', 'cost'] as const;
 type DetailTab = (typeof DETAIL_TABS)[number];
 
-export function RunHeader({ run, onCancel }: { run: RunView; onCancel: () => void }): React.ReactNode {
+export function RunHeader({
+  run,
+  onCancel,
+  onRerunFrom,
+  onDuplicate,
+  onOpenFolder,
+  onExportManifest,
+}: {
+  run: RunView;
+  onCancel: () => void;
+  onRerunFrom?: (stepId: string) => void;
+  onDuplicate?: () => void;
+  onOpenFolder?: () => void;
+  onExportManifest?: () => void;
+}): React.ReactNode {
   const { done, total, fraction } = progress(run);
   const finished = ['completed', 'failed', 'cancelled'].includes(run.status);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [pickOpen, setPickOpen] = useState(false);
+  const hasMenu = Boolean(onRerunFrom || onDuplicate || onOpenFolder || onExportManifest);
+  const completedSteps = run.steps.filter((step) => step.status === 'completed');
   return (
     <header className="run-header">
       <div className="run-header-top">
@@ -43,6 +61,88 @@ export function RunHeader({ run, onCancel }: { run: RunView; onCancel: () => voi
             {message('workflows.runView.cancel')}
           </button>
         )}
+        {hasMenu ? (
+          <div className="run-menu">
+            <button
+              type="button"
+              className="run-menu-button"
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+              aria-label={message('workflows.runView.menu')}
+              onClick={() => {
+                setMenuOpen((open) => !open);
+                setPickOpen(false);
+              }}
+            >
+              ⋯
+            </button>
+            {menuOpen ? (
+              <div className="run-menu-items" role="menu">
+                {onRerunFrom && completedSteps.length > 0 ? (
+                  <button type="button" role="menuitem" onClick={() => setPickOpen((open) => !open)}>
+                    {message('workflows.runView.menuRerunFrom')}
+                  </button>
+                ) : null}
+                {pickOpen && onRerunFrom ? (
+                  <div className="run-menu-pick" role="menu">
+                    <p>{message('workflows.runView.menuRerunPick')}</p>
+                    {completedSteps.map((step) => (
+                      <button
+                        key={step.step_id}
+                        type="button"
+                        role="menuitem"
+                        data-step-id={step.step_id}
+                        onClick={() => {
+                          onRerunFrom(step.step_id);
+                          setMenuOpen(false);
+                          setPickOpen(false);
+                        }}
+                      >
+                        {step.name}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+                {onDuplicate ? (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      onDuplicate();
+                      setMenuOpen(false);
+                    }}
+                  >
+                    {message('workflows.runView.menuDuplicate')}
+                  </button>
+                ) : null}
+                {onOpenFolder ? (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      onOpenFolder();
+                      setMenuOpen(false);
+                    }}
+                  >
+                    {message('workflows.runView.menuOpenFolder')}
+                  </button>
+                ) : null}
+                {onExportManifest ? (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      onExportManifest();
+                      setMenuOpen(false);
+                    }}
+                  >
+                    {message('workflows.runView.menuExportManifest')}
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
       </div>
       <div className="run-progress-bar" role="progressbar" aria-valuenow={Math.round(fraction * 100)}>
         <div className="run-progress-fill" style={{ width: `${Math.round(fraction * 100)}%` }} />
@@ -473,6 +573,33 @@ export function WorkflowRunView({ runId, initial }: { runId: string; initial?: R
     [runId],
   );
 
+  // Duplicate the run as a fresh child from its first step (F33 header menu):
+  // re-run from the earliest step so every step runs anew under a new run id.
+  const duplicate = useCallback(async (): Promise<void> => {
+    const first = run?.steps[0];
+    if (first) await rerunFrom(first.step_id);
+  }, [run, rerunFrom]);
+
+  // Open the output folder: a native launcher reveals it; here (and in Docker)
+  // the path is copied to the clipboard so the reader can open it themselves.
+  const openFolder = useCallback((): void => {
+    if (!run?.folder) return;
+    void navigator.clipboard?.writeText(run.folder).catch(() => undefined);
+  }, [run]);
+
+  // Export the run manifest: download the run's data as run.kilnry.json, the
+  // same shape written to the run folder on disk (F-WFL-09).
+  const exportManifest = useCallback((): void => {
+    if (!run) return;
+    const blob = new Blob([JSON.stringify(run, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = 'run.kilnry.json';
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }, [run]);
+
   const current = useMemo(
     () => run?.steps.find((step) => step.step_id === selected) ?? run?.steps[0],
     [run, selected],
@@ -482,7 +609,14 @@ export function WorkflowRunView({ runId, initial }: { runId: string; initial?: R
 
   return (
     <section className="run-view">
-      <RunHeader run={run} onCancel={() => void cancel()} />
+      <RunHeader
+        run={run}
+        onCancel={() => void cancel()}
+        onRerunFrom={(stepId) => void rerunFrom(stepId)}
+        onDuplicate={() => void duplicate()}
+        onOpenFolder={openFolder}
+        onExportManifest={exportManifest}
+      />
       {run.status === 'awaiting_approval' ? (
         <ApprovalCard
           run={run}

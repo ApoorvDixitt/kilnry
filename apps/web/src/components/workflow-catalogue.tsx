@@ -19,6 +19,7 @@ export interface WorkflowCatalogueRowData {
   category: string;
   description: string;
   requires: string[];
+  unmet_requires?: string[];
   cost_range?: { min_usd: number; max_usd: number };
   input_count: number;
   step_count: number;
@@ -74,24 +75,51 @@ export function WorkflowCatalogueRow({
   row: WorkflowCatalogueRowData;
   onRun: (row: WorkflowCatalogueRowData) => void;
 }): React.ReactNode {
+  const unmet = row.unmet_requires ?? [];
+  const dimmed = unmet.length > 0;
   return (
-    <article className="workflow-row" data-workflow-id={row.id}>
+    <article
+      className={dimmed ? 'workflow-row is-dimmed' : 'workflow-row'}
+      data-workflow-id={row.id}
+      tabIndex={0}
+      onKeyDown={(event) => {
+        // Run via Enter from the focused row (F-WFL-01 keyboard navigation).
+        if (event.key === 'Enter' && !dimmed) {
+          event.preventDefault();
+          onRun(row);
+        }
+      }}
+    >
       <div className="workflow-row-head">
         <h3 className="workflow-name">{row.name}</h3>
         <span className="workflow-category">{row.category}</span>
       </div>
       <p className="workflow-description">{row.description}</p>
       <div className="workflow-row-meta">
-        <span className="workflow-cost">{costLabel(row)}</span>
+        <span className="workflow-cost" title={message('workflows.costHover')}>
+          {costLabel(row)}
+        </span>
         <span className="workflow-duration">{durationLabel(row)}</span>
         {row.requires.length > 0 ? (
           <span className="workflow-needs">
-            {message('workflows.needsLabel').replace('{capabilities}', row.requires.join(', '))}
+            {row.requires.map((capability) => (
+              <span
+                key={capability}
+                className={unmet.includes(capability) ? 'workflow-cap-chip is-unmet' : 'workflow-cap-chip'}
+              >
+                {capability}
+              </span>
+            ))}
           </span>
         ) : null}
       </div>
+      {dimmed ? (
+        <p className="workflow-needs-note">
+          {message('workflows.needsProvider').replace('{capabilities}', unmet.join(', '))}
+        </p>
+      ) : null}
       <div className="workflow-row-actions">
-        <button type="button" className="workflow-run-button" onClick={() => onRun(row)}>
+        <button type="button" className="workflow-run-button" disabled={dimmed} onClick={() => onRun(row)}>
           {message('workflows.run')}
         </button>
       </div>

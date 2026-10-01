@@ -275,6 +275,49 @@ describe('workflow run view (F-WFL-03)', () => {
     expect(onRetryStepId).toBe('clip');
   });
 
+  it('opens the run header menu with Re-run, Duplicate, Open folder and Export (F33)', async () => {
+    let rerunStep = '';
+    let duplicated = 0;
+    let exported = 0;
+    const host = await render(
+      <RunHeader
+        run={RUN}
+        onCancel={() => undefined}
+        onRerunFrom={(stepId) => (rerunStep = stepId)}
+        onDuplicate={() => (duplicated += 1)}
+        onOpenFolder={() => undefined}
+        onExportManifest={() => (exported += 1)}
+      />,
+    );
+    const menuButton = host.querySelector('.run-menu-button') as HTMLButtonElement;
+    expect(menuButton).not.toBeNull();
+    await act(async () => menuButton.click());
+    const labels = [...host.querySelectorAll('.run-menu-items [role="menuitem"]')].map(
+      (item) => item.textContent,
+    );
+    expect(labels).toContain('Re-run from step…');
+    expect(labels).toContain('Duplicate');
+    expect(labels).toContain('Open output folder');
+    expect(labels).toContain('Export manifest');
+
+    const exportItem = [...host.querySelectorAll('.run-menu-items [role="menuitem"]')].find(
+      (item) => item.textContent === 'Export manifest',
+    ) as HTMLButtonElement;
+    await act(async () => exportItem.click());
+    expect(exported).toBe(1);
+
+    await act(async () => menuButton.click());
+    const rerunItem = [...host.querySelectorAll('.run-menu-items [role="menuitem"]')].find(
+      (item) => item.textContent === 'Re-run from step…',
+    ) as HTMLButtonElement;
+    await act(async () => rerunItem.click());
+    const pick = host.querySelector('.run-menu-pick [data-step-id="plan"]') as HTMLButtonElement;
+    expect(pick).not.toBeNull();
+    await act(async () => pick.click());
+    expect(rerunStep).toBe('plan');
+    expect(duplicated).toBe(0);
+  });
+
   it('reloads the run on a server-sent job event instead of a fixed poll (F32)', async () => {
     // Capture the EventSource the live run opens and the job-event listeners it
     // registers, so the test can push a job.completed and assert the view

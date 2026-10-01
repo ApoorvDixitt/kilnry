@@ -6762,6 +6762,90 @@ html[data-motion='reduced'] *::after {
   gap: 16px;
 }
 
+.run-menu {
+  position: relative;
+  margin-left: auto;
+}
+
+.run-menu-button {
+  background: transparent;
+  border: 1px solid var(--border-control);
+  border-radius: 8px;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 4px 10px;
+}
+
+.run-menu-items {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow-popover-theme);
+  display: grid;
+  min-width: 200px;
+  padding: 6px;
+  z-index: 20;
+}
+
+.run-menu-items button,
+.run-menu-pick button {
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 7px 10px;
+  text-align: left;
+}
+
+.run-menu-items button:hover,
+.run-menu-pick button:hover {
+  background: var(--surface-2);
+}
+
+.run-menu-pick {
+  border-top: 1px solid var(--border);
+  display: grid;
+  margin-top: 4px;
+  padding-top: 4px;
+}
+
+.run-menu-pick p {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin: 2px 10px 4px;
+}
+
+.workflow-cap-chip {
+  background: var(--surface-2);
+  border: 1px solid var(--border-control);
+  border-radius: 999px;
+  font-size: 12px;
+  margin-right: 6px;
+  padding: 2px 8px;
+}
+
+.workflow-cap-chip.is-unmet {
+  color: var(--text-muted);
+  opacity: 0.5;
+}
+
+.workflow-row.is-dimmed {
+  opacity: 0.6;
+}
+
+.workflow-needs-note {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin: 0;
+}
+
 .run-status-pill {
   text-transform: capitalize;
   font-size: 13px;
