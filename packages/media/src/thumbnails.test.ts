@@ -6,7 +6,26 @@
 import { existsSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+// Paths whose stat reports ENOENT, as if another job removed them after the
+// directory listing.
+const vanishing = new Set<string>();
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>();
+  return {
+    ...actual,
+    stat: async (...args: Parameters<typeof actual.stat>) => {
+      if (vanishing.has(String(args[0]))) {
+        throw Object.assign(new Error(`ENOENT: no such file or directory, stat '${String(args[0])}'`), {
+          code: 'ENOENT',
+        });
+      }
+      return actual.stat(...args);
+    },
+  };
+});
+
 import { enforceCacheLimit } from './thumbnails.js';
 
 const roots: string[] = [];
@@ -32,5 +51,20 @@ describe('derivative cache limit', () => {
     expect(existsSync(oldest)).toBe(false);
     expect(existsSync(middle)).toBe(false);
     expect(existsSync(newest)).toBe(true);
+  });
+
+  // This fails if a cache file removed between the listing and its stat — a
+  // concurrent job's temporary sprite sheet — throws: that ENOENT crashed the
+  // job that happened to run the cache check (M6 subtitles-burn transcribe).
+  it('skips a file that disappears between the listing and its stat', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'kilnry-cache-limit-'));
+    roots.push(root);
+    const cache = join(root, 'cache', 'sprites');
+    mkdirSync(cache, { recursive: true });
+    writeFileSync(join(cache, 'kept.webp'), Buffer.alloc(8));
+    writeFileSync(join(cache, 'other.webp.png'), Buffer.alloc(8));
+    vanishing.add(join(cache, 'other.webp.png'));
+    expect(await enforceCacheLimit(root, 1024)).toEqual({ removed: 0, bytes: 8 });
+    vanishing.clear();
   });
 });

@@ -96,7 +96,16 @@ export async function enforceCacheLimit(
       const path = join(directory, entry.name);
       if (entry.isDirectory()) await walk(path);
       else if (entry.isFile()) {
-        const value = await stat(path);
+        // Another job's derivative pass may remove its temporary sprite sheet
+        // between this listing and the stat; a file that is already gone takes
+        // no cache space, so it is skipped rather than failing the caller's job.
+        let value: Awaited<ReturnType<typeof stat>>;
+        try {
+          value = await stat(path);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue;
+          throw error;
+        }
         files.push({ path, bytes: value.size, atime: value.atimeMs || value.mtimeMs });
       }
     }
