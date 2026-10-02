@@ -1144,8 +1144,9 @@ export function runEffects(db: DatabaseState, engine: JobEngine, run: RunContext
       if (node.kind === 'assemble') {
         return assembleFile(db, run, node, rendered as Step);
       }
-      // set runs inline with no provider and no spend.
-      return { outputs: node.outputs, actual_usd: 0, status: 'completed' };
+      // set steps are evaluated by the executor itself (TRD-12 §6) and approval
+      // barriers never reach the host; any other kind here is a host gap.
+      throw new KilnryError('INVALID_INPUT', `The workflow host cannot run a ${node.kind} step.`);
     },
   };
 }

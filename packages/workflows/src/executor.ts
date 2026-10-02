@@ -68,6 +68,14 @@ export interface RunState {
   status: RunStatus;
   steps: RunStep[];
   spent_usd: number;
+  /**
+   * The values `set` steps stored at run time, keyed by the foreach scope they
+   * ran in ('' for top level, `clips[2].` inside an iteration). They overlay the
+   * plan's vars, so a value read from an earlier step's output reaches later
+   * templates and the run outputs (TRD-12 §6). Rebuilt from the completed set
+   * steps' outputs on resume.
+   */
+  vars?: Record<string, Record<string, unknown>>;
 }
 
 /** What one step's execution produced. */
@@ -279,6 +287,85 @@ function impliedDependencies(step: Step): string[] {
   return [...deps];
 }
 
+// ── run-time vars (TRD-12 §6: "set → evaluate, store outputs, complete") ─────
+
+// The foreach scopes an instance id sits in, outermost first: '' for top level,
+// then `a[1].`, `a[1].b[2].` for nested iterations.
+function scopePrefixes(instanceId: string): string[] {
+  const prefixes = [''];
+  let accumulated = '';
+  for (const match of instanceId.matchAll(/[a-z0-9][a-z0-9_-]*\[\d+\]\./g)) {
+    accumulated += match[0];
+    prefixes.push(accumulated);
+  }
+  return prefixes;
+}
+
+function ownPrefix(instanceId: string): string {
+  return scopePrefixes(instanceId).at(-1)!;
+}
+
+// The vars a node sees: the plan's vars, overlaid by every run-time scope it
+// sits in, innermost last.
+export function varsFor(
+  state: RunState,
+  planVars: Record<string, unknown>,
+  instanceId: string,
+): Record<string, unknown> {
+  const merged: Record<string, unknown> = { ...planVars };
+  for (const prefix of scopePrefixes(instanceId)) Object.assign(merged, state.vars?.[prefix] ?? {});
+  return merged;
+}
+
+// Rebuild the run-time vars from the set steps that already completed, in graph
+// order, so a resumed run reads what the earlier part of the run stored.
+function restoreVars(state: RunState): void {
+  state.vars = {};
+  for (const node of state.steps) {
+    if (node.kind !== 'set' || node.status !== 'completed') continue;
+    const prefix = ownPrefix(node.instance_id);
+    state.vars[prefix] = { ...(state.vars[prefix] ?? {}), ...node.outputs };
+  }
+}
+
+// The set steps a node must wait for: an earlier set step, in a scope the node
+// can see, that stores a var the node reads. Without this a step reading
+// `vars.master` could run before the set step that fills it.
+function varDependencies(state: RunState, index: number): RunStep[] {
+  const node = state.steps[index]!;
+  const names = new Set(
+    [...JSON.stringify(node.step).matchAll(/vars\.([A-Za-z_][A-Za-z0-9_]*)/g)].map((match) => match[1]!),
+  );
+  if (names.size === 0) return [];
+  const visible = new Set(scopePrefixes(node.instance_id));
+  return state.steps
+    .slice(0, index)
+    .filter(
+      (candidate) =>
+        candidate.kind === 'set' &&
+        visible.has(ownPrefix(candidate.instance_id)) &&
+        candidate.step.kind === 'set' &&
+        Object.keys(candidate.step.values).some((key) => names.has(key)),
+    );
+}
+
+// The `steps.…` and `vars.…` paths in a template that have no value, for a set
+// step's failure message.
+function missingReferences(expr: string, scope: Scope): string[] {
+  const missing: string[] = [];
+  for (const match of expr.matchAll(/\b(?:steps|vars)\.[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+|\[\d+\])*/g)) {
+    let value: unknown;
+    try {
+      value = renderString(`{{ ${match[0]} }}`, scope);
+    } catch {
+      // A path the expression language cannot read is itself a missing one.
+      value = undefined;
+    }
+    if (value === undefined && !missing.includes(match[0])) missing.push(match[0]);
+  }
+  return missing;
+}
+
 // ── the run loop ───────────────────────────────────────────────────────────
 
 /**
@@ -306,6 +393,8 @@ export async function execute(
   const nodes = existing?.steps ?? expandRun(workflow.steps, baseScope, '', {});
   const state: RunState = existing ?? { status: 'running', steps: nodes, spent_usd: 0 };
   state.status = 'running';
+  restoreVars(state);
+  const planVars = (baseScope.vars as Record<string, unknown> | undefined) ?? {};
 
   const byStepId = (id: string): RunStep[] => {
     const direct = state.steps.filter((node) => node.step_id === id);
@@ -317,6 +406,16 @@ export async function execute(
     return state.steps.filter((node) => node.instance_id.startsWith(prefix));
   };
   const done = (node: RunStep): boolean => node.status === 'completed' || node.status === 'skipped';
+  // A dependency on a step that also lives in the reader's own foreach
+  // iteration means that iteration's instance; otherwise every instance.
+  const dependencyNodes = (dep: string, reader: RunStep): RunStep[] => {
+    for (const prefix of scopePrefixes(reader.instance_id).reverse()) {
+      if (prefix === '') break;
+      const local = state.steps.filter((node) => node.instance_id === `${prefix}${dep}`);
+      if (local.length > 0) return local;
+    }
+    return byStepId(dep);
+  };
 
   const checkpoint = async (): Promise<void> => {
     await effects.persist?.(state);
@@ -325,7 +424,7 @@ export async function execute(
   let progressed = true;
   while (progressed) {
     progressed = false;
-    for (const node of state.steps) {
+    for (const [index, node] of state.steps.entries()) {
       if (node.status !== 'pending') continue;
       // A step inside foreach X may reference `steps.X.outputs[k-1]` (the prior
       // iteration); that is not a dependency on its own container — sequencing
@@ -334,12 +433,19 @@ export async function execute(
       // self-deadlock.
       const enclosing = node.instance_id.match(/^([a-z0-9][a-z0-9_-]*)\[/)?.[1];
       const deps = impliedDependencies(node.step).filter((dep) => dep !== enclosing);
-      const ready = deps.every(
-        (dep) => (byStepId(dep).every(done) && byStepId(dep).length > 0) || byStepId(dep).length === 0,
-      );
+      const ready =
+        deps.every((dep) => {
+          const nodes = dependencyNodes(dep, node);
+          return nodes.length === 0 || nodes.every(done);
+        }) && varDependencies(state, index).every(done);
       if (!ready) continue;
 
-      const scope = { ...baseScope, ...node.scope_extra, ...stepsScope(state) };
+      const scope = {
+        ...baseScope,
+        ...node.scope_extra,
+        steps: iterationSteps(state, node.instance_id),
+        vars: varsFor(state, planVars, node.instance_id),
+      };
 
       // Skip when its `when` is false.
       if (node.step.when !== undefined && !truthy(renderString(node.step.when, scope))) {
@@ -389,7 +495,54 @@ export async function execute(
         await checkpoint();
       }
 
-      // Run the step (set/generate/transform/assemble/analyze/export).
+      // A set step runs here, not in the host: evaluate its values with the
+      // steps namespace available, store them as run-time vars for every later
+      // template and the run outputs, and complete (TRD-12 §6). A value may read
+      // a key set earlier in the same step.
+      if (node.step.kind === 'set') {
+        const values: Record<string, unknown> = {};
+        try {
+          for (const [key, expr] of Object.entries(node.step.values)) {
+            const valueScope = { ...scope, vars: { ...scope.vars, ...values } };
+            const value = renderString(expr, valueScope);
+            // A value that resolves to nothing because a step or var it reads
+            // was skipped or produced no output fails the set and names the
+            // path: storing undefined left a silently empty var for every later
+            // step. An optional input left blank resolves to an explicit null.
+            if (value === undefined) {
+              const missing = missingReferences(expr, valueScope);
+              if (missing.length > 0) {
+                throw new Error(
+                  `${key} did not resolve: ${missing.join(', ')} ${missing.length === 1 ? 'has' : 'have'} no value (from ${expr.trim()})`,
+                );
+              }
+              values[key] = null;
+              continue;
+            }
+            values[key] = value;
+          }
+        } catch (error) {
+          node.status = 'failed';
+          node.error = `Set step ${node.instance_id} failed: ${error instanceof Error ? error.message : String(error)}`;
+          progressed = true;
+          if (applyFailPolicy(node, state)) {
+            await checkpoint();
+            return state;
+          }
+          await checkpoint();
+          continue;
+        }
+        const prefix = ownPrefix(node.instance_id);
+        state.vars ??= {};
+        state.vars[prefix] = { ...(state.vars[prefix] ?? {}), ...values };
+        node.outputs = values;
+        node.status = 'completed';
+        progressed = true;
+        await checkpoint();
+        continue;
+      }
+
+      // Run the step (generate/transform/assemble/analyze/export).
       node.status = 'running';
       await checkpoint();
       const rendered =
@@ -599,6 +752,23 @@ function stepsScope(state: RunState): { steps: Record<string, unknown> } {
     steps[container] = { outputs, assets };
   }
   return { steps };
+}
+
+// The steps namespace a node sees: the run-wide one, with every step of the
+// node's own foreach iterations overlaid by that iteration's instance, innermost
+// last. Inside an iteration a sibling's bare `steps.tts_dub.outputs.asset`
+// therefore reads this iteration's output; a foreach container id keeps its
+// aggregated form.
+function iterationSteps(state: RunState, instanceId: string): Record<string, unknown> {
+  const { steps } = stepsScope(state);
+  for (const prefix of scopePrefixes(instanceId)) {
+    if (prefix === '') continue;
+    for (const node of state.steps) {
+      if (ownPrefix(node.instance_id) !== prefix) continue;
+      steps[node.step_id] = { outputs: node.outputs, ...node.outputs, status: node.status };
+    }
+  }
+  return steps;
 }
 
 function approvalMode(step: Step): 'hard' | 'soft' {

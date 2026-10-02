@@ -336,7 +336,14 @@ describe('every spending step of every kind reaches the engine once (F-WFL-06)',
             status: 'completed',
           };
         }
-        return { outputs: { asset: 'local', assets: ['local'] }, actual_usd: 0, status: 'completed' };
+        // A local assemble/export answers the shape the host's assembleFile does,
+        // so a step's declared `asset: '{{ result.asset_id }}'` resolves and a
+        // later set reading it (ugc-ad's cut) has a value.
+        return {
+          outputs: { asset: 'local', assets: ['local'], result: { asset_id: 'local', assets: ['local'] } },
+          actual_usd: 0,
+          status: 'completed',
+        };
       },
     };
 
@@ -725,6 +732,8 @@ describe('a gated step still does its own work in the shipped workflows (F-WFL-0
               assets: [asset],
               asset_id: asset,
               words: [],
+              // A probe answers a duration; the narrated workflows time cuts from it.
+              duration_s: 4,
               structured: { ok: true, pass: true, reasons: [], issues: [], segments: ['a', 'b', 'c'] },
               score: 0.9,
               badge: 'high',
@@ -764,6 +773,67 @@ describe('a gated step still does its own work in the shipped workflows (F-WFL-0
     expect(styleKey?.outputs.asset).toMatch(/^asset-/);
     expect(styleKey?.outputs).not.toMatchObject({ choice: 'approve' });
     expect(styleKey?.actual_usd).toBeCloseTo(0.05, 6);
+  });
+
+  // ugc-ad's cut reads the concat that follows the clips loop; burn must caption
+  // that master. With set left to the host, master was empty and burn got ''.
+  it('kilnry-ugc-ad burns captions onto the assembled master its cut step stored (F-WFL-06)', async () => {
+    const { state } = await runApprovingEveryGate('kilnry-ugc-ad', {
+      mode: 'product-only',
+      product: 'asset-serum-1',
+      duration_s: 15,
+      approved_claims: ['hydrating'],
+    });
+    const assembled = state.steps.find((step) => step.instance_id === 'assemble')?.outputs.asset;
+    expect(assembled).toMatch(/^asset-/);
+    expect(state.steps.find((step) => step.instance_id === 'cut')?.outputs).toMatchObject({
+      master: assembled,
+    });
+    expect(state.vars?.['']?.master).toBe(assembled);
+    expect(state.steps.find((step) => step.instance_id === 'burn')?.inputs?.inputs).toEqual([assembled]);
+  });
+
+  // Every shipped workflow whose set steps read an earlier step's output. This
+  // fails if a set is left to the host or evaluated only at plan time (its var
+  // stays empty), or if a set reads a sibling from the wrong foreach iteration:
+  // any set that cannot resolve now fails its node with the missing path.
+  // kilnry-faceless-video and kilnry-product-photoshoot also run end to end in
+  // the M6 acceptance shard. kilnry-motion-design and kilnry-faceless-video stop
+  // in this fake before their later sets (a check step's foreach and the stills
+  // timing read shapes the fake does not model), so they are not listed here.
+  it.each([
+    [
+      'kilnry-narrator',
+      { mode: 'takes', lines: ['Hello there.', 'Second line.'], voice: 'voice-narrator-1' },
+    ],
+    ['kilnry-product-photoshoot', { product: 'asset-product-1', count: 2 }],
+    [
+      'kilnry-localize',
+      {
+        video: 'asset-video-1',
+        target_languages: ['es', 'fr'],
+        provider_dub: false,
+        keep_music: true,
+        voice: 'voice-narrator-1',
+        burn_subtitles: true,
+      },
+    ],
+    [
+      'kilnry-ugc-ad',
+      { mode: 'product-only', product: 'asset-serum-1', duration_s: 15, approved_claims: ['hydrating'] },
+    ],
+  ] as const)('%s completes every run-time set from its step outputs (F-WFL-06)', async (id, inputs) => {
+    const { state } = await runApprovingEveryGate(id, inputs as Record<string, unknown>);
+    const failed = state.steps
+      .filter((step) => step.status === 'failed')
+      .map((step) => `${step.instance_id}: ${step.error}`);
+    expect(failed).toEqual([]);
+    const sets = state.steps.filter((step) => step.kind === 'set' && step.status !== 'skipped');
+    expect(sets.length).toBeGreaterThan(0);
+    for (const set of sets) {
+      expect(set.status).toBe('completed');
+      for (const value of Object.values(set.outputs)) expect(value).not.toBeUndefined();
+    }
   });
 });
 

@@ -53,6 +53,7 @@ export interface RunManifest {
   estimate_usd: number;
   spent_usd: number;
   steps: ManifestStep[];
+  vars: Record<string, unknown>;
   outputs: Record<string, unknown>;
   characters_used: Array<{ handle: string; version: number }>;
 }
@@ -156,9 +157,16 @@ export function buildManifest(input: {
     estimate_usd: input.plan.total_estimate_usd,
     spent_usd: Math.round(input.state.spent_usd * 1_000_000) / 1_000_000,
     steps,
-    outputs: resolveOutputs(input.workflow, input.state, input.plan.vars),
+    // The top-level vars as the run left them: the plan's, overlaid by what set
+    // steps stored at run time (TRD-12 §6).
+    vars: runVars(input.plan.vars, input.state),
+    outputs: resolveOutputs(input.workflow, input.state, runVars(input.plan.vars, input.state)),
     characters_used: input.charactersUsed ?? [],
   };
+}
+
+function runVars(planVars: Record<string, unknown>, state: RunState): Record<string, unknown> {
+  return { ...planVars, ...(state.vars?.[''] ?? {}) };
 }
 
 // Resolve the workflow's declared run-level outputs (its `outputs.final` and any
