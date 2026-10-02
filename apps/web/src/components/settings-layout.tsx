@@ -13,6 +13,7 @@ import {
   ServerCog,
   Settings2,
   Sparkles,
+  UserRound,
   Wallet,
 } from 'lucide-react';
 import { message } from '../lib/messages';
@@ -26,6 +27,7 @@ const sections = [
   { id: 'mcp', icon: Plug },
   { id: 'skills', icon: Sparkles },
   { id: 'presets', icon: LayoutGrid },
+  { id: 'characters', icon: UserRound },
   { id: 'appearance', icon: Palette },
 ] as const;
 

@@ -27,6 +27,8 @@ export const KilnryConfigSchema = z.object({
   allowed_hosts: z.array(z.string()).default([]),
   onboarding_complete: z.boolean().default(false),
   update_check: z.boolean().default(false),
+  // The local face consistency check (F-CHR-12) is opt-in and off by default (O-03).
+  consistency_check: z.boolean().default(false),
   update_channel: z.enum(['stable', 'beta']).default('stable'),
   // The default Model Context Protocol (MCP) bearer token used by the stdio
   // bridge (npx kilnry mcp). Written when the default token is minted in

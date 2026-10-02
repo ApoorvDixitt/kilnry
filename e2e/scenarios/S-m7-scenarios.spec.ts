@@ -416,3 +416,111 @@ test('@m7 F-CRE-15 image to 3D on Create: connect fal, price, GLB tile, sidecar,
   expect(sidecar.kind).toBe('3d');
   expect(sidecar.lineage?.made_from).toEqual([sourceId]);
 });
+
+// Create a Character with one anchor reference image (Given setup).
+async function characterWithReference(page: Page, handle: string, assetId: string): Promise<void> {
+  const token = await csrf(page);
+  const statuses = await page.evaluate(
+    async ({ token, handle, assetId }) => {
+      const post = (body: Record<string, unknown>) =>
+        fetch('/api/characters/manage', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Kilnry-CSRF': token },
+          body: JSON.stringify(body),
+        }).then((response) => response.status);
+      const created = await post({ action: 'create', handle, kind: 'character', display_name: handle });
+      const referenced = await post({
+        action: 'add_references',
+        handle,
+        references: [{ asset_id: assetId, role: 'anchor' }],
+      });
+      return { created, referenced };
+    },
+    { token, handle, assetId },
+  );
+  expect(statuses).toEqual({ created: 200, referenced: 200 });
+}
+
+async function assetPath(page: Page, assetId: string): Promise<string> {
+  return page.evaluate(async (assetId) => {
+    const response = await fetch(`/api/library/asset/${encodeURIComponent(assetId)}`);
+    return ((await response.json()) as { asset?: { path?: string } }).asset?.path ?? '';
+  }, assetId);
+}
+
+async function generateOnCreate(page: Page, prompt: string): Promise<string> {
+  await page.goto('/create');
+  await page.getByRole('textbox', { name: 'Describe what you want to make…' }).fill(prompt);
+  await expect(page.locator('.cost-strip .cost-strip-figure')).toContainText('$', { timeout: 15_000 });
+  await page.locator('.composer').getByRole('button', { name: 'Generate' }).click();
+  const tile = page.locator('.result-tile img').first();
+  await expect(tile).toBeVisible({ timeout: 60_000 });
+  return decodeURIComponent(((await tile.getAttribute('src')) ?? '').replace('/api/media/', ''));
+}
+
+test('@m7 F-CHR-12 consistency check: enable with its download, badge on outputs, off hides it', async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  await ensureProvider(page, 'pollinations', POLLINATIONS_KEY);
+  // Given a Character with one reference photo.
+  const referenceId = await generateOnCreate(page, 'studio portrait of a woman, soft window light');
+  await characterWithReference(page, 'noor_m7', referenceId);
+
+  // The check is off by default; Settings › Characters offers to enable it and
+  // shows what it will download.
+  await page.goto('/settings/characters');
+  const setting = page.locator('.consistency-setting');
+  await expect(setting.getByRole('heading', { name: 'Consistency check (local, free)' })).toBeVisible();
+  await expect(setting).toContainText('Face check only. Stylised and non-human characters are not scored.');
+  await expect(setting.locator('.consistency-size')).toContainText(
+    'Downloads 391 MB once to ~/.kilnry/models',
+  );
+  await setting.getByRole('button', { name: 'Enable the consistency check' }).click();
+  await expect(setting.locator('.consistency-ready')).toHaveText(
+    'On · models verified · scoring runs on this machine',
+    { timeout: 60_000 },
+  );
+  await expect(setting.getByRole('switch', { name: 'Consistency check (local, free)' })).toHaveAttribute(
+    'aria-checked',
+    'true',
+  );
+
+  // An image made with @noor_m7 is scored and badged in the Library.
+  const outputId = await generateOnCreate(page, '@noor_m7 on a rooftop café at golden hour');
+  const outputPath = await assetPath(page, outputId);
+  const fileName = outputPath.split('/').at(-1) ?? '';
+  expect(fileName).not.toBe('');
+  await page.goto('/library');
+  const tile = page.locator('.asset-tile-wrap').filter({ has: page.getByRole('button', { name: fileName }) });
+  const badge = tile.locator('.consistency-badge');
+  await expect(async () => {
+    await page.reload();
+    await expect(badge).toHaveText('High', { timeout: 3_000 });
+  }).toPass({ timeout: 60_000 });
+  await expect(badge).toHaveAttribute('title', /Looks like @noor_m7 · score \d\.\d\d/);
+
+  // Provenance shows the same badge.
+  await tile.getByRole('button', { name: fileName }).click();
+  await page.getByRole('tab', { name: 'Provenance' }).click();
+  await expect(page.locator('.inspector-facts .consistency-badge')).toHaveText('High');
+
+  // The sidecar carries the badge summary only, never an embedding.
+  const sidecarText = readFileSync(`${join(libraryRoot, outputPath)}.kilnry.json`, 'utf8');
+  const sidecar = JSON.parse(sidecarText) as { consistency?: Record<string, unknown> };
+  expect(sidecar.consistency).toMatchObject({ model: 'auraface-v1', character: '@noor_m7', badge: 'high' });
+  expect(Object.values(sidecar.consistency ?? {}).some((value) => Array.isArray(value))).toBe(false);
+  expect(sidecarText).not.toContain('embedding');
+
+  // Turning the check off hides the badge but keeps the stored score.
+  await page.goto('/settings/characters');
+  await page.getByRole('switch', { name: 'Consistency check (local, free)' }).click();
+  await expect(page.getByRole('button', { name: 'Enable the consistency check' })).toBeVisible();
+  await page.goto('/library');
+  await expect(tile.getByRole('button', { name: fileName })).toBeVisible({ timeout: 30_000 });
+  await expect(tile.locator('.consistency-badge')).toHaveCount(0);
+  const kept = JSON.parse(readFileSync(`${join(libraryRoot, outputPath)}.kilnry.json`, 'utf8')) as {
+    consistency?: { badge?: string };
+  };
+  expect(kept.consistency?.badge).toBe('high');
+});

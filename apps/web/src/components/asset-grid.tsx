@@ -10,6 +10,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { FileText, Music, Play } from 'lucide-react';
 import { message } from '../lib/messages';
 import type { AssetListItem, AssetSort } from '../lib/composer-types';
+import { ConsistencyBadge } from './consistency-badge';
 
 const TILE_MIN = 180;
 const GAP = 8;
@@ -57,11 +58,13 @@ function AssetTile({
   onOpen,
   selected,
   onToggleSelect,
+  showConsistency,
 }: {
   item: AssetListItem;
   onOpen: (id: string) => void;
   selected?: boolean | undefined;
   onToggleSelect?: ((id: string) => void) | undefined;
+  showConsistency?: boolean | undefined;
 }): React.ReactNode {
   const [scrub, setScrub] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -114,6 +117,7 @@ function AssetTile({
         />
         <TypeGlyph item={item} />
       </button>
+      {showConsistency ? <ConsistencyBadge score={item.consistency} /> : null}
     </div>
   );
 }
@@ -127,6 +131,7 @@ export function AssetGrid({
   onViewChange,
   onOpen,
   onToggleSelect,
+  showConsistency,
 }: {
   assets: AssetListItem[];
   sort: AssetSort;
@@ -136,6 +141,8 @@ export function AssetGrid({
   onViewChange: (view: 'grid' | 'list') => void;
   onOpen: (id: string) => void;
   onToggleSelect?: (id: string) => void;
+  // Badges show only while the consistency check is on (F-CHR-12 acceptance 3).
+  showConsistency?: boolean;
 }): React.ReactNode {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
@@ -234,6 +241,7 @@ export function AssetGrid({
                       onOpen={onOpen}
                       selected={selected?.has(item.id) ?? false}
                       onToggleSelect={onToggleSelect}
+                      showConsistency={showConsistency}
                     />
                   ),
                 )}

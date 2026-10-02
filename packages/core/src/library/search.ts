@@ -325,5 +325,6 @@ export async function searchAssets(state: DatabaseState, parsed: ParsedQuery): P
     estimate_usd: row.estimateUsd === null ? null : Number(row.estimateUsd),
     sidecar_ok: row.sidecarOk,
     created_at: row.createdAt.toISOString(),
+    consistency: row.consistency ?? null,
   }));
 }

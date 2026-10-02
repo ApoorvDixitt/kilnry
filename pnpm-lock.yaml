@@ -429,6 +429,9 @@ importers:
       pg-boss:
         specifier: 12.33.1
         version: 12.33.1
+      sharp:
+        specifier: 0.35.4
+        version: 0.35.4(@types/node@24.13.5)
       ulidx:
         specifier: 2.4.1
         version: 2.4.1

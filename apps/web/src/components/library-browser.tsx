@@ -35,6 +35,23 @@ export function LibraryBrowser(): React.ReactNode {
   const [searchResults, setSearchResults] = useState<AssetListItem[] | null>(null);
   const [selection, setSelection] = useState<Set<string>>(new Set());
   const [exportOpen, setExportOpen] = useState(false);
+  // Consistency badges show only while the check is on (F-CHR-12 acceptance 3).
+  const [showConsistency, setShowConsistency] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    void fetch('/api/settings/consistency')
+      .then((response) => (response.ok ? (response.json() as Promise<{ enabled?: boolean }>) : null))
+      .then((body) => {
+        if (!cancelled) setShowConsistency(body?.enabled === true);
+      })
+      .catch(() => {
+        // Without an answer the badges stay hidden; the Library itself is unaffected.
+        if (!cancelled) setShowConsistency(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const [error, setError] = useState<string>();
 
   const toggleSelect = useCallback((id: string) => {
@@ -236,6 +253,7 @@ export function LibraryBrowser(): React.ReactNode {
             onViewChange={changeView}
             onOpen={(id) => void openInspector(id)}
             onToggleSelect={toggleSelect}
+            showConsistency={showConsistency}
           />
         )}
         <SelectionBar
@@ -262,6 +280,7 @@ export function LibraryBrowser(): React.ReactNode {
           onPatch={(patch) => void patchAsset(detail.id, patch)}
           onClose={() => setDetail(null)}
           onTransform={() => setTransformSource(detail.id)}
+          showConsistency={showConsistency}
         />
       ) : null}
       {transformSource !== null ? (

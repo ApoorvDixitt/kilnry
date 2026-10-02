@@ -327,7 +327,21 @@
       "chat": "Chat",
       "mcp": "MCP",
       "skills": "Skills",
-      "presets": "Presets"
+      "presets": "Presets",
+      "characters": "Characters"
+    },
+    "characters": {
+      "title": "Characters",
+      "consistencyTitle": "Consistency check (local, free)",
+      "consistencyBody": "Scores how closely a finished image or video matches its Character's face, on this machine. It never blocks or retries a job and never calls a provider.",
+      "faceOnly": "Face check only. Stylised and non-human characters are not scored.",
+      "enable": "Enable the consistency check",
+      "downloadSize": "Downloads {size} once to ~/.kilnry/models (face models and runtime), each file checked against its sha256.",
+      "alreadyDownloaded": "The face models are already downloaded and verified.",
+      "downloading": "Downloading face models · {received} of {total}",
+      "ready": "On · models verified · scoring runs on this machine",
+      "on": "On",
+      "failed": "The consistency check could not be changed. Try again."
     },
     "skills": {
       "title": "Skills",
@@ -775,6 +789,13 @@
   },
   "library": {
     "title": "Library",
+    "consistency": {
+      "label": "Consistency",
+      "high": "High",
+      "medium": "Medium",
+      "low": "Low",
+      "tooltip": "Looks like {character}"
+    },
     "treeLabel": "Folders",
     "newFolder": "New folder",
     "newFolderName": "Folder name",

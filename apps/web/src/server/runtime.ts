@@ -21,6 +21,7 @@ import {
 import { closeDatabase, database, hasLocalUser, type DatabaseState } from '@kilnry/db';
 import { adapters } from '@kilnry/providers';
 import { log } from './log';
+import { scoreFinishedAssets } from './consistency';
 
 export type RuntimeStage =
   'idle' | 'migrating' | 'indexing' | 'starting_workers' | 'ready' | 'error' | 'shutting_down';
@@ -201,6 +202,17 @@ export async function ensureRuntimeEngine(): Promise<JobEngine> {
       log: (level, event, meta) => log[level]({ ...(meta ?? {}) }, event),
     });
     await engine.start();
+    // The opt-in consistency check scores each finished output locally
+    // (F-CHR-12); it is a signal, never a gate, so a failure is only logged.
+    const libraryRoot = config.library_root;
+    eventHub.subscribe(({ event }) => {
+      if (event.type !== 'job.completed') return;
+      const ids = event.asset_ids;
+      if (ids.length === 0) return;
+      void scoreFinishedAssets(services.database, libraryRoot, ids).catch((error: unknown) =>
+        log.error({ err: error instanceof Error ? error.message : String(error) }, 'consistency_hook_failed'),
+      );
+    });
     const watcher = watchLibrary({
       state: services.database,
       root: config.library_root,

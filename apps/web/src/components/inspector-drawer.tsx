@@ -9,6 +9,7 @@ import { useState } from 'react';
 import { Star, X } from 'lucide-react';
 import { message } from '../lib/messages';
 import type { AssetDetail, MetadataPatch } from '../lib/composer-types';
+import { ConsistencyBadge } from './consistency-badge';
 
 const LABELS = ['red', 'amber', 'green', 'blue'];
 
@@ -29,6 +30,7 @@ export function InspectorDrawer({
   onPatch,
   onClose,
   onTransform,
+  showConsistency = false,
 }: {
   detail: AssetDetail;
   onPatch: (patch: MetadataPatch) => void;
@@ -36,6 +38,8 @@ export function InspectorDrawer({
   // Opening the transforms panel for this asset (F-CRE-11: "or from a Library
   // asset menu").
   onTransform?: (() => void) | undefined;
+  // The consistency badge shows only while the check is on (F-CHR-12).
+  showConsistency?: boolean;
 }): React.ReactNode {
   const [tab, setTab] = useState<'info' | 'provenance' | 'activity'>('info');
   const [tagDraft, setTagDraft] = useState('');
@@ -220,6 +224,14 @@ export function InspectorDrawer({
               <dd>{detail.lineage.made_from.length}</dd>
               <dt>{message('library.inspector.usedIn')}</dt>
               <dd>{detail.lineage.used_in.length}</dd>
+              {showConsistency && detail.consistency ? (
+                <>
+                  <dt>{message('library.consistency.label')}</dt>
+                  <dd>
+                    <ConsistencyBadge score={detail.consistency} />
+                  </dd>
+                </>
+              ) : null}
             </dl>
           ) : (
             <p className="inspector-empty">{message('library.inspector.noProvenance')}</p>

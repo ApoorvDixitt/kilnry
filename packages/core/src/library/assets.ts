@@ -30,6 +30,8 @@ export interface AssetListItem {
   estimate_usd: number | null;
   sidecar_ok: boolean;
   created_at: string;
+  // The consistency check's badge summary, when the asset was scored (F-CHR-12).
+  consistency: Record<string, unknown> | null;
 }
 
 export interface ListAssetsOptions {
@@ -84,6 +86,7 @@ export async function listAssets(state: DatabaseState, options: ListAssetsOption
     estimate_usd: row.estimateUsd === null ? null : Number(row.estimateUsd),
     sidecar_ok: row.sidecarOk,
     created_at: row.createdAt.toISOString(),
+    consistency: row.consistency ?? null,
   }));
 }
 
@@ -207,6 +210,7 @@ export async function getAssetDetail(
     estimate_usd: row.estimateUsd === null ? null : Number(row.estimateUsd),
     sidecar_ok: row.sidecarOk,
     created_at: row.createdAt.toISOString(),
+    consistency: row.consistency ?? null,
     sha256: row.sha256,
     bytes: row.bytes,
     model_id: row.modelId,

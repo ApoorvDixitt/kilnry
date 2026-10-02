@@ -6,6 +6,7 @@
 import { loadConfig } from '@kilnry/core';
 import { AppearanceSettings } from '../../../../components/appearance-settings';
 import { BudgetSettings } from '../../../../components/budget-settings';
+import { CharactersSettings } from '../../../../components/characters-settings';
 import { ChatSettings } from '../../../../components/chat-settings';
 import { McpSettings } from '../../../../components/mcp-settings';
 import { ProviderSettings } from '../../../../components/provider-settings';
@@ -30,13 +31,16 @@ export default async function SettingsPage({
     'mcp',
     'skills',
     'presets',
+    'characters',
     'appearance',
   ].includes(requested)
     ? requested
     : 'providers';
   const config = loadConfig();
   const content =
-    section === 'appearance' ? (
+    section === 'characters' ? (
+      <CharactersSettings />
+    ) : section === 'appearance' ? (
       <AppearanceSettings
         initialValue={{
           theme: config.theme,
