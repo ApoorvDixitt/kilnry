@@ -10,6 +10,7 @@ import { eq } from 'drizzle-orm';
 import { afterEach, describe, expect, it } from 'vitest';
 import { closeDatabaseState, createDatabase, providerKeys } from '@kilnry/db';
 import { ProviderKeyStore, type KeychainBridge } from './key-store.js';
+import { encodeRecoveryKit, formatRecoveryKit } from './recovery-kit.js';
 
 const cleanup: Array<() => Promise<void>> = [];
 
@@ -77,6 +78,14 @@ describe('provider key store', () => {
     expect(after.locked).toBe(true);
     expect(after.checksum_words).toBe(before.checksum_words);
     await expect(harness.get('fal')).rejects.toThrow(/locked/);
+    const foreignKit = formatRecoveryKit(encodeRecoveryKit(new Uint8Array(32).fill(7)));
+    expect(await harness.checkRecoveryKit('kilnry1qqqq')).toMatchObject({ ok: false });
+    expect(await harness.checkRecoveryKit(foreignKit)).toEqual({
+      ok: false,
+      message: 'That recovery kit does not match this installation.',
+      checksum_words: before.checksum_words,
+    });
+    expect(await harness.checkRecoveryKit(saved.recovery_kit!)).toEqual({ ok: true });
     await harness.restoreRecoveryKit(saved.recovery_kit!);
     expect(harness.status().locked).toBe(false);
     expect(await harness.get('fal')).toBe(['harness', 'provider', 'credential'].join('-'));

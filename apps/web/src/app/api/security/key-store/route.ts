@@ -61,6 +61,22 @@ export async function POST(request: Request): Promise<Response> {
       return NextResponse.json({ ok: true, status: services.keyStore.status() });
     }
     if (input.action === 'restore') {
+      // Check the kit first and answer a mismatch here with a typed 400; the
+      // store's own error would cross a module boundary and lose its type.
+      const check = await services.keyStore.checkRecoveryKit(input.recovery_kit);
+      if (!check.ok) {
+        return NextResponse.json(
+          {
+            error: {
+              code: 'INVALID_INPUT',
+              message: check.message,
+              retryable: false,
+              ...(check.checksum_words ? { details: { checksum_words: check.checksum_words } } : {}),
+            },
+          },
+          { status: 400 },
+        );
+      }
       await services.keyStore.restoreRecoveryKit(input.recovery_kit);
       await putSetting('recovery_kit_used_at', new Date().toISOString());
       // Record the recovery in the audit log so S-22 can assert recovery_kit.used

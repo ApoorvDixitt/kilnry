@@ -433,6 +433,32 @@ export class ProviderKeyStore {
     this.#locked = true;
   }
 
+  // Check a pasted kit against this installation without changing anything, so
+  // the restore route can answer a typed refusal itself: a malformed kit gets
+  // its format reason, a well-formed kit for another key gets the checksum words
+  // of the key this machine expects (S-22).
+  async checkRecoveryKit(
+    kit: string,
+  ): Promise<{ ok: true } | { ok: false; message: string; checksum_words?: string }> {
+    const envelope = await this.#readEnvelope();
+    if (!envelope) return { ok: false, message: 'There is no encrypted key store to recover.' };
+    let kek: Buffer;
+    try {
+      kek = Buffer.from(decodeRecoveryKit(kit));
+    } catch (error) {
+      if (error instanceof KilnryError) return { ok: false, message: error.message };
+      throw error;
+    }
+    if (fingerprint(kek) !== envelope.kek_fingerprint) {
+      return {
+        ok: false,
+        message: 'That recovery kit does not match this installation.',
+        checksum_words: recoveryChecksumWords(envelope.kek_fingerprint),
+      };
+    }
+    return { ok: true };
+  }
+
   async restoreRecoveryKit(kit: string): Promise<void> {
     const envelope = await this.#readEnvelope();
     if (!envelope) throw new KilnryError('NOT_FOUND', 'There is no encrypted key store to recover.');
