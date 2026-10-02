@@ -167,17 +167,26 @@ export function WorkflowIntakeDrawer({
   const [skipApprovals, setSkipApprovals] = useState(false);
 
   useEffect(() => {
+    // A load that is superseded (the effect re-ran, or the drawer closed) must
+    // not land afterwards: resetting the values then would silently replace the
+    // answers the user already gave with the defaults.
+    let current = true;
     void fetch(`/api/workflows/${encodeURIComponent(workflowId)}`)
       .then((response) => (response.ok ? response.json() : null))
       .then((body: { workflow?: WorkflowDefinition } | null) => {
         const workflow = body?.workflow;
-        if (!workflow) return;
+        if (!current || !workflow) return;
         const read = readInputFields(workflow.inputs);
         setFields(read);
         setValues(initialInputs(read));
         setDescription(workflow.description ?? '');
       })
-      .catch(() => setError(message('workflows.loadFailed')));
+      .catch(() => {
+        if (current) setError(message('workflows.loadFailed'));
+      });
+    return () => {
+      current = false;
+    };
   }, [workflowId]);
 
   const missing = missingRequired(fields, values);

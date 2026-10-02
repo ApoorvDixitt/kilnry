@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
-import { act } from 'react';
+import { StrictMode, act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PlanChecklist, WorkflowIntakeDrawer } from './workflow-intake-drawer';
@@ -110,5 +110,62 @@ describe('workflow intake drawer (F-WFL-02)', () => {
       await Promise.resolve();
     });
     expect(host.querySelector('.workflow-approve-button')?.textContent).toContain('$3.85');
+  });
+
+  // This fails if a superseded load is allowed to land: under StrictMode the
+  // drawer starts two loads, and the stale one arriving after the user chose
+  // "product-only" put the default "review" back, so the run planned on inputs
+  // the user never chose (the M6 UGC-ad on-camera creator).
+  it('keeps the user’s answers when a superseded workflow load lands late', async () => {
+    const pending: Array<() => void> = [];
+    const definition = JSON.stringify({
+      workflow: {
+        id: 'kilnry-ugc-ad',
+        name: 'UGC ad',
+        inputs: {
+          type: 'object',
+          properties: {
+            mode: {
+              type: 'string',
+              enum: ['review', 'product-only'],
+              default: 'review',
+              'x-kilnry': { widget: 'segment' },
+            },
+          },
+        },
+      },
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        () =>
+          new Promise<Response>((resolve) => {
+            pending.push(() => resolve(new Response(definition, { status: 200 })));
+          }),
+      ),
+    );
+    const host = await render(
+      <StrictMode>
+        <WorkflowIntakeDrawer workflowId="kilnry-ugc-ad" name="UGC ad" onClose={() => {}} />
+      </StrictMode>,
+    );
+    expect(pending.length).toBe(2);
+    // The live load lands; the user answers.
+    await act(async () => {
+      pending[1]!();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    const mode = host.querySelector('#wf-input-mode') as HTMLSelectElement;
+    await act(async () => {
+      mode.value = 'product-only';
+      mode.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect((host.querySelector('#wf-input-mode') as HTMLSelectElement).value).toBe('product-only');
+    // The superseded load lands late and must not reset the answer.
+    await act(async () => {
+      pending[0]!();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect((host.querySelector('#wf-input-mode') as HTMLSelectElement).value).toBe('product-only');
   });
 });
