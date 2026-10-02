@@ -51,6 +51,37 @@ function allBytes(root: string): Buffer {
 }
 
 describe('provider key store', () => {
+  it('locks on simulated key loss only under the test harness and never in a release build', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'kilnry-keys-'));
+    const state = createDatabase(dataDir, { memory: true });
+    cleanup.push(async () => {
+      await closeDatabaseState(state);
+      rmSync(dataDir, { recursive: true, force: true });
+    });
+    const keychain = memoryKeychain();
+    const open = (environment: NodeJS.ProcessEnv): ProviderKeyStore =>
+      new ProviderKeyStore({ dataDir, database: state, keychain, environment });
+
+    const production = open({});
+    await production.initialize();
+    const saved = await production.save('fal', ['harness', 'provider', 'credential'].join('-'));
+    expect(() => production.simulateMasterKeyLoss()).toThrow(/only available under the test harness/);
+    const release = open({ KILNRY_TEST_MSW: '1', KILNRY_RELEASE_BUILD: '1' });
+    await release.initialize();
+    expect(() => release.simulateMasterKeyLoss()).toThrow(/only available under the test harness/);
+
+    const harness = open({ KILNRY_TEST_MSW: '1' });
+    const before = await harness.initialize();
+    harness.simulateMasterKeyLoss();
+    const after = harness.status();
+    expect(after.locked).toBe(true);
+    expect(after.checksum_words).toBe(before.checksum_words);
+    await expect(harness.get('fal')).rejects.toThrow(/locked/);
+    await harness.restoreRecoveryKit(saved.recovery_kit!);
+    expect(harness.status().locked).toBe(false);
+    expect(await harness.get('fal')).toBe(['harness', 'provider', 'credential'].join('-'));
+  });
+
   it('envelope-encrypts provider keys, round-trips recovery, and binds ciphertext to row id', async () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'kilnry-keys-'));
     const state = createDatabase(dataDir, { memory: true });

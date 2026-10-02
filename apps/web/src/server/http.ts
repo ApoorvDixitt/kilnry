@@ -53,16 +53,35 @@ export function assertMayMutate(auth: RouteAuth): void {
   }
 }
 
-export async function errorResponse(error: unknown): Promise<Response> {
+// A KilnryError raised inside a runtime service can come from a different copy
+// of @kilnry/core than the route imported (server bundle vs external package),
+// so `instanceof` misses it and a typed refusal such as a recovery-kit mismatch
+// surfaced as an unexpected 500. Recognise it by shape as well.
+function asKilnryError(error: unknown): KilnryError | undefined {
+  if (error instanceof KilnryError) return error;
+  if (
+    error instanceof Error &&
+    error.name === 'KilnryError' &&
+    typeof (error as Partial<KilnryError>).code === 'string' &&
+    typeof (error as Partial<KilnryError>).toJSON === 'function'
+  ) {
+    return error as KilnryError;
+  }
+  return undefined;
+}
+
+export async function errorResponse(caught: unknown): Promise<Response> {
   const requestId = (await headers()).get('x-request-id') ?? ulid();
   const responseHeaders: Record<string, string> = { 'X-Request-Id': requestId };
-  if (error instanceof KilnryError) {
-    const body = error.toJSON();
+  const kilnry = asKilnryError(caught);
+  const error = caught;
+  if (kilnry) {
+    const body = kilnry.toJSON();
     return NextResponse.json(
       { error: body },
       {
-        status: error.message === 'authentication required' ? 401 : (statusByCode[error.code] ?? 500),
-        ...(error.code === 'RATE_LIMITED' &&
+        status: kilnry.message === 'authentication required' ? 401 : (statusByCode[kilnry.code] ?? 500),
+        ...(kilnry.code === 'RATE_LIMITED' &&
         typeof body.details === 'object' &&
         body.details !== null &&
         'retry_after_s' in body.details

@@ -18,7 +18,10 @@
 // restart-required status, the audit event) together with the Host-check 421,
 // the second-context login and the MCP tools/list, which do not need the
 // restart. The lock-icon tooltip that appears once KILNRY_LAN is live is
-// covered by the security-settings and app-shell component contracts.
+// covered by the security-settings and app-shell component contracts. S-22
+// locks the key store through a harness-only hook (refused outside
+// KILNRY_TEST_MSW and in release builds) that drops the cached master key as a
+// boot with the keyring entry missing would, then drives the Providers banner.
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -179,7 +182,7 @@ test('@m7 S-21 LAN access on, login from another device, Host check', async ({ b
   await expect.poll(() => readConfig().lan_enabled).toBe(false);
 });
 
-test('@m7 S-22 recovery kit restores keys after keychain loss', async ({ page, request }) => {
+test('@m7 S-22 recovery kit restores keys after keychain loss', async ({ page }) => {
   // Given an onboarded install with provider keys and the recovery kit viewed.
   // AS-01 connected OpenRouter and viewed the kit; connect fal and Pollinations
   // too so three provider keys exist, all protected by the same master key.
@@ -203,68 +206,91 @@ test('@m7 S-22 recovery kit restores keys after keychain loss', async ({ page, r
   const checksumWords = status.status?.checksum_words ?? '';
   expect(checksumWords.split(' ')).toHaveLength(4);
 
-  // The harness removes the headless KILNRY_MASTER_KEY file (or the keyring
-  // entry) and restarts the app, which locks the store. The acceptance server
-  // binds to loopback and cannot restart itself inside this suite, so the
-  // locked banner on Providers and its wrong-kit error are asserted through the
-  // component contract (m2-settings.browser.test); here the same restore
-  // endpoint the banner drives is exercised through the interface, with the kit
-  // and words captured above.
+  // The harness loses the master key: it drops the cached key and locks the
+  // store exactly as a boot with the keyring entry (or KILNRY_MASTER_KEY file)
+  // missing does. This harness-only hook is refused outside KILNRY_TEST_MSW and
+  // in release builds; it stands in for deleting the entry and restarting.
+  const lost = await page.evaluate(
+    async (token) => {
+      const response = await fetch('/api/security/key-store', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Kilnry-CSRF': token },
+        body: JSON.stringify({ action: 'simulate_key_loss' }),
+      });
+      return (await response.json()) as { ok?: boolean; status?: { locked?: boolean } };
+    },
+    await csrf(page),
+  );
+  expect(lost.status?.locked).toBe(true);
 
-  // A wrong kit is rejected with the checksum words so the owner can compare.
-  const wrong = await page.evaluate(async () => {
-    const csrf = decodeURIComponent(
-      document.cookie
-        .split(';')
-        .map((part) => part.trim())
-        .find((part) => part.startsWith('kilnry_csrf='))
-        ?.slice('kilnry_csrf='.length) ?? '',
-    );
-    const response = await fetch('/api/security/key-store', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Kilnry-CSRF': csrf },
-      body: JSON.stringify({ action: 'restore', recovery_kit: `kilnry1${'q'.repeat(50)}` }),
-    });
-    return (await response.json()) as {
-      error?: { details?: { checksum_words?: string } };
-    };
-  });
-  // A malformed kit may fail the checksum before the fingerprint; a well-formed
-  // but wrong kit surfaces the installation's checksum words. Assert the words
-  // the owner would check are the ones this installation reports.
-  expect(checksumWords.length).toBeGreaterThan(0);
-  void wrong;
-
-  // The correct kit restores the keys (idempotent here since the store was not
-  // truly locked) and records recovery_kit.used in the audit log.
-  const restored = await page.evaluate(async (kit) => {
-    const csrf = decodeURIComponent(
-      document.cookie
-        .split(';')
-        .map((part) => part.trim())
-        .find((part) => part.startsWith('kilnry_csrf='))
-        ?.slice('kilnry_csrf='.length) ?? '',
-    );
-    const response = await fetch('/api/security/key-store', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Kilnry-CSRF': csrf },
-      body: JSON.stringify({ action: 'restore', recovery_kit: kit }),
-    });
-    return response.status;
-  }, kit);
-  expect(restored).toBe(200);
-
-  // Each provider Test shows "Connected" — driven through the interface.
+  // The user opens Settings › Providers and sees the locked banner.
   await page.goto('/settings/providers');
+  const banner = page.locator('.provider-locked');
+  await expect(banner).toBeVisible();
+  await expect(banner).toContainText(
+    "Your provider keys are encrypted but the master key is missing from this machine's keychain.",
+  );
+  const kitField = banner.getByLabel('Enter recovery kit');
+  await expect(kitField).toBeVisible();
+
+  // A well-formed kit for a different key is rejected with the checksum words
+  // of the key this installation expects — the words captured above.
+  await kitField.fill(wrongKit());
+  await banner.getByRole('button', { name: 'Restore keys' }).click();
+  await expect(banner).toContainText(`That kit doesn't match. Check the checksum words: ${checksumWords}.`);
+
+  // The correct kit restores the keys without re-entry; the banner goes away.
+  await kitField.fill(kit);
+  await banner.getByRole('button', { name: 'Restore keys' }).click();
+  await expect(banner).toBeHidden();
+  await expect(page.getByText('Keys restored. Test each provider to confirm.')).toBeVisible();
+
+  // Each provider's Test passes and its card shows "Connected".
   for (const name of ['OpenRouter', 'fal', 'Pollinations']) {
-    const card = page.locator('.provider-card').filter({ hasText: name });
+    const card = page.locator('.provider-card').filter({ has: page.getByRole('heading', { name }) });
     await card.getByRole('button', { name: 'Test' }).click();
     await expect(page.getByText(/Connection passed · \d+ ms/)).toBeVisible({ timeout: 15_000 });
+    await expect(card.locator('.provider-status')).toHaveText('Connected');
   }
 
   // The audit log records recovery_kit.used, asserted on the Security page.
   await page.goto('/settings/security');
   await expect(page.locator('.audit-table [data-action="recovery_kit.used"]').first()).toBeVisible();
-
-  void request;
 });
+
+// A syntactically valid recovery kit (bech32m, version byte 1, 32-byte key) for
+// a key that is not this installation's, so the restore reaches the fingerprint
+// comparison and answers with the checksum words rather than a format error.
+function wrongKit(): string {
+  const alphabet = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
+  const hrp = 'kilnry';
+  const polymod = (values: number[]): number => {
+    const generators = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3];
+    let checksum = 1;
+    for (const value of values) {
+      const top = checksum >>> 25;
+      checksum = ((checksum & 0x1ffffff) << 5) ^ value;
+      for (let index = 0; index < 5; index += 1) if ((top >>> index) & 1) checksum ^= generators[index]!;
+    }
+    return checksum >>> 0;
+  };
+  const expanded = [...hrp]
+    .map((c) => c.charCodeAt(0) >>> 5)
+    .concat(0, ...[...hrp].map((c) => c.charCodeAt(0) & 31));
+  const bytes = [1, ...Array.from({ length: 32 }, (_, index) => (index * 37 + 11) & 0xff)];
+  const data: number[] = [];
+  let accumulator = 0;
+  let bits = 0;
+  for (const byte of bytes) {
+    accumulator = (accumulator << 8) | byte;
+    bits += 8;
+    while (bits >= 5) {
+      bits -= 5;
+      data.push((accumulator >>> bits) & 31);
+    }
+  }
+  if (bits > 0) data.push((accumulator << (5 - bits)) & 31);
+  const value = polymod([...expanded, ...data, 0, 0, 0, 0, 0, 0]) ^ 0x2bc830a3;
+  const checksum = Array.from({ length: 6 }, (_, index) => (value >>> (5 * (5 - index))) & 31);
+  return `${hrp}1${[...data, ...checksum].map((index) => alphabet[index]).join('')}`;
+}

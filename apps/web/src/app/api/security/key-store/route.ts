@@ -16,6 +16,9 @@ import { ensureRuntimeEngine, runtimeServices } from '../../../../server/runtime
 const Input = z.discriminatedUnion('action', [
   z.object({ action: z.literal('view'), password: z.string().min(1) }),
   z.object({ action: z.literal('restore'), recovery_kit: z.string().min(20) }),
+  // Acceptance harness only; the key store refuses it outside KILNRY_TEST_MSW
+  // and in release builds (S-22 locks the store without a process restart).
+  z.object({ action: z.literal('simulate_key_loss') }),
   z.object({
     action: z.literal('acknowledge'),
     challenge_token: z.string().min(20),
@@ -52,6 +55,10 @@ export async function POST(request: Request): Promise<Response> {
         recovery_kit: recoveryKit,
         confirmation: createRecoveryChallenge(session.session.id, recoveryKit),
       });
+    }
+    if (input.action === 'simulate_key_loss') {
+      services.keyStore.simulateMasterKeyLoss();
+      return NextResponse.json({ ok: true, status: services.keyStore.status() });
     }
     if (input.action === 'restore') {
       await services.keyStore.restoreRecoveryKit(input.recovery_kit);

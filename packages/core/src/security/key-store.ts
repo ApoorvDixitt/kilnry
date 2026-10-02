@@ -168,10 +168,10 @@ function defaultKeychain(): KeychainBridge {
 export class ProviderKeyStore {
   readonly #options: KeyStoreOptions;
   readonly #path: string;
-  #kek?: Buffer;
-  #dek?: Buffer;
-  #source?: ResolvedKek['source'];
-  #salt?: Buffer;
+  #kek: Buffer | undefined;
+  #dek: Buffer | undefined;
+  #source: ResolvedKek['source'] | undefined;
+  #salt: Buffer | undefined;
   #initialized = false;
   #locked = false;
   #envelopeFingerprint?: string;
@@ -413,6 +413,24 @@ export class ProviderKeyStore {
 
   recoveryKit(): string {
     return formatRecoveryKit(encodeRecoveryKit(this.#requireKek()));
+  }
+
+  // Acceptance-harness only: forget the master key and lock the store exactly
+  // as a boot with the keychain entry (or KILNRY_MASTER_KEY file) missing would,
+  // so the recovery-kit restore can be driven without a process restart (S-22).
+  // Refused unless the strict mock harness is on, and always in release builds.
+  simulateMasterKeyLoss(): void {
+    const environment = this.#options.environment ?? process.env;
+    if (environment.KILNRY_RELEASE_BUILD === '1' || environment.KILNRY_TEST_MSW !== '1') {
+      throw new KilnryError('NOT_FOUND', 'Simulated key loss is only available under the test harness.');
+    }
+    if (!this.#initialized) throw new Error('ProviderKeyStore.initialize() must run before use.');
+    if (this.#kek) this.#envelopeFingerprint ??= fingerprint(this.#kek);
+    this.#kek = undefined;
+    this.#dek = undefined;
+    this.#source = undefined;
+    this.#salt = undefined;
+    this.#locked = true;
   }
 
   async restoreRecoveryKit(kit: string): Promise<void> {
