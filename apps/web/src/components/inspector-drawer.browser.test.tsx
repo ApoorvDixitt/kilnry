@@ -28,6 +28,7 @@ function detail(overrides: Partial<AssetDetail> = {}): AssetDetail {
     estimate_usd: 0.15,
     sidecar_ok: true,
     created_at: '2026-09-19T00:00:00.000Z',
+    consistency: null,
     sha256: 'abc',
     bytes: 2048,
     model_id: 'fal-ai/flux',

@@ -28,6 +28,7 @@ function asset(overrides: Partial<AssetListItem> = {}): AssetListItem {
     estimate_usd: 0.15,
     sidecar_ok: true,
     created_at: '2026-09-19T00:00:00.000Z',
+    consistency: null,
     ...overrides,
   };
 }
