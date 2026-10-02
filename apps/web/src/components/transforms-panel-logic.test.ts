@@ -4,7 +4,27 @@
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
 import { describe, expect, it } from 'vitest';
-import { TRANSFORM_TABS, canRun, lipsyncBilledSeconds, tabFor } from './transforms-panel-logic';
+import {
+  TRANSFORM_TABS,
+  canRun,
+  formatUsd,
+  lipsyncBilledSeconds,
+  tabFor,
+  threeDStrip,
+} from './transforms-panel-logic';
+
+describe('Image → 3D strip (F-CRE-15)', () => {
+  it('shows Trellis as "$0.02 · 1 model · ~40 s" and Hunyuan3D at $0.375', () => {
+    expect(threeDStrip(0.02, 40, '1 model')).toBe('$0.02 · 1 model · ~40 s');
+    expect(threeDStrip(0.375, 30, '1 model')).toBe('$0.375 · 1 model · ~30 s');
+    expect(threeDStrip(0.375, null, '1 model')).toBe('$0.375 · 1 model');
+  });
+  it('keeps cents unless the price has a fraction of a cent', () => {
+    expect(formatUsd(0.33)).toBe('$0.33');
+    expect(formatUsd(0.018)).toBe('$0.018');
+    expect(formatUsd(1)).toBe('$1.00');
+  });
+});
 
 describe('transforms panel logic (F-CRE-11)', () => {
   it('offers every operation in order and marks them all available', () => {
@@ -18,6 +38,7 @@ describe('transforms panel logic (F-CRE-11)', () => {
       'dubbing',
       'voice_change',
       'transcribe',
+      'image_to_3d',
     ]);
     expect(tabFor('dubbing').available).toBe(true);
     expect(tabFor('voice_change').available).toBe(true);

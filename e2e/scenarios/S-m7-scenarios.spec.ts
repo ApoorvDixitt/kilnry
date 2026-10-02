@@ -24,11 +24,12 @@
 // boot with the keyring entry missing would, then drives the Providers banner.
 
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 
 const root = process.cwd();
 const dataDir = join(root, '.dev', 'e2e-data');
+const libraryRoot = join(root, '.dev', 'e2e-library');
 const EMAIL = 'owner@example.test';
 const PASSWORD = 'Kilnry-local-test-42!';
 const HOST_PORT = '127.0.0.1:3123';
@@ -294,3 +295,124 @@ function wrongKit(): string {
   const checksum = Array.from({ length: 6 }, (_, index) => (value >>> (5 * (5 - index))) & 31);
   return `${hrp}1${[...data, ...checksum].map((index) => alphabet[index]).join('')}`;
 }
+
+// The most recently created job, as the Jobs route reports it.
+async function latestJob(page: Page): Promise<Record<string, unknown> | undefined> {
+  return page.evaluate(async () => {
+    const response = await fetch('/api/jobs');
+    if (!response.ok) return undefined;
+    const body = (await response.json()) as { jobs: Array<Record<string, unknown>> };
+    return body.jobs[0];
+  });
+}
+
+// Spend-ledger rows written for one job, read from the owner's CSV export.
+async function ledgerRows(page: Page, jobId: string): Promise<number> {
+  const token = await csrf(page);
+  return page.evaluate(
+    async ({ token, jobId }) => {
+      const response = await fetch('/api/budget/ledger/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Kilnry-CSRF': token },
+        body: JSON.stringify({ from: '2000-01-01T00:00:00.000Z', to: '2100-01-01T00:00:00.000Z' }),
+      });
+      if (!response.ok) return -1;
+      const body = (await response.json()) as { csv?: string };
+      return (body.csv ?? '').split('\n').filter((line) => line.includes(jobId)).length;
+    },
+    { token, jobId },
+  );
+}
+
+// Generate one image on Create through the composer and open Transforms on its
+// result tile, as a user turning a still into something else would.
+async function generateAndOpenTransforms(page: Page, prompt: string): Promise<string> {
+  await page.goto('/create');
+  await page.getByRole('textbox', { name: 'Describe what you want to make…' }).fill(prompt);
+  await expect(page.locator('.cost-strip .cost-strip-figure')).toContainText('$', { timeout: 15_000 });
+  await page.locator('.composer').getByRole('button', { name: 'Generate' }).click();
+  const tile = page.locator('.result-tile img').first();
+  await expect(tile).toBeVisible({ timeout: 60_000 });
+  const src = (await tile.getAttribute('src')) ?? '';
+  const assetId = decodeURIComponent(src.replace('/api/media/', ''));
+  expect(assetId).not.toBe('');
+  await page.locator('.result-tile-transform').first().click();
+  await page.locator('.transforms-panel').getByRole('tab', { name: 'Image → 3D' }).click();
+  return assetId;
+}
+
+test('@m7 F-CRE-15 image to 3D on Create: connect fal, price, GLB tile, sidecar, ledger', async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  // Given a provider that can make the source still, and fal disconnected so
+  // the 3D tab shows its connect state.
+  await ensureProvider(page, 'pollinations', POLLINATIONS_KEY);
+  await ensureProvider(page, 'fal', FAL_KEY);
+  await page.goto('/settings/providers');
+  const falCard = page.locator('.provider-card').filter({ has: page.getByRole('heading', { name: 'fal' }) });
+  await falCard.getByRole('button', { name: 'Remove' }).click();
+  await expect(falCard.locator('.provider-status')).toHaveText('Not connected');
+
+  // Without a fal key the Image → 3D tab says so and offers Connect fal.
+  await generateAndOpenTransforms(page, 'a ceramic teapot, studio cut-out');
+  const panel = page.locator('.transforms-panel');
+  await expect(panel.locator('.transforms-needs-key')).toContainText('3D needs a fal key.');
+  await expect(panel.locator('.transforms-run')).toBeDisabled();
+  await panel.getByRole('link', { name: 'Connect fal' }).click();
+  await expect(page).toHaveURL(/\/settings\/providers$/);
+
+  // The user connects fal on Providers.
+  await page.getByLabel('Add or replace a provider key').fill(FAL_KEY);
+  await page.getByLabel('Provider', { exact: true }).selectOption('fal');
+  await page.getByRole('button', { name: 'Test and save' }).click();
+  await expect(falCard.locator('.provider-status')).toHaveText('Connected', { timeout: 15_000 });
+
+  // Back on Create: a fresh still, then Image → 3D prices both models.
+  const sourceId = await generateAndOpenTransforms(page, 'a ceramic teapot, studio cut-out');
+  await expect(panel.locator('.transforms-cost')).toHaveText('$0.02 · 1 model · ~40 s', { timeout: 15_000 });
+  await panel.locator('.transforms-model3d').selectOption('hunyuan3d');
+  await expect(panel.locator('.transforms-cost')).toContainText('$0.375 · 1 model');
+  await panel.locator('.transforms-model3d').selectOption('trellis');
+  await expect(panel.locator('.transforms-cost')).toHaveText('$0.02 · 1 model · ~40 s');
+  await expect(panel.locator('.transforms-run')).toHaveText('Run · $0.02');
+  await panel.locator('.transforms-run').click();
+  await expect(panel).toBeHidden();
+
+  // The 3D result appears as a GLB viewer tile that draws the model with its
+  // wireframe toggle.
+  const viewer = page.locator('.result-tile .glb-viewer').first();
+  await expect(viewer).toHaveAttribute('data-viewer', 'webgl', { timeout: 90_000 });
+  await expect(viewer.locator('canvas')).toBeVisible();
+  const wireframe = viewer.getByRole('button', { name: 'Wireframe' });
+  await wireframe.click();
+  await expect(wireframe).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.result-tile figcaption').first()).toContainText('$0.02');
+
+  // The job ran on Trellis through the normal money path: one ledger row.
+  const job = await latestJob(page);
+  expect(job?.status).toBe('completed');
+  expect(job?.modelId).toBe('fal-ai/trellis');
+  expect(await ledgerRows(page, String(job?.id))).toBe(1);
+
+  // The GLB is a Library asset next to its source, with a kind 3d sidecar whose
+  // lineage records the still it was made from.
+  const glbId = (job?.outputAssetIds as string[] | undefined)?.[0] ?? '';
+  expect(glbId).not.toBe('');
+  const assets = await page.evaluate(async () => {
+    const response = await fetch('/api/library/assets?sort=newest');
+    return ((await response.json()) as { assets?: Array<{ id: string; path: string }> }).assets ?? [];
+  });
+  const glbPath = assets.find((asset) => asset.id === glbId)?.path ?? '';
+  const sourcePath = assets.find((asset) => asset.id === sourceId)?.path ?? '';
+  expect(glbPath).toMatch(/\.glb$/);
+  expect(dirname(glbPath)).toBe(dirname(sourcePath));
+  const absolute = join(libraryRoot, glbPath);
+  expect(readFileSync(absolute).subarray(0, 4).toString('ascii')).toBe('glTF');
+  const sidecar = JSON.parse(readFileSync(`${absolute}.kilnry.json`, 'utf8')) as {
+    kind?: string;
+    lineage?: { made_from?: string[] };
+  };
+  expect(sidecar.kind).toBe('3d');
+  expect(sidecar.lineage?.made_from).toEqual([sourceId]);
+});

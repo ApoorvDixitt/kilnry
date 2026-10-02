@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { SaveAsPreset, type ComposerSnapshot } from './save-as-preset';
 import { TransformsPanel } from './transforms-panel';
+import { GlbViewerTile } from './glb-viewer-tile';
 import { AnimatePresence, motion } from 'motion/react';
 import { apiFetch } from '../lib/api-client';
 import { message } from '../lib/messages';
@@ -31,6 +32,8 @@ interface ResultTile {
   assetId?: string | undefined;
   actualUsd?: string | null | undefined;
   error?: string | undefined;
+  // A 3D result renders in the GLB viewer instead of an image (F-CRE-15).
+  kind?: '3d' | undefined;
 }
 
 async function json<T>(response: Response): Promise<T> {
@@ -336,7 +339,11 @@ export function CreateComposer({ editAssetId = null }: { editAssetId?: string | 
                   {tile.assetId ? (
                     <figure>
                       {/* Served by the authenticated, Range-capable media route. */}
-                      <img src={`/api/media/${tile.assetId}`} alt="" />
+                      {tile.kind === '3d' ? (
+                        <GlbViewerTile assetId={tile.assetId} />
+                      ) : (
+                        <img src={`/api/media/${tile.assetId}`} alt="" />
+                      )}
                       {tile.provider === 'pollinations' ? (
                         <span className="result-tile-demo" data-demo="true">
                           {message('create.demoBadge')}
@@ -416,7 +423,40 @@ export function CreateComposer({ editAssetId = null }: { editAssetId?: string | 
         />
       ) : null}
       {transformSource !== null ? (
-        <TransformsPanel source={transformSource} onClose={() => setTransformSource(null)} />
+        <TransformsPanel
+          source={transformSource}
+          onClose={() => setTransformSource(null)}
+          onRan={(ran) => {
+            // The transform's output joins the results, followed like any job;
+            // an Image → 3D result draws in the GLB viewer (F-CRE-15).
+            const tileId = crypto.randomUUID();
+            setTiles((prior) => [
+              {
+                id: tileId,
+                jobId: ran.job_id,
+                status: 'queued',
+                stepLabel: stepFor('queued', ran.provider),
+                provider: ran.provider,
+                prompt: '',
+                ...(ran.op === 'image_to_3d' ? { kind: '3d' as const } : {}),
+              },
+              ...prior,
+            ]);
+            void poll(tileId, ran.job_id).catch((cause: unknown) =>
+              setTiles((prior) =>
+                prior.map((tile) =>
+                  tile.id === tileId
+                    ? {
+                        ...tile,
+                        status: 'failed',
+                        error: cause instanceof Error ? cause.message : message('create.proof.requestFailed'),
+                      }
+                    : tile,
+                ),
+              ),
+            );
+          }}
+        />
       ) : null}
       <Composer
         models={models}

@@ -66,4 +66,67 @@ describe('TransformsPanel (F-CRE-11)', () => {
     expect(run.disabled).toBe(false);
     expect(run.textContent).toContain('$0.33');
   });
+
+  async function openThreeD(host: HTMLElement): Promise<void> {
+    const tab = [...host.querySelectorAll('.transforms-tabs button')].find(
+      (button) => button.textContent === 'Image → 3D',
+    ) as HTMLButtonElement;
+    await act(async () => {
+      tab.click();
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    });
+  }
+
+  it('Image → 3D without a fal key says so and links to Connect fal (F-CRE-15)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve(
+          Response.json(
+            { error: { code: 'NO_PROVIDER', message: 'No connected provider can run 3d.' } },
+            { status: 424 },
+          ),
+        ),
+      ),
+    );
+    const host = await render();
+    await openThreeD(host);
+    const notice = host.querySelector('.transforms-needs-key');
+    expect(notice?.textContent).toContain('3D needs a fal key.');
+    const link = notice?.querySelector('a');
+    expect(link?.textContent).toBe('Connect fal');
+    expect(link?.getAttribute('href')).toBe('/settings/providers');
+    expect((host.querySelector('.transforms-run') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('Image → 3D prices Trellis and Hunyuan3D on the strip and offers background removal (F-CRE-15)', async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body ?? '{}')) as { params?: { model3d?: string } };
+        bodies.push(body);
+        const premium = body.params?.model3d === 'hunyuan3d';
+        return Promise.resolve(
+          Response.json({
+            estimate: { estimate_usd: premium ? 0.375 : 0.02, eta_s: premium ? 30 : 40 },
+            estimate_usd: premium ? 0.375 : 0.02,
+          }),
+        );
+      }),
+    );
+    const host = await render();
+    await openThreeD(host);
+    expect(host.querySelector('.transforms-cost')?.textContent).toBe('$0.02 · 1 model · ~40 s');
+    expect(host.querySelector('.transforms-bg-first')?.textContent).toBe('Remove background first (+$0.018)');
+    const select = host.querySelector('.transforms-model3d') as HTMLSelectElement;
+    await act(async () => {
+      select.value = 'hunyuan3d';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    });
+    expect(host.querySelector('.transforms-cost')?.textContent).toBe('$0.375 · 1 model · ~30 s');
+    expect((host.querySelector('.transforms-run') as HTMLButtonElement).textContent).toContain('$0.375');
+    expect(bodies.at(-1)).toMatchObject({ op: 'image_to_3d', params: { model3d: 'hunyuan3d' } });
+  });
 });

@@ -476,6 +476,73 @@ describe('Pollinations demo adapter', () => {
   });
 });
 
+// Image → 3D (F-CRE-15). Request and response shapes follow fal's published
+// schemas: Trellis takes `image_url` and answers `model_mesh`; Hunyuan3D v3
+// takes `input_image_url` and answers `model_glb` (plus a thumbnail we ignore).
+describe('fal image to 3D', () => {
+  const source = 'https://v3b.fal.media/files/source.png';
+  function threeD(model: string): CanonicalRequest {
+    return CanonicalRequestSchema.parse({
+      kind: '3d',
+      capability: '3d',
+      prompt: 'image_to_3d',
+      params: { extra: { model } },
+      medias: [{ role: 'reference', url: source }],
+      injections: [],
+      count: 1,
+      target_folder: 'inbox',
+      source: 'ui',
+    });
+  }
+
+  for (const scenario of [
+    {
+      model: 'fal-ai/trellis',
+      field: 'image_url',
+      result: { model_mesh: { url: 'https://v3b.fal.media/mesh.glb', content_type: 'model/gltf-binary' } },
+      url: 'https://v3b.fal.media/mesh.glb',
+    },
+    {
+      model: 'fal-ai/hunyuan3d-v3/image-to-3d',
+      field: 'input_image_url',
+      result: {
+        model_glb: { url: 'https://v3b.fal.media/model.glb', content_type: 'model/gltf-binary' },
+        thumbnail: { url: 'https://v3b.fal.media/preview.png', content_type: 'image/png' },
+        model_urls: { glb: { url: 'https://v3b.fal.media/model.glb' } },
+      },
+      url: 'https://v3b.fal.media/model.glb',
+    },
+  ]) {
+    it(`sends ${scenario.field} and reads the GLB for ${scenario.model}`, async () => {
+      server.use(
+        http.post(`https://queue.fal.run/${scenario.model}`, async ({ request: incoming }) => {
+          const payload = (await incoming.json()) as Record<string, unknown>;
+          expect(payload).toEqual({ [scenario.field]: source });
+          return HttpResponse.json({
+            request_id: 'fal-3d',
+            status_url: 'https://queue.fal.run/status/fal-3d',
+            response_url: 'https://queue.fal.run/result/fal-3d',
+          });
+        }),
+        http.get('https://queue.fal.run/status/fal-3d', () => HttpResponse.json({ status: 'COMPLETED' })),
+        http.get('https://queue.fal.run/result/fal-3d', () => HttpResponse.json(scenario.result)),
+      );
+      const handle = await falAdapter.submit(threeD(scenario.model), context());
+      const terminal = await falAdapter.poll(handle, context());
+      expect(terminal).toMatchObject({
+        state: 'completed',
+        result: { outputs: [{ kind: '3d', url: scenario.url, mime: 'model/gltf-binary' }] },
+      });
+    });
+  }
+
+  it('refuses a 3D request without an uploaded source image', async () => {
+    const value = threeD('fal-ai/trellis');
+    value.medias = [];
+    await expectCode(falAdapter.submit(value, context()), 'INVALID_INPUT');
+  });
+});
+
 describe('fal file inputs', () => {
   it('puts a local file in fal storage and returns the address to send', async () => {
     const put: Array<{ length: number; type: string | null }> = [];

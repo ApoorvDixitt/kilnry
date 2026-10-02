@@ -5,9 +5,11 @@
 
 import { NextResponse } from 'next/server';
 import * as z from 'zod';
+import { eq } from 'drizzle-orm';
 import { KilnryError, type Capability } from '@kilnry/core';
+import { assets } from '@kilnry/db';
 import { errorResponse, requireSession } from '../../../server/http';
-import { ensureRuntimeEngine } from '../../../server/runtime';
+import { ensureRuntimeEngine, runtimeServices } from '../../../server/runtime';
 
 const Body = z.object({
   op: z.enum([
@@ -20,6 +22,7 @@ const Body = z.object({
     'dubbing',
     'voice_change',
     'transcribe',
+    'image_to_3d',
   ]),
   source: z.string().min(1),
   params: z.record(z.string(), z.unknown()).optional(),
@@ -41,6 +44,14 @@ const CAPABILITY_FOR: Partial<Record<string, Capability>> = {
   dubbing: 'tts',
   voice_change: 'tts',
   transcribe: 'stt',
+  image_to_3d: '3d',
+};
+
+// Image → 3D offers Trellis as the default and Hunyuan3D v3 as premium
+// (PRD-05 §15); the panel's choice pins the route to that fal model.
+const THREE_D_MODEL: Record<string, string> = {
+  trellis: 'fal/fal-ai/trellis',
+  hunyuan3d: 'fal/fal-ai/hunyuan3d-v3/image-to-3d',
 };
 
 // Dubbing and voice change are tts models distinguished by a registry tag; the
@@ -54,12 +65,13 @@ const TRANSFORM_MODEL: Record<string, string> = {
   voice_change: 'voice_changer',
 };
 
-const KIND_FOR: Record<string, 'image' | 'video' | 'audio'> = {
+const KIND_FOR: Record<string, 'image' | 'video' | 'audio' | '3d'> = {
   upscale_video: 'video',
   lipsync: 'video',
   dubbing: 'audio',
   voice_change: 'audio',
   transcribe: 'audio',
+  image_to_3d: '3d',
 };
 
 // The media role the source takes for each operation. A lip-sync or upscale reads
@@ -100,7 +112,25 @@ export async function POST(request: Request): Promise<Response> {
     const pinnedModel = TRANSFORM_MODEL[body.op];
     if (pinnedModel) supplied.model = pinnedModel;
     const tag = TRANSFORM_TAG[body.op];
-    const constraints = tag ? { tags: [tag] } : {};
+    const constraints: Record<string, unknown> = tag ? { tags: [tag] } : {};
+    // Image → 3D: the panel's model choice pins the fal route, and the GLB is
+    // written in the source image's folder (PRD-05 §15).
+    let targetFolder = 'inbox';
+    if (body.op === 'image_to_3d') {
+      const choice = typeof supplied.model3d === 'string' ? supplied.model3d : 'trellis';
+      delete supplied.model3d;
+      const pinned = THREE_D_MODEL[choice];
+      if (!pinned) throw new KilnryError('INVALID_INPUT', `Unknown 3D model ${choice}.`);
+      constraints.pinned_model = pinned;
+      const services = await runtimeServices();
+      const [row] = await services.database.db
+        .select({ folderPath: assets.folderPath })
+        .from(assets)
+        .where(eq(assets.id, body.source))
+        .limit(1);
+      if (!row) throw new KilnryError('NOT_FOUND', 'The source image is not in the Library.');
+      if (row.folderPath) targetFolder = row.folderPath;
+    }
     const medias: Array<{ role: string; asset_id: string }> = [
       { role: SOURCE_ROLE[body.op] ?? 'reference', asset_id: body.source },
     ];
@@ -117,7 +147,7 @@ export async function POST(request: Request): Promise<Response> {
       medias,
       count: 1,
       injections: [],
-      target_folder: 'inbox',
+      target_folder: targetFolder,
       source: 'ui',
     };
     const priced = await engine.estimate(canonical as never, constraints as never);

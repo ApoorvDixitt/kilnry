@@ -26,6 +26,45 @@ const FAL_VIDEO_URL = 'https://v3.fal.media/files/test/kilnry-fixture.mp4';
 const FAL_AUDIO_URL = 'https://v3.fal.media/files/test/kilnry-fixture.mp3';
 // Where a completed fal LoRA training points at its safetensors file (F-CHR-07).
 const FAL_LORA_URL = 'https://v3.fal.media/files/test/kilnry-lora.safetensors';
+// Where a completed fal image-to-3D job points at its GLB (F-CRE-15).
+const FAL_GLB_URL = 'https://v3.fal.media/files/test/kilnry-fixture.glb';
+
+// A valid binary glTF holding one triangle, so the finalizer embeds its metadata
+// and the viewer tile can actually draw it (F-CRE-15).
+function triangleGlb(): Buffer {
+  const positions = Buffer.from(new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]).buffer);
+  const json = Buffer.from(
+    JSON.stringify({
+      asset: { version: '2.0' },
+      scene: 0,
+      scenes: [{ nodes: [0] }],
+      nodes: [{ mesh: 0 }],
+      meshes: [{ primitives: [{ attributes: { POSITION: 0 } }] }],
+      accessors: [
+        { bufferView: 0, componentType: 5126, count: 3, type: 'VEC3', min: [0, 0, 0], max: [1, 1, 0] },
+      ],
+      bufferViews: [{ buffer: 0, byteOffset: 0, byteLength: positions.length }],
+      buffers: [{ byteLength: positions.length }],
+    }),
+    'utf8',
+  );
+  const jsonLength = Math.ceil(json.length / 4) * 4;
+  const binLength = Math.ceil(positions.length / 4) * 4;
+  const output = Buffer.alloc(12 + 8 + jsonLength + 8 + binLength, 0);
+  output.write('glTF', 0, 'ascii');
+  output.writeUInt32LE(2, 4);
+  output.writeUInt32LE(output.length, 8);
+  output.writeUInt32LE(jsonLength, 12);
+  output.writeUInt32LE(0x4e4f534a, 16);
+  output.fill(0x20, 20, 20 + jsonLength);
+  json.copy(output, 20);
+  const binStart = 20 + jsonLength;
+  output.writeUInt32LE(binLength, binStart);
+  output.writeUInt32LE(0x004e4942, binStart + 4);
+  positions.copy(output, binStart + 8);
+  return output;
+}
+const glb = triangleGlb();
 
 // The bytes the speech and voice fixtures return. A real one-second MP3 is built
 // once with ffmpeg so the finalizer can probe its duration the way it would for a
@@ -189,6 +228,20 @@ export function startTestMsw(): void {
       if (/lora-fast-training|flux-lora|training/i.test(path)) {
         return HttpResponse.json({ diffusers_lora_file: { url: FAL_LORA_URL } });
       }
+      // Image → 3D answers with fal's published shapes: Trellis `model_mesh`,
+      // Hunyuan3D v3 `model_glb` (F-CRE-15).
+      if (/hunyuan3d/i.test(path)) {
+        return HttpResponse.json({
+          model_glb: { url: FAL_GLB_URL, content_type: 'model/gltf-binary', file_name: 'model.glb' },
+          model_urls: { glb: { url: FAL_GLB_URL, content_type: 'model/gltf-binary' } },
+        });
+      }
+      if (/trellis/i.test(path)) {
+        return HttpResponse.json({
+          model_mesh: { url: FAL_GLB_URL, content_type: 'model/gltf-binary', file_name: 'mesh.glb' },
+          timings: { prepare: 0.1, generation: 1.2, export: 0.3 },
+        });
+      }
       const isVideo = /video|kling|veo|seedance|lipsync|sync|latentsync/i.test(path);
       // A speech or music model answers with one audio file (fal adapter §3.1's
       // output table reads `audio.url`).
@@ -203,6 +256,11 @@ export function startTestMsw(): void {
     http.get(FAL_VIDEO_URL, () =>
       HttpResponse.arrayBuffer(mp4.buffer.slice(mp4.byteOffset, mp4.byteOffset + mp4.byteLength), {
         headers: { 'Content-Type': 'video/mp4' },
+      }),
+    ),
+    http.get(FAL_GLB_URL, () =>
+      HttpResponse.arrayBuffer(glb.buffer.slice(glb.byteOffset, glb.byteOffset + glb.byteLength), {
+        headers: { 'Content-Type': 'model/gltf-binary' },
       }),
     ),
     http.get(FAL_AUDIO_URL, () =>

@@ -17,12 +17,23 @@ import { useEffect, useState } from 'react';
 import { apiFetch } from '../lib/api-client';
 import { message } from '../lib/messages';
 import {
+  THREE_D_MODELS,
   TRANSFORM_TABS,
   canRun,
+  formatUsd,
   lipsyncBilledSeconds,
   tabFor,
+  threeDStrip,
   type TransformOp,
 } from './transforms-panel-logic';
+
+// What a run started, so the caller can show it (Create adds a result tile and
+// follows the job; the Library reloads).
+export interface TransformRan {
+  op: TransformOp;
+  job_id: string;
+  provider: string;
+}
 
 export function TransformsPanel({
   source,
@@ -31,16 +42,19 @@ export function TransformsPanel({
 }: {
   source: string;
   onClose: () => void;
-  onRan?: () => void;
+  onRan?: (ran: TransformRan) => void;
 }): React.ReactNode {
   const [op, setOp] = useState<TransformOp>('upscale_image');
   const [params, setParams] = useState<Record<string, unknown>>({});
   const [estimateUsd, setEstimateUsd] = useState<number | null>(null);
+  const [etaSeconds, setEtaSeconds] = useState<number | null>(null);
+  // The route answered NO_PROVIDER: the operation needs a key that is missing.
+  const [needsKey, setNeedsKey] = useState(false);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string>();
 
   const tab = tabFor(op);
-  const runnable = canRun({ op, source, params, running });
+  const runnable = canRun({ op, source, params, running }) && !needsKey;
 
   // Lip-sync is billed in five-second steps, so the panel needs to know how long
   // the source clip is. It reads that from the asset rather than asking, and the
@@ -78,9 +92,16 @@ export function TransformsPanel({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ op, source, params, estimate_only: true }),
       })
-        .then((response) => (response.ok ? response.json() : null))
-        .then((body: { estimate_usd?: number } | null) => {
-          if (!cancelled) setEstimateUsd(body?.estimate_usd ?? null);
+        .then(async (response) => {
+          const body = (await response.json()) as {
+            estimate_usd?: number;
+            estimate?: { eta_s?: number };
+            error?: { code?: string };
+          };
+          if (cancelled) return;
+          setNeedsKey(!response.ok && body.error?.code === 'NO_PROVIDER');
+          setEstimateUsd(response.ok ? (body.estimate_usd ?? null) : null);
+          setEtaSeconds(response.ok ? (body.estimate?.eta_s ?? null) : null);
         })
         .catch(() => {
           if (!cancelled) setEstimateUsd(null);
@@ -112,8 +133,9 @@ export function TransformsPanel({
               throw new Error(body.error?.message ?? message('create.transform.failed'));
             }),
       )
-      .then(() => {
-        onRan?.();
+      .then((body: { jobs?: Array<{ job_id: string; route?: { provider?: string } }> }) => {
+        const job = body.jobs?.[0];
+        if (job) onRan?.({ op, job_id: job.job_id, provider: job.route?.provider ?? '' });
         onClose();
       })
       .catch((cause: unknown) =>
@@ -223,10 +245,48 @@ export function TransformsPanel({
             </label>
           ) : null}
 
+          {op === 'image_to_3d' ? (
+            <>
+              <label className="transforms-field">
+                {message('create.transform.model3d')}
+                <select
+                  className="transforms-model3d"
+                  value={(params.model3d as string) ?? 'trellis'}
+                  onChange={(event) => setParam('model3d', event.target.value)}
+                >
+                  {THREE_D_MODELS.map((model) => (
+                    <option key={model.id} value={model.id}>
+                      {message(model.labelKey)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                className="btn btn-ghost transforms-bg-first"
+                onClick={() => {
+                  setOp('bg_remove');
+                  setParams({});
+                }}
+              >
+                {message('create.transform.bgFirst')}
+              </button>
+            </>
+          ) : null}
+
+          {needsKey && op === 'image_to_3d' ? (
+            <p className="transforms-needs-key" role="status">
+              {message('create.transform.needsFal3d')}{' '}
+              <a href="/settings/providers">{message('create.transform.connectFal')}</a>
+            </p>
+          ) : null}
+
           <p className="transforms-cost">
             {estimateUsd === null
               ? message('create.transform.costUnknown')
-              : message('create.transform.cost').replace('{price}', `$${estimateUsd.toFixed(2)}`)}
+              : op === 'image_to_3d'
+                ? threeDStrip(estimateUsd, etaSeconds, message('create.transform.oneModel'))
+                : message('create.transform.cost').replace('{price}', `$${estimateUsd.toFixed(2)}`)}
           </p>
 
           {error ? (
@@ -240,7 +300,7 @@ export function TransformsPanel({
               ? message('create.transform.running')
               : message('create.transform.run').replace(
                   '{price}',
-                  estimateUsd === null ? '—' : `$${estimateUsd.toFixed(2)}`,
+                  estimateUsd === null ? '—' : formatUsd(estimateUsd),
                 )}
           </button>
         </div>

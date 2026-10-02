@@ -16,7 +16,7 @@ import {
   type PriceRule,
   type PriceSnapshot,
 } from './manifest.js';
-import { registrySeed, seedSnapshot } from './seed/index.js';
+import { registrySeed, seedModel, seedSnapshot } from './seed/index.js';
 
 export function priceSummary(ruleInput: PriceRule): { unit: string; amount: number } {
   const rule = ruleInput.kind === 'provider_estimate' ? parsePriceRule(ruleInput.fallback) : ruleInput;
@@ -146,7 +146,9 @@ export async function loadRegistry(state: DatabaseState): Promise<StoredRegistry
       retention_days: row.retentionDays,
       moderation: row.moderation ?? { http: null, shape: 'unknown', billed: 'maybe' },
       quality_tier: row.qualityTier ?? 'standard',
-      eta_s: 30,
+      // The models table has no ETA column; the seed row carries it, and a
+      // model the seed does not know keeps the manifest default.
+      eta_s: seedModel(provider, row.modelId)?.eta_s ?? 30,
       tags: row.tags ?? [],
       training_on_inputs: (row.tags ?? []).includes('training_on_inputs'),
       enabled: !(row.tags ?? []).includes('disabled'),

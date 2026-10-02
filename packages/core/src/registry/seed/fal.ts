@@ -577,6 +577,7 @@ export const falSeed: ModelManifest[] = [
     capabilities: ['3d'],
     price_rule: { kind: 'flat_per_unit', unit: 'generation', amount: 0.02, extras: [] },
     quality_tier: 'draft',
+    eta_s: 40,
     supports: { resolutions: [], references_max: 1, aspect_ratios: ['auto'] },
     media_roles: referenceRoles(1),
   }),

@@ -16,7 +16,8 @@ export type TransformOp =
   | 'lipsync'
   | 'dubbing'
   | 'voice_change'
-  | 'transcribe';
+  | 'transcribe'
+  | 'image_to_3d';
 
 export interface TransformTab {
   op: TransformOp;
@@ -39,7 +40,30 @@ export const TRANSFORM_TABS: TransformTab[] = [
   { op: 'dubbing', labelKey: 'create.transform.dubbing', available: true, requires: ['language'] },
   { op: 'voice_change', labelKey: 'create.transform.voiceChange', available: true, requires: ['voice'] },
   { op: 'transcribe', labelKey: 'create.transform.transcribe', available: true, requires: [] },
+  // Image → 3D (F-CRE-15, PRD-05 §15): one source image to a GLB on fal.
+  { op: 'image_to_3d', labelKey: 'create.transform.imageTo3d', available: true, requires: [] },
 ];
+
+// The two fal 3D models the Image → 3D tab offers: Trellis by default, and
+// Hunyuan3D v3 as the premium choice (PRD-05 §15).
+export const THREE_D_MODELS = [
+  { id: 'trellis', labelKey: 'create.transform.model3dTrellis' },
+  { id: 'hunyuan3d', labelKey: 'create.transform.model3dHunyuan' },
+] as const;
+
+// A cost in dollars, to the cent unless the price has a fraction of a cent, as
+// Hunyuan3D's $0.375 does (PRD-05 §15 acceptance 3).
+export function formatUsd(value: number): string {
+  const cents = value * 100;
+  return `$${value.toFixed(Math.abs(Math.round(cents) - cents) < 1e-9 ? 2 : 3)}`;
+}
+
+// The Image → 3D strip: "$0.02 · 1 model · ~40 s" (PRD-05 §15 acceptance 3).
+export function threeDStrip(usd: number, etaSeconds: number | null, unitLabel: string): string {
+  const parts = [formatUsd(usd), unitLabel];
+  if (etaSeconds !== null && etaSeconds > 0) parts.push(`~${Math.round(etaSeconds)} s`);
+  return parts.join(' · ');
+}
 
 export function tabFor(op: TransformOp): TransformTab {
   return TRANSFORM_TABS.find((tab) => tab.op === op) ?? TRANSFORM_TABS[0]!;

@@ -264,7 +264,23 @@
       "run": "Run · {price}",
       "running": "Running…",
       "failed": "The transform could not be run. Try again.",
-      "unavailable": "This operation is not available on this connection."
+      "unavailable": "This operation is not available on this connection.",
+      "imageTo3d": "Image → 3D",
+      "model3d": "3D model",
+      "model3dTrellis": "Trellis · $0.02 (default)",
+      "model3dHunyuan": "Hunyuan3D v3 · $0.375 (premium)",
+      "bgFirst": "Remove background first (+$0.018)",
+      "needsFal3d": "3D needs a fal key.",
+      "connectFal": "Connect fal",
+      "oneModel": "1 model"
+    },
+    "glb": {
+      "label": "3D model viewer",
+      "wireframe": "Wireframe",
+      "autoRotate": "Auto-rotate",
+      "openIn3dApp": "Open in your 3D app",
+      "loading": "Loading model…",
+      "failed": "This model could not be displayed. Open it in your 3D app instead."
     },
     "tile": {
       "queued": "Queued at {provider}",

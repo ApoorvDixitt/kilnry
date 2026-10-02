@@ -123,6 +123,27 @@ function falPayload(request: CanonicalRequest): Record<string, unknown> {
   return { ...extra, ...payload };
 }
 
+// Image → 3D takes one source image under a model-specific field and no prompt:
+// Trellis reads `image_url`, Hunyuan3D v3 reads `input_image_url` (F-CRE-15).
+function fal3dPayload(request: CanonicalRequest, model: string): Record<string, unknown> {
+  const extra = { ...(request.params.extra ?? {}) };
+  delete extra.model;
+  delete extra.route_why;
+  const field = /hunyuan3d/i.test(model) ? 'input_image_url' : 'image_url';
+  if (field in extra || 'image_url' in extra) {
+    throw new KilnryError('INVALID_INPUT', `Provider passthrough cannot override canonical field ${field}.`);
+  }
+  const source = request.medias.find((media) => media.role === 'reference' || media.role === 'start_frame');
+  if (!source?.url) {
+    throw new KilnryError('INVALID_INPUT', '3D generation needs one uploaded source image.');
+  }
+  return {
+    ...extra,
+    [field]: source.url,
+    ...(request.params.seed === undefined ? {} : { seed: request.params.seed }),
+  };
+}
+
 // A training submit uses a different shape from generation: the zipped images,
 // the trigger word and the step count (F-CHR-07, TRD-14 §10.1). The orchestrator
 // uploads the zip and passes its URL plus the training options in params.extra.
@@ -160,6 +181,9 @@ function outputs(body: Record<string, unknown>): ProviderOutput[] {
     ['video', 'video', 'video/mp4'],
     ['audio', 'audio', 'audio/mpeg'],
     ['model', '3d', 'model/gltf-binary'],
+    // Trellis answers `model_mesh`, Hunyuan3D v3 answers `model_glb` (F-CRE-15).
+    ['model_mesh', '3d', 'model/gltf-binary'],
+    ['model_glb', '3d', 'model/gltf-binary'],
   ] as const) {
     const value = body[key];
     if (typeof value === 'object' && value !== null && 'url' in value && typeof value.url === 'string') {
@@ -267,7 +291,11 @@ export const falAdapter: ProviderAdapter = {
     if (typeof model !== 'string' || !model)
       throw new KilnryError('INVALID_INPUT', 'A fal model id is required.');
     const training = request.capability === 'train_lora' || request.capability === 'train_identity';
-    const payload = training ? falTrainingPayload(request) : falPayload(request);
+    const payload = training
+      ? falTrainingPayload(request)
+      : request.capability === '3d'
+        ? fal3dPayload(request, model)
+        : falPayload(request);
     const response = await requestJson<FalSubmit>({
       provider: 'fal',
       fetch: context.fetch,
