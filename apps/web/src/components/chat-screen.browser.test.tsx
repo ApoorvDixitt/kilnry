@@ -5,7 +5,8 @@
 
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { message } from '../lib/messages';
 import { ChatScreen, chatGenerationCost, type ChatModelOption } from './chat-screen';
 
 let root: Root | undefined;
@@ -99,6 +100,48 @@ describe('ChatScreen (F-CHT-04)', () => {
     const host = await render(<ChatScreen sessionId="session-1" models={models} />);
     const send = host.querySelector<HTMLButtonElement>('.chat-composer button');
     expect(send?.disabled).toBe(true);
+  });
+
+  // This fails if the budget waits for the server before showing, if an older
+  // answer can overwrite a newer change, or if a failed save leaves the screen
+  // showing a cap the server never stored (S-24's "$1.00" check, F-CHT-02).
+  it('shows a new session cap at once, keeps the newest, and rolls back a failed save', async () => {
+    const answers: Array<(ok: boolean) => void> = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        (input: RequestInfo | URL) =>
+          new Promise<Response>((resolve) => {
+            if (!String(input).includes('/api/chat/session')) {
+              resolve(Response.json({}));
+              return;
+            }
+            answers.push((ok) => resolve(new Response('{}', { status: ok ? 200 : 500 })));
+          }),
+      ),
+    );
+    const host = await render(<ChatScreen sessionId="session-1" models={models} sessionBudgetUsd={5} />);
+    const input = host.querySelector<HTMLInputElement>('input[aria-label="Session budget"]')!;
+    const type = async (value: string): Promise<void> => {
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(input, value);
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+    };
+    await type('2');
+    await type('1');
+    // Both changes are on their way; the screen already shows the newest.
+    expect(host.querySelector('.chat-budget')?.textContent).toBe('Session budget: $1.00');
+    // The newer answer lands first, then the older one: the newest still wins.
+    await act(async () => answers[1]!(true));
+    await act(async () => answers[0]!(true));
+    expect(host.querySelector('.chat-budget')?.textContent).toBe('Session budget: $1.00');
+    // A failed save puts back the cap the server holds.
+    await type('3');
+    await act(async () => answers[2]!(false));
+    expect(host.querySelector('.chat-budget')?.textContent).toBe('Session budget: $1.00');
+    expect(host.textContent).toContain(message('chat.failed'));
+    vi.unstubAllGlobals();
   });
 
   it('restores the divider position the user last chose', async () => {

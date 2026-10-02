@@ -370,22 +370,49 @@ export function ChatScreen({
     };
   }, [onDrag, stopDrag]);
 
+  // The session controls show the user's choice at once and send it; the newest
+  // request per control wins. Waiting for the answer before showing it left the
+  // controlled input on its old value, and two changes sent together could
+  // land out of order or be lost while the dev server compiled the route
+  // (F-CHT-02). A failed save puts back the value the server still holds.
+  const sessionRequest = useRef({ autonomy: 0, budget_usd: 0 });
+  const savedSession = useRef({
+    autonomy: sessionAutonomy ?? 'ask_first',
+    budget_usd: sessionBudgetUsd ?? 5,
+  });
+  const pendingSaves = useRef<Promise<void>>(Promise.resolve());
+
   async function updateSession(patch: {
     autonomy?: 'ask_first' | 'run_automatically';
     budget_usd?: number;
   }): Promise<void> {
     setControlError(undefined);
-    const response = await apiFetch('/api/chat/session', {
+    const field: 'autonomy' | 'budget_usd' = patch.autonomy !== undefined ? 'autonomy' : 'budget_usd';
+    const ticket = ++sessionRequest.current[field];
+    if (patch.autonomy) setAutonomy(patch.autonomy);
+    if (typeof patch.budget_usd === 'number') setBudgetUsd(patch.budget_usd);
+    const save = apiFetch('/api/chat/session', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ session_id: sessionId, ...patch }),
-    });
-    if (!response.ok) {
-      setControlError(message('chat.failed'));
+    }).then(
+      (response) => response.ok,
+      // A network failure is a failed save: the control rolls back below.
+      () => false,
+    );
+    // A message sent now waits for this save, so its turn reads the new value.
+    pendingSaves.current = Promise.all([pendingSaves.current, save]).then(() => undefined);
+    const ok = await save;
+    // A newer change to the same control has been sent; its answer decides.
+    if (ticket !== sessionRequest.current[field]) return;
+    if (ok) {
+      if (patch.autonomy) savedSession.current.autonomy = patch.autonomy;
+      if (typeof patch.budget_usd === 'number') savedSession.current.budget_usd = patch.budget_usd;
       return;
     }
-    if (patch.autonomy) setAutonomy(patch.autonomy);
-    if (typeof patch.budget_usd === 'number') setBudgetUsd(patch.budget_usd);
+    setControlError(message('chat.failed'));
+    if (patch.autonomy) setAutonomy(savedSession.current.autonomy);
+    if (typeof patch.budget_usd === 'number') setBudgetUsd(savedSession.current.budget_usd);
   }
 
   // No model, no chat: say what to do instead of showing an unusable screen.
@@ -418,7 +445,8 @@ export function ChatScreen({
       ),
     };
     setAttachments([]);
-    void sendMessage({ text }, { body });
+    // A cap or autonomy change still saving decides this turn, so send after it.
+    void pendingSaves.current.then(() => sendMessage({ text }, { body }));
   }
 
   const busy = status === 'submitted' || status === 'streaming';
