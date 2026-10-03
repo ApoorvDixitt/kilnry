@@ -127,7 +127,12 @@ jobs:
   # the client matrix needs clients installed on the build machine.
   e2e:
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    # The m6-gate shard is now a twelve-scenario render suite: every workflow
+    # drives real ffmpeg end to end and the faceless stills run alone renders
+    # about thirty ops, so the shard takes 20–30 minutes. The old 25-minute cap
+    # cancelled it mid-run; give it headroom while the other shards still finish
+    # in a few minutes.
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
