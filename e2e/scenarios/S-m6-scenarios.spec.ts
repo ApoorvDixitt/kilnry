@@ -11,6 +11,7 @@
 // used only for setup (a seeded product image and provider keys).
 
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 
@@ -145,6 +146,27 @@ function findRunFolder(project: string, slugPrefix: string): string | undefined 
   return match ? join(base, match) : undefined;
 }
 
+// Assert the run left a playable final video in its folder: an mp4 whose
+// ffprobe duration is greater than zero. The assemble steps run real ffmpeg (the
+// same binary CI uses, overridden locally to a libass build via KILNRY_FFPROBE),
+// so a run that cleared its render wrote real frames, not a manifest promise.
+// `named` is the file the run is expected to produce; when omitted, the newest
+// mp4 is probed.
+function assertFinalVideoOnDisk(folder: string, named?: string): number {
+  const ffprobe = process.env.KILNRY_FFPROBE ?? 'ffprobe';
+  const files = readdirSync(folder).filter((name) => /\.mp4$/.test(name));
+  const target = named && files.includes(named) ? named : files.sort().at(-1);
+  expect(target, `the run folder has a final mp4${named ? ` (${named})` : ''}`).toBeTruthy();
+  const out = execFileSync(
+    ffprobe,
+    ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', join(folder, target!)],
+    { encoding: 'utf8' },
+  ).trim();
+  const duration = Number(out);
+  expect(Number.isFinite(duration) && duration > 0, `${target} has a real duration (got ${out})`).toBe(true);
+  return duration;
+}
+
 interface ManifestStep {
   step_id?: string;
   kind?: string;
@@ -229,11 +251,22 @@ async function driveRun(
   // or cancelled fails here with its step errors, and the folder and manifest
   // are read only once the run has completed.
   const runId = new URL(page.url()).pathname.split('/').at(-1)!;
-  const readRun = async (): Promise<RunView> => {
+  const readRun = async (): Promise<RunView | 'rendering'> => {
     const answer = await page.evaluate(async (id) => {
-      const response = await fetch(`/api/runs/${encodeURIComponent(id)}`);
-      return { status: response.status, body: await response.text() };
+      // Under a long, busy shard the single-threaded server can be mid-write and
+      // not answer this instant, so the browser fetch rejects at the network
+      // layer. Report that as status 0 — the server is busy, a real observable
+      // condition — so the caller waits for the next poll tick instead of
+      // treating one unanswered GET as a product failure. This is not a swallowed
+      // error: an HTTP error status below still throws.
+      try {
+        const response = await fetch(`/api/runs/${encodeURIComponent(id)}`);
+        return { status: response.status, body: await response.text() };
+      } catch {
+        return { status: 0, body: '' };
+      }
     }, runId);
+    if (answer.status === 0) return 'rendering';
     if (answer.status !== 200) {
       throw new Error(`GET /api/runs/${runId} answered ${answer.status}: ${answer.body.slice(0, 300)}`);
     }
@@ -247,9 +280,16 @@ async function driveRun(
     // two seconds so this and the run view's own reads stay inside the rate
     // bucket (F-SET-08).
     await expect
-      .poll(async () => (await readRun()).status, { timeout: 420_000, intervals: [2_000] })
+      .poll(
+        async () => {
+          const view = await readRun();
+          return view === 'rendering' ? 'rendering' : view.status;
+        },
+        { timeout: 420_000, intervals: [2_000] },
+      )
       .toMatch(/^(awaiting_approval|completed|failed|cancelled)$/);
     const run = await readRun();
+    if (run === 'rendering') continue;
     if (run.status === 'completed') break;
     if (run.status !== 'awaiting_approval') {
       const errors = run.steps
@@ -259,15 +299,18 @@ async function driveRun(
     }
     const waiting = run.steps.find((step) => step.status === 'waiting');
     expect(waiting, 'a run awaiting approval has a waiting step').toBeDefined();
-    // The run view shows the checkpoint's card; approving answers the step. The
-    // card's own button fires the request without awaiting it and the SSE reload
-    // can swap the card mid-click, so assert the card is shown (the interface the
+    // The run view shows the checkpoint's card; approving answers the step and
+    // enqueues the drive, which runs in the `runs` worker (TRD-12 §6). The card's
+    // own button fires the request without awaiting it and the SSE reload can
+    // swap the card mid-click, so assert the card is shown (the interface the
     // user sees) and drive the same /approve the button drives, awaiting it.
     await expect(card).toBeVisible({ timeout: 30_000 });
     await expect(card.getByRole('button', { name: /Approve/i })).toBeVisible();
-    // Drive the same /approve the card's button drives, awaiting it. A 429 is
-    // explicit backpressure (the run view polls the same server), not a failure,
-    // so honour its retry-after and try again, bounded; any other non-200 fails.
+    // Drive the same /approve the card's button drives, awaiting it. Approve now
+    // records the decision, enqueues one drive and returns fast, so this does not
+    // hold a request open for the render. A 429 is explicit backpressure (the run
+    // view polls the same server), not a failure, so honour it and retry,
+    // bounded; any other non-200 fails.
     await expect
       .poll(
         async () => {
@@ -293,14 +336,18 @@ async function driveRun(
         { timeout: 90_000, intervals: [3_000] },
       )
       .toBe(true);
-    // The approve resumes the run synchronously to its next pause or the end,
-    // which for a stills render is a long foreach, so wait on the run leaving
-    // this checkpoint: the clicked step is no longer waiting (it ran, or the run
-    // moved to a different checkpoint, completed, or failed).
+    // The enqueued drive renders on from here in the `runs` worker, for the
+    // stills path a long foreach. Wait on the run leaving this checkpoint: the
+    // clicked step is no longer waiting (it ran, the run moved to another
+    // checkpoint, completed, or failed). The loop then re-reads the run status
+    // at the top and waits for the terminal state within the same budget.
     await expect
       .poll(
         async () => {
           const next = await readRun();
+          // The server is busy and did not answer this instant; the run is still
+          // working, which is what this poll waits out.
+          if (next === 'rendering') return false;
           const same = next.steps.find((step) => step.step_id === waiting!.step_id);
           return same?.status !== 'waiting' || next.status === 'completed' || next.status === 'failed';
         },
@@ -439,10 +486,10 @@ test.describe('M6 workflows acceptance', () => {
     const clipRan = manifest.steps!.some((step) => (step.step_id ?? '').includes('clip'));
     expect(clipRan).toBe(true);
     // The storyboard boards and clips are Library assets recorded in the manifest;
-    // the final MP4 is an assemble whose asset and outputs.final the manifest
-    // records (F-WFL-09). The mock does not run ffmpeg, so the video is asserted
-    // through the manifest, not as raw bytes, and generate assets live in the
-    // Library rather than being copied into the run folder unless exported.
+    // the final MP4 is an assemble that runs real ffmpeg. This golden case stops
+    // at the storyboard checkpoint, so it asserts the boards and clips as Library
+    // assets, which live in the Library rather than the run folder unless
+    // exported.
     const boardAssets = completedAssets(manifest, 'generate');
     expect(boardAssets.some((a) => (a.asset_id ?? '') !== '')).toBe(true);
     // Any file the run did copy into its folder carries its sidecar.
@@ -473,7 +520,7 @@ test.describe('M6 workflows acceptance', () => {
     await ensureProvider(page, 'openrouter', OPENROUTER_KEY);
     const product = await seedProduct(page, 'Ugc_A', 'serum.png');
     expect(product).not.toBe('');
-    const { manifest } = await driveRun(page, {
+    const { folder, manifest } = await driveRun(page, {
       workflowId: 'kilnry-ugc-ad',
       folder: 'Ugc_A',
       slugPrefix: 'UGC_ad_',
@@ -492,24 +539,30 @@ test.describe('M6 workflows acceptance', () => {
       (s) => s.kind === 'analyze' && s.status === 'completed',
     );
     expect(analyzeStructured).toBe(true);
-    // The assemble/export final landed with a real asset id and an mp4 path in
-    // the manifest (F-WFL-09); the mock does not run ffmpeg, so the video is
-    // asserted through the manifest, while the storyboard boards (generates) wrote
-    // real image bytes to disk.
+    // The assemble/export final landed with a real asset id (F-WFL-09); the
+    // assemble runs real ffmpeg, so the burned final is on disk as
+    // final_captioned.mp4 with a real duration, while the storyboard boards
+    // (generates) wrote real image bytes to disk.
     const finalAssets = [...completedAssets(manifest, 'assemble'), ...completedAssets(manifest, 'export')];
     expect(finalAssets.some((a) => (a.asset_id ?? '') !== '')).toBe(true);
     // The manifest resolves outputs.final to that assembled/exported asset.
     expect(manifest.outputs?.final ?? '').not.toBe('');
+    assertFinalVideoOnDisk(folder, 'final_captioned.mp4');
     // The storyboard boards are generate assets recorded in the manifest (Library
     // assets, not necessarily copied into the run folder).
     expect(completedAssets(manifest, 'generate').some((a) => (a.asset_id ?? '') !== '')).toBe(true);
   });
 
   test('@m6 kilnry-faceless-video runs in stills mode', async ({ page }) => {
-    test.setTimeout(600_000);
+    // The heaviest acceptance run: stills mode generates the reference roster,
+    // then on approval renders six narration voiceovers, six held still-clips,
+    // concat, music bed, caption burn, thumbnail and export — about thirty real
+    // ffmpeg ops. It needs a larger wall-clock budget than the others (default;
+    // adjustable).
+    test.setTimeout(1_200_000);
     await ensureProvider(page, 'fal', FAL_KEY);
     await ensureProvider(page, 'openrouter', OPENROUTER_KEY);
-    const { manifest } = await driveRun(page, {
+    const { folder, manifest } = await driveRun(page, {
       workflowId: 'kilnry-faceless-video',
       folder: 'Faceless_A',
       slugPrefix: 'Faceless_narrated_video_',
@@ -529,19 +582,16 @@ test.describe('M6 workflows acceptance', () => {
     expect(completedOfKind(manifest, 'generate')).toBeGreaterThan(0);
     expect(completedOfKind(manifest, 'analyze')).toBeGreaterThan(0);
     expect(completedAssets(manifest, 'generate').some((a) => (a.asset_id ?? '') !== '')).toBe(true);
-    // The run reaches its assets-approval checkpoint. If it clears the gate and
-    // renders on to assemble, the assembled video's asset and outputs.final are
-    // recorded (F-WFL-09); assert those only when the run got that far, so the
-    // test states the truth for both the paused and the completed outcome without
-    // hiding either. The block→assemble path is proven end to end by the other
-    // assemble-final workflows (ugc-ad, subtitles) and the host fixture.
+    // The run clears the soft approve_assets gate and renders on through the
+    // narration and still-clip foreaches to concat, music, caption burn and
+    // export. driveRun only returns once the manifest reads completed, so the
+    // assembled final has a real asset id, outputs.final resolves, and the burned
+    // final_captioned.mp4 is on disk with a real duration.
     const assembled = [...completedAssets(manifest, 'assemble'), ...completedAssets(manifest, 'export')];
-    if (manifest.status === 'completed') {
-      expect(assembled.some((a) => (a.asset_id ?? '') !== '')).toBe(true);
-      expect(manifest.outputs?.final ?? '').not.toBe('');
-    } else {
-      expect(manifest.status).toBe('awaiting_approval');
-    }
+    expect(manifest.status).toBe('completed');
+    expect(assembled.some((a) => (a.asset_id ?? '') !== '')).toBe(true);
+    expect(manifest.outputs?.final ?? '').not.toBe('');
+    assertFinalVideoOnDisk(folder, 'final_captioned.mp4');
   });
 
   test('@m6 kilnry-product-photoshoot renders variants', async ({ page }) => {
@@ -617,8 +667,7 @@ test.describe('M6 workflows acceptance', () => {
     const files = readdirSync(folder);
     expect(files.some((name) => /\.mp4$/.test(name))).toBe(true);
     expect(files.some((name) => /\.json$/.test(name) && name !== 'run.kilnry.json')).toBe(true);
-    const captioned = join(folder, files.find((name) => /captioned\.mp4$/.test(name)) ?? 'captioned.mp4');
-    expect(existsSync(captioned)).toBe(true);
+    assertFinalVideoOnDisk(folder, 'captioned.mp4');
   });
 
   test('@m6 kilnry-ugc-ad actual cost is within 15 percent of its plan estimate', async ({ page }) => {
@@ -627,7 +676,7 @@ test.describe('M6 workflows acceptance', () => {
     await ensureProvider(page, 'openrouter', OPENROUTER_KEY);
     const product = await seedProduct(page, 'Cost_A', 'serum.png');
     expect(product).not.toBe('');
-    const { manifest } = await driveRun(page, {
+    const { folder, manifest } = await driveRun(page, {
       workflowId: 'kilnry-ugc-ad',
       folder: 'Cost_A',
       slugPrefix: 'UGC_ad_',
@@ -645,5 +694,7 @@ test.describe('M6 workflows acceptance', () => {
     expect(Math.abs(summed - spent)).toBeLessThanOrEqual(0.01);
     // Actual within ±15 percent of the plan estimate.
     expect(Math.abs(spent - estimate)).toBeLessThanOrEqual(0.15 * estimate);
+    // The burned final is on disk with a real duration (F-WFL-07).
+    assertFinalVideoOnDisk(folder, 'final_captioned.mp4');
   });
 });
