@@ -46,6 +46,7 @@ import {
   STILL_IMAGE,
 } from '@kilnry/media';
 import { burnCaptions } from '@kilnry/media';
+import { splitRowSheet } from '@kilnry/media';
 import { mkdir, readFile } from 'node:fs/promises';
 import { CanonicalRequestSchema, type CanonicalRequest, type RouteConstraints } from '@kilnry/core';
 import { analyzeTool, capabilityFor, type ToolServices } from '@kilnry/core';
@@ -75,6 +76,7 @@ import {
   type WorkflowFile,
 } from '@kilnry/workflows';
 import type { JobEngine } from '@kilnry/core/jobs';
+import { applyInputDefaults } from '@kilnry/workflows';
 
 // ── catalogue ────────────────────────────────────────────────────────────────
 
@@ -228,6 +230,17 @@ async function characterResolver(db: DatabaseState): Promise<(handle: string) =>
 
 // ── planning ─────────────────────────────────────────────────────────────────
 
+// The input field names whose x-kilnry widget is "character", so a plan can
+// check the handle resolves before the templates read it.
+function characterInputFields(workflow: WorkflowFile): string[] {
+  const schema = workflow.inputs as
+    { properties?: Record<string, { 'x-kilnry'?: { widget?: string } }> } | undefined;
+  const properties = schema?.properties ?? {};
+  return Object.entries(properties)
+    .filter(([, property]) => property['x-kilnry']?.widget === 'character')
+    .map(([name]) => name);
+}
+
 /**
  * Build a PlanContext bound to the engine: priceStep routes and estimates a
  * spending step through engine.estimate (which never spends), so the plan uses
@@ -241,7 +254,7 @@ function planContext(
     // Inputs default and validate against the workflow's JSON Schema. A full
     // JSON-Schema validation is layered in the drawer; here defaults are applied
     // and required inputs are trusted (the route validates the payload shape).
-    resolveInputs: (_workflow, inputs) => inputs,
+    resolveInputs: (workflow, inputs) => applyInputDefaults(workflow, inputs),
     // The synchronous planner only expands the graph; pricePlan then estimates
     // each spending leaf through the engine for the real total.
     priceStep: () => ({ estimate_usd: 0, eta_s: 0, why: 'priced at run' }),
@@ -261,7 +274,25 @@ export async function planWorkflow(
   const entry = getWorkflow(dataDir, workflowId);
   if (!entry) throw new KilnryError('NOT_FOUND', `No workflow called ${workflowId} is installed.`);
 
-  const ctx = planContext(fileRootsFor(entry), await characterResolver(db));
+  // A workflow that reads characters[inputs.<field>] cannot plan if that handle
+  // names no Character: the template reads undefined and throws deep in the
+  // planner. Resolve each character-typed input up front and refuse with a clear
+  // message instead (F-WFL-06).
+  const resolveChar = await characterResolver(db);
+  for (const field of characterInputFields(entry.workflow)) {
+    const handle = inputs[field];
+    if (typeof handle === 'string' && handle !== '') {
+      const resolved = resolveChar(handle) as { handle?: unknown };
+      if (!resolved || resolved.handle === undefined) {
+        throw new KilnryError(
+          'INVALID_INPUT',
+          `No Character @${handle.replace(/^@/, '')} is in the Library.`,
+        );
+      }
+    }
+  }
+
+  const ctx = planContext(fileRootsFor(entry), resolveChar);
   // Price each spending leaf through the engine estimate for the real total.
   const priced = await pricePlan(engine, entry.workflow, inputs, ctx);
   const runId = ulid();
@@ -1312,6 +1343,52 @@ async function assembleFile(
       ? step.output_name
       : `${node.step_id}${ffmpegExtension(op)}`;
   const targetRelative = join(run.folder, outputName);
+
+  // split_grid cuts a turnaround sheet into one asset per column with sharp
+  // (an internal assembly op, §6.3); each panel is indexed like a dropped file.
+  if (op === 'split_grid' && root !== '' && inputs.length > 0) {
+    const sourceAbs = await resolveInput(inputs[0]!);
+    const columns = typeof params.columns === 'number' ? params.columns : Number(params.columns) || 1;
+    const targets = await Promise.all(
+      Array.from({ length: Math.max(1, columns) }, (_, index) =>
+        resolveInRoot(root, join(run.folder, `${node.step_id}_${index + 1}.png`), { mustExist: false }),
+      ),
+    );
+    await mkdir(dirname(targets[0]!.abs), { recursive: true });
+    try {
+      await splitRowSheet(
+        sourceAbs,
+        targets.map((target) => target.abs),
+      );
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      return { outputs: {}, actual_usd: 0, status: 'failed', error: `split_grid failed: ${detail}` };
+    }
+    const assetIds: string[] = [];
+    for (let index = 0; index < targets.length; index += 1) {
+      const relative = join(run.folder, `${node.step_id}_${index + 1}.png`);
+      const indexed = await indexAsset(db, root, relative, run.libraryId);
+      const assetId = indexed.sidecar.asset_id;
+      await db.db
+        .insert(assetLineage)
+        .values({ childId: assetId, parentId: inputs[0]!, role: op })
+        .onConflictDoNothing();
+      await db.db
+        .update(assets)
+        .set({ runId: run.runId, stepId: node.step_id, source: 'assemble' })
+        .where(eq(assets.id, assetId));
+      assetIds.push(assetId);
+    }
+    return {
+      outputs: {
+        result: { asset_id: assetIds[0] ?? '', assets: assetIds },
+        asset: assetIds[0] ?? '',
+        assets: assetIds,
+      },
+      actual_usd: 0,
+      status: 'completed',
+    };
+  }
 
   // burn_captions renders a transcript into subtitles and burns them with
   // libass (TRD-09 §3.6). The transcript asset's JSON is read from disk; the

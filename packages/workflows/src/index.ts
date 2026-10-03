@@ -55,6 +55,7 @@ export {
 } from './validate.js';
 
 export { plan, renderStep, type Plan, type PlanStep, type PlanContext } from './planner.js';
+export { applyInputDefaults } from './defaults.js';
 
 export {
   execute,
