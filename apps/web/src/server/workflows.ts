@@ -45,7 +45,8 @@ import {
   runFfmpegOp,
   STILL_IMAGE,
 } from '@kilnry/media';
-import { mkdir } from 'node:fs/promises';
+import { burnCaptions } from '@kilnry/media';
+import { mkdir, readFile } from 'node:fs/promises';
 import { CanonicalRequestSchema, type CanonicalRequest, type RouteConstraints } from '@kilnry/core';
 import { analyzeTool, capabilityFor, type ToolServices } from '@kilnry/core';
 import { assets, assetTags, assetLineage, jobs, runSteps, runs, type DatabaseState } from '@kilnry/db';
@@ -1311,6 +1312,49 @@ async function assembleFile(
       ? step.output_name
       : `${node.step_id}${ffmpegExtension(op)}`;
   const targetRelative = join(run.folder, outputName);
+
+  // burn_captions renders a transcript into subtitles and burns them with
+  // libass (TRD-09 §3.6). The transcript asset's JSON is read from disk; the
+  // video is the step's input. Output is an .mp4.
+  if (op === 'burn_captions' && root !== '' && inputs.length > 0) {
+    const videoAbs = await resolveInput(inputs[0]!);
+    const transcriptRef = typeof params.transcript === 'string' ? params.transcript : '';
+    const outputAbs = (await resolveInRoot(root, targetRelative, { mustExist: false })).abs;
+    await mkdir(dirname(outputAbs), { recursive: true });
+    try {
+      const transcriptAbs = await resolveInput(transcriptRef);
+      const transcript = JSON.parse(await readFile(transcriptAbs, 'utf8')) as unknown;
+      await burnCaptions(videoAbs, transcript, outputAbs, {
+        ...(typeof params.look === 'string' ? { look: params.look as never } : {}),
+        ...(typeof params.safe_zone === 'string' ? { safeZone: params.safe_zone as never } : {}),
+        ...(typeof params.max_words === 'number' ? { maxWords: params.max_words } : {}),
+        ...(typeof params.max_chars === 'number' ? { maxChars: params.max_chars } : {}),
+      });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      return { outputs: {}, actual_usd: 0, status: 'failed', error: `burn_captions failed: ${detail}` };
+    }
+    const indexed = await indexAsset(db, root, targetRelative, run.libraryId);
+    const assetId = indexed.sidecar.asset_id;
+    await db.db
+      .insert(assetLineage)
+      .values({ childId: assetId, parentId: inputs[0]!, role: op })
+      .onConflictDoNothing();
+    await db.db
+      .update(assets)
+      .set({ runId: run.runId, stepId: node.step_id, source: 'assemble' })
+      .where(eq(assets.id, assetId));
+    return {
+      outputs: {
+        result: { asset_id: assetId, assets: [assetId] },
+        asset: assetId,
+        assets: [assetId],
+        path: targetRelative,
+      },
+      actual_usd: 0,
+      status: 'completed',
+    };
+  }
 
   // overlay_text draws a headline onto an image with sharp (no ffmpeg drawtext,
   // TRD-09 §2): render it, then index the PNG like any assembled output.
