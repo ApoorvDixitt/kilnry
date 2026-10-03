@@ -37,7 +37,14 @@ import { dirname } from 'node:path';
 import { and, eq, inArray } from 'drizzle-orm';
 import { KilnryError, loadConfig, loadRegistry, ulid, listCharacters, loadFullCharacter } from '@kilnry/core';
 import { indexAsset, libraryMarker, resolveInRoot } from '@kilnry/core';
-import { ffmpegExtension, isSupportedFfmpegOp, probeMedia, runFfmpegOp, STILL_IMAGE } from '@kilnry/media';
+import {
+  ffmpegExtension,
+  isSupportedFfmpegOp,
+  overlayText,
+  probeMedia,
+  runFfmpegOp,
+  STILL_IMAGE,
+} from '@kilnry/media';
 import { mkdir } from 'node:fs/promises';
 import { CanonicalRequestSchema, type CanonicalRequest, type RouteConstraints } from '@kilnry/core';
 import { analyzeTool, capabilityFor, type ToolServices } from '@kilnry/core';
@@ -1304,6 +1311,46 @@ async function assembleFile(
       ? step.output_name
       : `${node.step_id}${ffmpegExtension(op)}`;
   const targetRelative = join(run.folder, outputName);
+
+  // overlay_text draws a headline onto an image with sharp (no ffmpeg drawtext,
+  // TRD-09 §2): render it, then index the PNG like any assembled output.
+  if (op === 'overlay_text' && root !== '' && inputs.length > 0) {
+    const sourceAbs = await resolveInput(inputs[0]!);
+    const outputAbs = (await resolveInRoot(root, targetRelative, { mustExist: false })).abs;
+    await mkdir(dirname(outputAbs), { recursive: true });
+    try {
+      await overlayText(sourceAbs, outputAbs, {
+        text: String(params.text ?? ''),
+        ...(typeof params.position === 'string' ? { position: params.position } : {}),
+        ...(typeof params.stroke === 'boolean' ? { stroke: params.stroke } : {}),
+        ...(typeof params.font === 'string' ? { font: params.font } : {}),
+        ...(typeof params.color === 'string' ? { color: params.color } : {}),
+      });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      return { outputs: {}, actual_usd: 0, status: 'failed', error: `overlay_text failed: ${detail}` };
+    }
+    const indexed = await indexAsset(db, root, targetRelative, run.libraryId);
+    const assetId = indexed.sidecar.asset_id;
+    await db.db
+      .insert(assetLineage)
+      .values({ childId: assetId, parentId: inputs[0]!, role: op })
+      .onConflictDoNothing();
+    await db.db
+      .update(assets)
+      .set({ runId: run.runId, stepId: node.step_id, source: 'assemble' })
+      .where(eq(assets.id, assetId));
+    return {
+      outputs: {
+        result: { asset_id: assetId, assets: [assetId] },
+        asset: assetId,
+        assets: [assetId],
+        path: targetRelative,
+      },
+      actual_usd: 0,
+      status: 'completed',
+    };
+  }
 
   // Render the output for real through the same local ffmpeg path kilnry_ffmpeg
   // uses (TRD-12 §6: assemble → kilnry_ffmpeg.execute, in-process, no provider),

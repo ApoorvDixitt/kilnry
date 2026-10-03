@@ -150,6 +150,28 @@ describe('assembly ops on a real ffmpeg (F-WFL-06, TRD-09 §3)', () => {
     expect(probe.duration_s ?? 0).toBeLessThan(2.6);
   });
 
+  it.skipIf(!ffmpegAvailable)('overlays an image onto a video within a time window', async () => {
+    const out = join(root, 'overlaid.mp4');
+    await runFfmpegOp('overlay_image', [sound, still], out, {
+      position: 'top_right',
+      width_pct: 40,
+      margin_px: 8,
+      start: 0,
+      end: 1,
+    });
+    const probe = await probeMedia(out);
+    expect(probe.mime).toBe('video/mp4');
+    expect(probe.has_audio).toBe(true);
+  });
+
+  it.skipIf(!ffmpegAvailable)('normalises audio loudness, keeping the video stream', async () => {
+    const out = join(root, 'normalised.mp4');
+    await runFfmpegOp('normalize_audio', [sound], out, { target_lufs: -16, true_peak_dbtp: -1.5 });
+    const probe = await probeMedia(out);
+    expect(probe.has_audio).toBe(true);
+    expect(probe.mime).toBe('video/mp4');
+  });
+
   it('rejects concat with no inputs without touching ffmpeg', () => {
     expect(() => ffmpegArgs('concat', [], '/out.mp4')).toThrow();
   });

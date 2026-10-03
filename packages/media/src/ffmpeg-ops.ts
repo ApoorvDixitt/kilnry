@@ -26,6 +26,8 @@ export const FFMPEG_OPS = [
   'mux_audio',
   'speed',
   'loop',
+  'overlay_image',
+  'normalize_audio',
 ] as const;
 
 export type FfmpegOp = (typeof FFMPEG_OPS)[number];
@@ -39,6 +41,7 @@ export function ffmpegExtension(op: string): string {
   if (op === 'gif') return '.gif';
   if (op === 'extract_audio') return '.mp3';
   if (op === 'thumbnail' || op === 'sprite_sheet') return '.png';
+  if (op === 'overlay_text') return '.png';
   if (op === 'extract_frames') return '_%04d.png';
   return '.mp4';
 }
@@ -255,6 +258,55 @@ export function ffmpegArgs(
         output,
       ];
     }
+    case 'overlay_image': {
+      // A watermark or site shot composited onto a video (TRD-09 §3.4). The
+      // overlay is scaled to width_pct of the base and placed by position; an
+      // optional window shows it only between start and end.
+      const overlay = inputs[1];
+      if (!overlay) throw new Error('Overlay needs a base and an overlay image.');
+      const scalePct = num('width_pct', 30) / 100;
+      const margin = num('margin_px', 24);
+      const opacity = num('opacity', 1);
+      const [x, y] = overlayPosition(String(params.position ?? 'bottom_right'), margin);
+      const window =
+        params.start !== undefined && params.end !== undefined
+          ? `:enable='between(t,${num('start', 0)},${num('end', 0)})'`
+          : '';
+      return [
+        ...base,
+        '-i',
+        input!,
+        '-i',
+        overlay,
+        '-filter_complex',
+        `[1:v]format=rgba,scale=iw*${scalePct}:-1,colorchannelmixer=aa=${opacity}[ov];` +
+          `[0:v][ov]overlay=x=${x}:y=${y}${window}[v]`,
+        '-map',
+        '[v]',
+        '-map',
+        '0:a?',
+        '-c:v',
+        'libx264',
+        '-crf',
+        '18',
+        '-c:a',
+        'copy',
+        output,
+      ];
+    }
+    case 'normalize_audio':
+      // Loudness normalise to a target LUFS and true peak (TRD-09 §3.18). A
+      // single-pass loudnorm, which is enough for the workflow bed and voice.
+      return [
+        ...base,
+        '-i',
+        input!,
+        '-af',
+        `loudnorm=I=${num('target_lufs', -16)}:TP=${num('true_peak_dbtp', -1.5)}:LRA=${num('lra', 11)}`,
+        '-c:v',
+        'copy',
+        output,
+      ];
     case 'probe':
       // Probe is handled by probeMedia in the tool, not by an FFmpeg render.
       return [];
@@ -281,6 +333,29 @@ function targetFps(params: Record<string, unknown>): number {
   const target = (params.target ?? {}) as Record<string, unknown>;
   const fps = Number(target.fps);
   return Number.isFinite(fps) && fps > 0 ? Math.round(fps) : 30;
+}
+
+// ffmpeg overlay x/y expressions for a position with an edge margin (TRD-09
+// §3.4): main_w/main_h are the base, overlay_w/overlay_h the overlay.
+function overlayPosition(position: string, margin: number): [string, string] {
+  const left = `${margin}`;
+  const right = `main_w-overlay_w-${margin}`;
+  const hCenter = `(main_w-overlay_w)/2`;
+  const top = `${margin}`;
+  const bottom = `main_h-overlay_h-${margin}`;
+  const vCenter = `(main_h-overlay_h)/2`;
+  const map: Record<string, [string, string]> = {
+    top_left: [left, top],
+    top: [hCenter, top],
+    top_right: [right, top],
+    left: [left, vCenter],
+    center: [hCenter, vCenter],
+    right: [right, vCenter],
+    bottom_left: [left, bottom],
+    bottom: [hCenter, bottom],
+    bottom_right: [right, bottom],
+  };
+  return map[position] ?? map.bottom_right!;
 }
 
 export const STILL_IMAGE = /\.(png|jpe?g|webp|avif|bmp|tiff?)$/i;
