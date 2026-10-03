@@ -760,7 +760,7 @@ describe('a gated step still does its own work in the shipped workflows (F-WFL-0
                   shots: [`shot ${i}`],
                 })),
                 scenes: Array.from({ length: 6 }, (_, i) => ({ line: `Scene ${i + 1}.`, visual: `v${i}` })),
-                roster: [],
+                roster: [{ kind: 'location', name: 'Valley', description: 'a river valley' }],
                 line: 'A spoken line.',
               },
               score: 0.9,
@@ -836,6 +836,16 @@ describe('a gated step still does its own work in the shipped workflows (F-WFL-0
     [
       'kilnry-narrator',
       { mode: 'takes', lines: ['Hello there.', 'Second line.'], voice: 'voice-narrator-1' },
+    ],
+    [
+      'kilnry-faceless-video',
+      {
+        topic: 'How rivers shape a valley',
+        duration_s: 60,
+        voice: 'voice-narrator-1',
+        motion_mode: 'stills',
+        channel_type: 'explainer',
+      },
     ],
     ['kilnry-product-photoshoot', { product: 'asset-product-1', count: 2 }],
     [

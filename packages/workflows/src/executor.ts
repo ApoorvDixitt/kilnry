@@ -62,6 +62,12 @@ export interface RunStep {
    * lets a resumed run tell "approved, still to run" from "finished" (F-WFL-04).
    */
   approval_cleared?: boolean;
+  /**
+   * A foreach placeholder whose `over` reads a step output: it carries the
+   * instance prefix to expand its children under once that step is ready
+   * (lazy foreach expansion). Absent on every ordinary node.
+   */
+  deferred_prefix?: string;
 }
 
 export interface RunState {
@@ -138,6 +144,33 @@ function expandRun(steps: Step[], scope: Scope, prefix: string, extra: Record<st
       continue;
     }
     if (step.kind === 'foreach') {
+      // A foreach whose `over` reads a step output cannot be counted until that
+      // step has produced it. Expanding now (before the step runs) would give
+      // zero iterations. Emit a deferred placeholder the run loop expands once
+      // the steps the `over` reads are ready (the same lazy treatment a branch
+      // gets). A foreach over inputs, defaults or vars has no such dependency and
+      // expands straight away.
+      const overDeps = [...JSON.stringify(step.over).matchAll(/steps\.([a-z0-9][a-z0-9_-]*)/g)].map(
+        (match) => match[1]!,
+      );
+      if (overDeps.length > 0) {
+        out.push({
+          step_id: `${step.id}@deferred`,
+          instance_id: `${prefix}${step.id}@deferred`,
+          kind: 'foreach',
+          step,
+          status: 'pending',
+          depends_on: [...step.depends_on, ...overDeps],
+          scope_extra: extra,
+          outputs: {},
+          actual_usd: 0,
+          attempts: 0,
+          adjustments: [],
+          approval: false,
+          deferred_prefix: prefix,
+        });
+        continue;
+      }
       const over = renderString(step.over, freshScope(scope, extra));
       const items = Array.isArray(over) ? over : [];
       items.forEach((item, index) => {
@@ -403,7 +436,12 @@ export async function execute(
     // it means every child instance of that foreach (`clips[k].*`). Resolve those
     // so a step reading `steps.clips.assets` waits for the whole foreach.
     const prefix = `${id}[`;
-    return state.steps.filter((node) => node.instance_id.startsWith(prefix));
+    const children = state.steps.filter((node) => node.instance_id.startsWith(prefix));
+    if (children.length > 0) return children;
+    // A deferred foreach has not expanded its children yet; a dependant must
+    // wait on the pending placeholder so it does not run before the foreach
+    // produces its instances (lazy foreach).
+    return state.steps.filter((node) => node.step_id === `${id}@deferred`);
   };
   const done = (node: RunStep): boolean => node.status === 'completed' || node.status === 'skipped';
   // A dependency on a step that also lives in the reader's own foreach
@@ -450,6 +488,43 @@ export async function execute(
       // Skip when its `when` is false.
       if (node.step.when !== undefined && !truthy(renderString(node.step.when, scope))) {
         node.status = 'skipped';
+        progressed = true;
+        await checkpoint();
+        continue;
+      }
+
+      // A deferred foreach: its `over` reads a step output that is now ready, so
+      // expand its children in place and mark the placeholder done. The children
+      // enter the graph pending and run on later passes (lazy foreach, F-WFL-06).
+      if (node.kind === 'foreach' && node.deferred_prefix !== undefined && node.step.kind === 'foreach') {
+        const foreachStep = node.step;
+        const over = renderString(foreachStep.over, {
+          ...baseScope,
+          ...node.scope_extra,
+          steps: scope.steps,
+          vars: scope.vars,
+        });
+        const items = Array.isArray(over) ? over : [];
+        const children: RunStep[] = [];
+        items.forEach((item, index) => {
+          const childExtra = {
+            ...node.scope_extra,
+            [foreachStep.as]: item,
+            [foreachStep.index_as]: index,
+          };
+          children.push(
+            ...expandRun(
+              foreachStep.steps,
+              baseScope,
+              `${node.deferred_prefix}${foreachStep.id}[${index}].`,
+              childExtra,
+            ),
+          );
+        });
+        node.status = 'completed';
+        node.outputs = {};
+        const at = state.steps.indexOf(node);
+        state.steps.splice(at + 1, 0, ...children);
         progressed = true;
         await checkpoint();
         continue;
