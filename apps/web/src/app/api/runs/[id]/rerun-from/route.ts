@@ -13,7 +13,7 @@ import { loadConfig } from '@kilnry/core';
 import * as z from 'zod';
 import { errorResponse, requireSession } from '../../../../../server/http';
 import { ensureRuntimeEngine, runtimeServices } from '../../../../../server/runtime';
-import { rerunFromStep, buildAnalyzeServices } from '../../../../../server/workflows';
+import { rerunFromStep } from '../../../../../server/workflows';
 
 const RerunInput = z.object({ step_id: z.string().min(1) });
 
@@ -28,15 +28,7 @@ export async function POST(
     const config = await loadConfig();
     const services = await runtimeServices();
     const engine = await ensureRuntimeEngine();
-    const openrouterKey = await services.keyStore.get('openrouter').catch(() => undefined);
-    const result = await rerunFromStep(
-      services.database,
-      engine,
-      config.data_dir,
-      id,
-      body.step_id,
-      buildAnalyzeServices(openrouterKey, config.port),
-    );
+    const result = await rerunFromStep(services.database, engine, config.data_dir, id, body.step_id);
     return NextResponse.json(result);
   } catch (error) {
     return errorResponse(error);

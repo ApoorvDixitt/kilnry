@@ -515,7 +515,17 @@ export function WorkflowRunView({ runId, initial }: { runId: string; initial?: R
     }
     const source = new EventSource('/api/events');
     const onJob = (): void => void reload();
-    for (const type of ['job.updated', 'job.completed', 'job.failed', 'job.moderated']) {
+    for (const type of [
+      'job.updated',
+      'job.completed',
+      'job.failed',
+      'job.moderated',
+      // The run itself now drives in a worker, not in the approve/start request
+      // (TRD-12 §6), so the run-level transitions arrive here too: a pause at a
+      // checkpoint (run.awaiting) and a terminal status (run.updated).
+      'run.updated',
+      'run.awaiting',
+    ]) {
       source.addEventListener(type, onJob);
     }
     source.addEventListener('error', () => source.close());

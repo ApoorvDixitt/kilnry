@@ -81,6 +81,10 @@ export async function startSheetRun(
     await db.db.insert(runSteps).values({
       runId,
       stepId: step.id,
+      // The run_steps primary key is (run_id, instance_id). A flat sheet run has
+      // one instance per step, so the instance id is the step id; without it the
+      // rows would all collide on the empty-string default (F-WFL-04).
+      instanceId: step.id,
       position,
       name: step.name,
       kind: step.kind,

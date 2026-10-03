@@ -21,6 +21,11 @@ export const runs = pgTable('runs', {
   // parent's inputs and plan, reuses the outputs of the steps before the chosen
   // step at no cost, and re-executes from there into a _rerun folder.
   parentRunId: text('parent_run_id'),
+  // The drive flags, persisted so a resume honours them (TRD-12 §4 line 116): a
+  // Run-automatically run and the intake's "Skip approvals" tick proceed through
+  // a soft gate instead of pausing. The drive job carries only the run id.
+  automatic: boolean('automatic').notNull().default(false),
+  skipApprovals: boolean('skip_approvals').notNull().default(false),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
   finishedAt: timestamp('finished_at', { withTimezone: true, mode: 'date' }),
 });

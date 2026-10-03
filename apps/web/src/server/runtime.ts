@@ -22,6 +22,7 @@ import { closeDatabase, database, hasLocalUser, type DatabaseState } from '@kiln
 import { adapters } from '@kilnry/providers';
 import { log } from './log';
 import { scoreFinishedAssets } from './consistency';
+import { driveRunToRest, buildAnalyzeServices } from './workflows';
 
 export type RuntimeStage =
   'idle' | 'migrating' | 'indexing' | 'starting_workers' | 'ready' | 'error' | 'shutting_down';
@@ -200,6 +201,21 @@ export async function ensureRuntimeEngine(): Promise<JobEngine> {
       events: eventHub,
       ...(testMsw ? { pollTimeoutMsByProvider: { minimax: 1000 } } : {}),
       log: (level, event, meta) => log[level]({ ...(meta ?? {}) }, event),
+      // Drive one run per `runs` job (TRD-12 §6). The job carries only the run id,
+      // so the driver rebuilds the analyze services here from the stored key, the
+      // same ones the HTTP route would have passed; driveRunToRest records the
+      // terminal or awaiting state and emits the SSE event, and turns a thrown
+      // drive into a failed run rather than an unhandled rejection.
+      runDriver: async (runId: string) => {
+        const openrouterKey = await services.keyStore.get('openrouter').catch(() => undefined);
+        await driveRunToRest(
+          services.database,
+          engine,
+          config.data_dir,
+          runId,
+          buildAnalyzeServices(openrouterKey, config.port),
+        );
+      },
     });
     await engine.start();
     // The opt-in consistency check scores each finished output locally

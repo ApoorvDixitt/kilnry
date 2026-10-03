@@ -44,6 +44,27 @@ export type KilnryEvent =
     }
   | { type: 'runtime.online'; online: boolean; ts: string }
   | {
+      // A run reached a terminal state or advanced a step (TRD-08 §13, TRD-12 §6
+      // line 171). The run view reloads on this so a run that finishes while the
+      // drive job runs outside the request still updates the moment it does.
+      type: 'run.updated';
+      run_id: string;
+      status: 'running' | 'awaiting_approval' | 'completed' | 'failed' | 'cancelled';
+      step_id?: string;
+      spent_usd: number;
+      ts: string;
+    }
+  | {
+      // A run paused at an approval checkpoint (TRD-08 §13, TRD-12 §6 line 161).
+      type: 'run.awaiting';
+      run_id: string;
+      step_id: string;
+      question: string;
+      options?: string[];
+      estimate_usd: number;
+      ts: string;
+    }
+  | {
       type: 'chat.usage';
       session_id: string;
       step_cost_usd: number;

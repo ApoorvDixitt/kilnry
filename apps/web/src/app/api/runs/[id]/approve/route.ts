@@ -8,10 +8,9 @@
 // persisted state so no completed step re-runs.
 
 import { NextResponse } from 'next/server';
-import { loadConfig } from '@kilnry/core';
 import { errorResponse, requireSession } from '../../../../../server/http';
 import { ensureRuntimeEngine, runtimeServices } from '../../../../../server/runtime';
-import { approveRun, buildAnalyzeServices } from '../../../../../server/workflows';
+import { approveRun } from '../../../../../server/workflows';
 
 export async function POST(
   _request: Request,
@@ -20,17 +19,9 @@ export async function POST(
   try {
     await requireSession();
     const { id } = await context.params;
-    const config = await loadConfig();
     const services = await runtimeServices();
     const engine = await ensureRuntimeEngine();
-    const openrouterKey = await services.keyStore.get('openrouter').catch(() => undefined);
-    const state = await approveRun(
-      services.database,
-      engine,
-      config.data_dir,
-      id,
-      buildAnalyzeServices(openrouterKey, config.port),
-    );
+    const state = await approveRun(services.database, engine, id);
     return NextResponse.json({ run_id: id, status: state.status, spent_usd: state.spent_usd });
   } catch (error) {
     return errorResponse(error);

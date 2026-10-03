@@ -14,7 +14,7 @@ import { loadConfig } from '@kilnry/core';
 import * as z from 'zod';
 import { errorResponse, requireSession } from '../../../../../server/http';
 import { ensureRuntimeEngine, runtimeServices } from '../../../../../server/runtime';
-import { startRun, buildAnalyzeServices } from '../../../../../server/workflows';
+import { startRun } from '../../../../../server/workflows';
 
 const RunInput = z.object({
   run_id: z.string().min(1),
@@ -31,7 +31,6 @@ export async function POST(request: Request): Promise<Response> {
     const config = await loadConfig();
     const services = await runtimeServices();
     const engine = await ensureRuntimeEngine();
-    const openrouterKey = await services.keyStore.get('openrouter').catch(() => undefined);
     const state = await startRun(
       services.database,
       engine,
@@ -42,7 +41,6 @@ export async function POST(request: Request): Promise<Response> {
         automatic: body.automatic,
         skipApprovals: body.skip_approvals,
         ...(body.target_folder === undefined ? {} : { targetFolder: body.target_folder }),
-        analyze: buildAnalyzeServices(openrouterKey, config.port),
       },
     );
     return NextResponse.json({ run_id: body.run_id, status: state.status, spent_usd: state.spent_usd });

@@ -139,7 +139,7 @@ function fakeAdapter(overrides: Partial<FakeState> = {}): { adapter: ProviderAda
 async function harness(
   adapter: ProviderAdapter,
   withKey = true,
-  engineOptions: Partial<Pick<JobEngineOptions, 'pollScheduleMs' | 'pollTimeoutMs'>> = {},
+  engineOptions: Partial<Pick<JobEngineOptions, 'pollScheduleMs' | 'pollTimeoutMs' | 'runDriver'>> = {},
 ): Promise<{
   engine: JobEngine;
   state: ReturnType<typeof createDatabase>;
@@ -174,6 +174,7 @@ async function harness(
     pollScheduleMs: engineOptions.pollScheduleMs ?? [0],
     submitRetryScheduleMs: [0],
     pollTimeoutMs: engineOptions.pollTimeoutMs ?? 2000,
+    ...(engineOptions.runDriver ? { runDriver: engineOptions.runDriver } : {}),
     log: (_level, event) => {
       if (event.startsWith('job_finalize_')) stages.push(event.replace('job_finalize_', ''));
     },
@@ -250,6 +251,25 @@ describe('pg-boss job engine', () => {
       .from(characterVersions)
       .where(eq(characterVersions.characterId, head.id));
     expect(after[0]?.frozen).toBe(true);
+  });
+
+  it('the runs queue collapses two enqueues of one run to a single job (short policy)', async () => {
+    const fake = fakeAdapter();
+    // A driver that blocks forever so the first fetched drive stays active; the
+    // test only cares that the second enqueue of the same run does not add a row.
+    const { engine, state } = await harness(fake.adapter, true, {
+      runDriver: () => new Promise<void>(() => {}),
+    });
+    expect(await engine.boss.getQueue('runs')).not.toBeNull();
+
+    await engine.enqueueRun('run-xyz');
+    await engine.enqueueRun('run-xyz');
+
+    const rows = await state.client.query<{ count: string }>(
+      "select count(*)::text as count from pgboss.job where name = 'runs' and data->>'run_id' = $1",
+      ['run-xyz'],
+    );
+    expect(rows.rows[0]?.count).toBe('1');
   });
 
   it('runs estimate → confirm → reserve → submit → finalize → reconcile → ledger on shared PGlite', async () => {

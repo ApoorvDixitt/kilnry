@@ -37,6 +37,7 @@ import { dirname } from 'node:path';
 import { and, eq, inArray } from 'drizzle-orm';
 import { KilnryError, loadConfig, loadRegistry, ulid, listCharacters, loadFullCharacter } from '@kilnry/core';
 import { indexAsset, libraryMarker, resolveInRoot } from '@kilnry/core';
+import { eventHub } from '@kilnry/core';
 import {
   ffmpegExtension,
   isSupportedFfmpegOp,
@@ -151,9 +152,7 @@ export function workflowRunner(
   db: DatabaseState,
   engine: JobEngine,
   dataDir: string,
-  analyze?: WorkflowAnalyzeServices,
 ): import('@kilnry/core').WorkflowRunner {
-  const steer = analyze ? { analyze } : {};
   return {
     async list() {
       const catalogue = loadCatalogue(dataDir);
@@ -175,9 +174,9 @@ export function workflowRunner(
     },
     async run(planRunId, confirmCostUsd) {
       const state = await startRun(db, engine, dataDir, planRunId, confirmCostUsd, {
-        ...steer,
         // The MCP client confirmed the cost in this call, apart from planning, so
-        // a stale plan may still run at ≥90% of its estimate (F-WFL-02).
+        // a stale plan may still run at ≥90% of its estimate (F-WFL-02). The drive
+        // reads the analyze services itself in the worker, so none are passed here.
         costConfirmedIndependently: true,
       });
       return { run_id: planRunId, status: state.status, spent_usd: state.spent_usd };
@@ -186,7 +185,7 @@ export function workflowRunner(
       return (await getRun(db, runId)) as unknown as Record<string, unknown>;
     },
     async approve(runId) {
-      const state = await approveRun(db, engine, dataDir, runId, steer.analyze);
+      const state = await approveRun(db, engine, runId);
       return { run_id: runId, status: state.status, spent_usd: state.spent_usd };
     },
     async deny(runId) {
@@ -198,7 +197,7 @@ export function workflowRunner(
       return { run_id: runId, status: state.status, spent_usd: state.spent_usd };
     },
     async retryStep(runId, stepId, model) {
-      const state = await retryStep(db, engine, dataDir, runId, stepId, model, steer.analyze);
+      const state = await retryStep(db, engine, dataDir, runId, stepId, model);
       return { run_id: runId, status: state.status, spent_usd: state.spent_usd };
     },
     async listRuns() {
@@ -714,7 +713,6 @@ export async function startRun(
     automatic?: boolean;
     skipApprovals?: boolean;
     targetFolder?: string;
-    analyze?: WorkflowAnalyzeServices;
     // The MCP run path confirms the cost independently of the run call, so it may
     // run a plan up to the estimate's 90% even once stale; the web route, which
     // supplies the cost in the same request, never may (F-WFL-02).
@@ -729,48 +727,29 @@ export async function startRun(
   const entry = getWorkflow(dataDir, run.workflowId);
   if (!entry) throw new KilnryError('NOT_FOUND', `Workflow ${run.workflowId} is no longer installed.`);
 
-  const config = await loadConfig();
   const project = options.targetFolder ?? (run.inputs as { folder?: string }).folder;
   const folder = run.folder ?? runFolder(entry.workflow, project === undefined ? {} : { project });
-  const startedAt = run.createdAt.toISOString();
-  await db.db.update(runs).set({ status: 'running', folder }).where(eq(runs.id, runId));
+  // Persist the drive flags on the run so the worker — and a resume after a
+  // restart — honours them (TRD-12 §4 line 116). The drive job carries only the
+  // run id, so these cannot ride on the request.
+  await db.db
+    .update(runs)
+    .set({
+      status: 'running',
+      folder,
+      automatic: options.automatic ?? false,
+      skipApprovals: options.skipApprovals ?? false,
+    })
+    .where(eq(runs.id, runId));
 
-  const resolveChar = await characterResolver(db);
-  const baseScope: Scope = withFileSource(
-    {
-      inputs: persistedPlan.inputs,
-      defaults: entry.workflow.defaults,
-      vars: persistedPlan.vars,
-      run: { id: runId, folder, workflow: entry.workflow.id },
-      characters: new Proxy({}, { get: (_t, handle: string) => resolveChar(String(handle)) }),
-    },
-    fileRootsFor(entry),
-  );
-
-  const effects = runEffects(db, engine, {
-    runId,
-    plan: persistedPlan,
-    workflow: entry.workflow,
-    folder,
-    startedAt,
-    libraryRoot: config.library_root ?? '',
-    libraryId: config.library_root ? (await libraryMarker(config.library_root)).library_id : '',
-    ...(options.analyze ? { analyze: options.analyze } : {}),
-  });
-
-  const state = await execute(entry.workflow, baseScope, effects, options);
-  await persistRun(
-    db,
-    engine,
-    runId,
-    entry.workflow,
-    persistedPlan,
-    state,
-    folder,
-    startedAt,
-    config.library_root,
-  );
-  return state;
+  // The plan is confirmed and the run is marked running; the drive happens in the
+  // `runs` worker, not inside this request (TRD-12 §6). Enqueue one drive and
+  // return the run as it stands now. The driver (driveResumed) rebuilds the
+  // scope, effects and node graph from the persisted plan and run_steps, so the
+  // first drive and a resume take exactly the same path.
+  await engine.enqueueRun(runId);
+  const started = await getRun(db, runId);
+  return { status: started.status as RunState['status'], steps: [], spent_usd: started.spent_usd };
 }
 
 // Rebuild the run's base scope from its persisted plan and folder.
@@ -845,7 +824,7 @@ async function driveResumed(
   engine: JobEngine,
   dataDir: string,
   runId: string,
-  options: { automatic?: boolean; skipApprovals?: boolean; analyze?: WorkflowAnalyzeServices } = {},
+  options: { analyze?: WorkflowAnalyzeServices } = {},
 ): Promise<RunState> {
   const [run] = await db.db.select().from(runs).where(eq(runs.id, runId)).limit(1);
   if (!run) throw new KilnryError('NOT_FOUND', 'Run not found.');
@@ -867,7 +846,16 @@ async function driveResumed(
     libraryId: config.library_root ? (await libraryMarker(config.library_root)).library_id : '',
     ...(options.analyze ? { analyze: options.analyze } : {}),
   });
-  const state = await execute(entry.workflow, baseScope, effects, options, existing);
+  // The drive honours the flags persisted on the run row, so a resume after a
+  // restart runs automatically or skips soft gates exactly as the start did
+  // (TRD-12 §4 line 116).
+  const state = await execute(
+    entry.workflow,
+    baseScope,
+    effects,
+    { automatic: run.automatic, skipApprovals: run.skipApprovals },
+    existing,
+  );
   await persistRun(
     db,
     engine,
@@ -879,17 +867,99 @@ async function driveResumed(
     startedAt,
     config.library_root,
   );
+  emitRunState(runId, state, persistedPlan);
   return state;
 }
 
-/** Approve the waiting checkpoint and continue the run (F-WFL-04). */
-export async function approveRun(
+/**
+ * Drive one run to its next pause or the end, the body of the `runs` queue job
+ * (TRD-12 §6). It is driveResumed with the run's state transition published and
+ * a thrown drive turned into a persisted failed run, so a client that enqueued
+ * the drive and returned sees the outcome by its own poll or the SSE event —
+ * nothing drives a whole run inside an HTTP request. Resume after restart uses
+ * this same path.
+ */
+export async function driveRunToRest(
   db: DatabaseState,
   engine: JobEngine,
   dataDir: string,
   runId: string,
   analyze?: WorkflowAnalyzeServices,
-): Promise<RunState> {
+): Promise<void> {
+  try {
+    await driveResumed(db, engine, dataDir, runId, analyze ? { analyze } : {});
+  } catch (error) {
+    await markRunFailed(db, engine, runId, error);
+  }
+}
+
+/**
+ * Record a run as failed when its drive throws before the executor persisted a
+ * terminal state (a thrown KilnryError, not a step result). The live step is
+ * marked failed with the reason, the run is failed, and the terminal event is
+ * emitted so a poll or the run view sees why it stopped (F-WFL-04).
+ */
+async function markRunFailed(
+  db: DatabaseState,
+  engine: JobEngine,
+  runId: string,
+  error: unknown,
+): Promise<void> {
+  const reason = error instanceof Error ? error.message : String(error);
+  const rows = await db.db.select().from(runSteps).where(eq(runSteps.runId, runId));
+  for (const step of rows) {
+    if (step.status === 'running' || step.status === 'pending' || step.status === 'waiting') {
+      await db.db
+        .update(runSteps)
+        .set({ status: 'failed', error: reason })
+        .where(and(eq(runSteps.runId, runId), eq(runSteps.instanceId, step.instanceId)));
+      break;
+    }
+  }
+  await db.db.update(runs).set({ status: 'failed', finishedAt: new Date() }).where(eq(runs.id, runId));
+  const spent = (await getRun(db, runId)).spent_usd;
+  eventHub.emit({
+    type: 'run.updated',
+    run_id: runId,
+    status: 'failed',
+    spent_usd: spent,
+    ts: new Date().toISOString(),
+  });
+}
+
+/**
+ * Publish a run's state transition (TRD-08 §13): run.awaiting when it paused at a
+ * checkpoint, run.updated otherwise. The run view reloads on both, so the view
+ * advances the instant the drive job reaches a rest state outside the request.
+ */
+function emitRunState(runId: string, state: RunState, runPlan: Plan): void {
+  const ts = new Date().toISOString();
+  if (state.status === 'awaiting_approval') {
+    const waiting = state.steps.find((step) => step.status === 'waiting');
+    const stepId = waiting?.step_id ?? '';
+    const planStep = runPlan.steps.find((step) => step.step_id === stepId);
+    const title = (waiting?.step as { title?: string } | undefined)?.title;
+    eventHub.emit({
+      type: 'run.awaiting',
+      run_id: runId,
+      step_id: stepId,
+      question: typeof title === 'string' && title !== '' ? title : 'Approve to continue',
+      estimate_usd: planStep?.estimate_usd ?? 0,
+      ts,
+    });
+    return;
+  }
+  eventHub.emit({
+    type: 'run.updated',
+    run_id: runId,
+    status: state.status,
+    spent_usd: state.spent_usd,
+    ts,
+  });
+}
+
+/** Approve the waiting checkpoint and continue the run (F-WFL-04). */
+export async function approveRun(db: DatabaseState, engine: JobEngine, runId: string): Promise<RunState> {
   const waiting = await db.db
     .select()
     .from(runSteps)
@@ -912,7 +982,12 @@ export async function approveRun(
       .where(and(eq(runSteps.runId, runId), eq(runSteps.instanceId, step.instanceId)));
   }
   await db.db.update(runs).set({ status: 'running' }).where(eq(runs.id, runId));
-  return driveResumed(db, engine, dataDir, runId, analyze ? { analyze } : {});
+  // The state change is persisted; the drive happens in the `runs` worker, not
+  // here (TRD-12 §6). Enqueue one drive — keyed by run id, so repeat requests on
+  // one checkpoint drive once — and return the run as it stands now.
+  await engine.enqueueRun(runId);
+  const resumed = await getRun(db, runId);
+  return { status: resumed.status as RunState['status'], steps: [], spent_usd: resumed.spent_usd };
 }
 
 /** Deny the waiting checkpoint; the run stops, completed outputs stay (F-WFL-04). */
@@ -997,7 +1072,6 @@ export async function retryStep(
   runId: string,
   stepId: string,
   modelOverride?: string,
-  analyze?: WorkflowAnalyzeServices,
 ): Promise<RunState> {
   const [runRow] = await db.db.select().from(runs).where(eq(runs.id, runId)).limit(1);
   if (!runRow) throw new KilnryError('NOT_FOUND', 'Run not found.');
@@ -1039,7 +1113,12 @@ export async function retryStep(
     }
   }
   await db.db.update(runs).set({ status: 'running' }).where(eq(runs.id, runId));
-  return driveResumed(db, engine, dataDir, runId, analyze ? { analyze } : {});
+  // The state change is persisted; the drive happens in the `runs` worker, not
+  // here (TRD-12 §6). Enqueue one drive — keyed by run id, so repeat requests on
+  // one checkpoint drive once — and return the run as it stands now.
+  await engine.enqueueRun(runId);
+  const resumed = await getRun(db, runId);
+  return { status: resumed.status as RunState['status'], steps: [], spent_usd: resumed.spent_usd };
 }
 
 /**
@@ -1055,7 +1134,6 @@ export async function rerunFromStep(
   dataDir: string,
   runId: string,
   stepId: string,
-  analyze?: WorkflowAnalyzeServices,
 ): Promise<{ run_id: string; parent_run_id: string; folder: string }> {
   const [parent] = await db.db.select().from(runs).where(eq(runs.id, runId)).limit(1);
   if (!parent) throw new KilnryError('NOT_FOUND', 'Run not found.');
@@ -1124,7 +1202,9 @@ export async function rerunFromStep(
     });
   }
 
-  await driveResumed(db, engine, dataDir, childId, analyze ? { analyze } : {});
+  // The child run is persisted; its drive happens in the `runs` worker, not here
+  // (TRD-12 §6). Enqueue it and return the child's identity immediately.
+  await engine.enqueueRun(childId);
   return { run_id: childId, parent_run_id: rootId, folder };
 }
 

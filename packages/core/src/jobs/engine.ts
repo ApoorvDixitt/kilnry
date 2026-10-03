@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { and, desc, eq, gte, inArray, sql } from 'drizzle-orm';
 import { PgBoss, fromPglite, type Job } from 'pg-boss';
 import type { DatabaseState } from '@kilnry/db';
-import { jobs, providers, spendLedger, auditEvents, characters, characterVersions } from '@kilnry/db';
+import { jobs, providers, spendLedger, auditEvents, characters, characterVersions, runs } from '@kilnry/db';
 import { resolveMediaInputs } from './media-inputs.js';
 import { assertCostConfirmation, reserveBudget } from '../budget/enforcer.js';
 import { normalizeConfirmedBy } from '../budget/confirmation.js';
@@ -92,6 +92,14 @@ export interface JobEngineOptions {
   submitRetryScheduleMs?: number[];
   now?: () => Date;
   log?: (level: 'debug' | 'info' | 'warn' | 'error', event: string, meta?: Record<string, unknown>) => void;
+  /**
+   * Drive one run to its next pause or the end (TRD-12 §6: run driving is
+   * event-driven). The engine owns a `runs` queue so a run drive happens in a
+   * worker, not inside the HTTP request that approved or started it; this
+   * callback — supplied by the workflow host, which owns driveResumed — is what
+   * that worker calls. Absent in a pure job-engine deployment with no runs.
+   */
+  runDriver?: (runId: string) => Promise<void>;
 }
 
 export interface CreateJobResult {
@@ -268,6 +276,19 @@ export class JobEngine {
       deleteAfterSeconds: 7 * 86_400,
       deadLetter: 'dead',
     });
+    // One run drive is one job here. Policy 'short' keeps at most one *queued*
+    // drive per singleton key with unlimited active, so a duplicate drive (two
+    // approves on one checkpoint, or a start racing a resume) is dropped while
+    // one is queued, but a drive is never dropped while another is active —
+    // 'exclusive' would drop the second, losing an approve. retryLimit 0: a drive
+    // that throws is final (the driver records the run failed), not re-driven.
+    await boss.createQueue('runs', {
+      policy: 'short',
+      retryLimit: 0,
+      expireInSeconds: 7200,
+      deleteAfterSeconds: 7 * 86_400,
+      deadLetter: 'dead',
+    });
     for (const provider of Object.keys(this.#options.adapters) as ProviderId[]) {
       await boss.createQueue(queueName(provider), {
         retryLimit: 0,
@@ -335,6 +356,21 @@ export class JobEngine {
         }
       },
     );
+    // The run driver. Each job drives one run to its next pause or the end; the
+    // handler supplied by the host (driveResumed) records the terminal or awaiting
+    // state and emits the SSE event. retryLimit 0 on the queue means a throw here
+    // is final — the driver itself records the run as failed — so pg-boss does not
+    // re-drive a run that already charged for steps.
+    if (this.#options.runDriver) {
+      const runDriver = this.#options.runDriver;
+      await boss.work<{ run_id: string }>(
+        'runs',
+        { batchSize: 1, localConcurrency: 1, pollingIntervalSeconds: 0.5 },
+        async (messages) => {
+          for (const message of messages) await runDriver(message.data.run_id);
+        },
+      );
+    }
     await boss.schedule('maintenance', '0 4 * * *', { op: 'price_refresh' }, { key: 'price-refresh' });
     this.#started = true;
   }
@@ -737,6 +773,20 @@ export class JobEngine {
    */
   get pollWindowMs(): number {
     return this.#options.pollTimeoutMs;
+  }
+
+  /**
+   * Enqueue one run drive (TRD-12 §6 lines 161, 171, 174: run driving is event-
+   * driven). The caller has already persisted the run's state change; this sends
+   * one job on the `runs` queue keyed by the run id. The queue's `short` policy
+   * keeps at most one queued drive per key, so two approves on one checkpoint —
+   * or a start racing a resume — collapse to one drive while none is active,
+   * without ever dropping a drive that would run after one in flight. Returns
+   * once the job is enqueued, not when the drive finishes.
+   */
+  async enqueueRun(runId: string): Promise<void> {
+    const result = await this.boss.send('runs', { run_id: runId }, { singletonKey: runId });
+    if (!result) this.#options.log('debug', 'run_drive_singleton_reused', { run_id: runId });
   }
 
   /** The poll window for one provider: its own override, or the default. */
@@ -1259,6 +1309,17 @@ export class JobEngine {
         continue;
       }
       await this.#enqueue(row.id, provider.data, row.status === 'running');
+    }
+    // Resume after a crash or restart (TRD-12 §6 line 174): every run left
+    // running or awaiting its approval is re-driven by the same `runs` job. The
+    // driver rebuilds the ready set from run_steps, so a completed step is not
+    // re-run and a cleared checkpoint continues. Only when a driver is wired.
+    if (this.#options.runDriver) {
+      const liveRuns = await this.#options.state.db
+        .select({ id: runs.id })
+        .from(runs)
+        .where(inArray(runs.status, ['running', 'awaiting_approval']));
+      for (const run of liveRuns) await this.enqueueRun(run.id);
     }
   }
 }
