@@ -244,8 +244,14 @@ export function ffmpegArgs(
         input!,
         '-i',
         audio,
+        // Swap the track to the new audio. No `apad`: padding to the longest
+        // stream never terminates under `-c:v copy` with `-shortest` on some
+        // ffmpeg builds (the copied video gives no re-encode boundary, so the
+        // padded audio runs forever and the process hangs). `-shortest` alone
+        // ends the output at the shorter of the copied video and the new audio,
+        // which is the swap this op means (TRD-09 §3.8).
         '-filter_complex',
-        `[1:a]volume=${gain}dB,apad[a]`,
+        `[1:a]volume=${gain}dB[a]`,
         '-c:v',
         'copy',
         '-map',
