@@ -543,6 +543,61 @@ describe('fal image to 3D', () => {
   });
 });
 
+describe('fal speech-to-text transcript (F-WFL-06)', () => {
+  it('turns a scribe chunks response into an inline Kilnry transcript json output', async () => {
+    const model = 'fal-ai/elevenlabs/speech-to-text/scribe-v2';
+    server.use(
+      http.post(`https://queue.fal.run/${model}`, () =>
+        HttpResponse.json({
+          request_id: 'fal-stt',
+          status_url: 'https://queue.fal.run/status/fal-stt',
+          response_url: 'https://queue.fal.run/result/fal-stt',
+        }),
+      ),
+      http.get('https://queue.fal.run/status/fal-stt', () => HttpResponse.json({ status: 'COMPLETED' })),
+      http.get('https://queue.fal.run/result/fal-stt', () =>
+        HttpResponse.json({
+          text: 'Kilnry makes video.',
+          language: 'en',
+          chunks: [
+            { text: 'Kilnry', timestamp: [0.1, 0.6] },
+            { text: 'makes', timestamp: [0.7, 1.1] },
+            { text: 'video.', timestamp: [1.2, 1.8] },
+          ],
+        }),
+      ),
+    );
+    const request = CanonicalRequestSchema.parse({
+      kind: 'audio',
+      capability: 'stt',
+      prompt: 'transcribe',
+      params: { extra: { model } },
+      medias: [{ role: 'audio', url: 'https://v3b.fal.media/clip.m4a' }],
+      injections: [],
+      count: 1,
+      target_folder: 'inbox',
+      source: 'ui',
+    });
+    const handle = await falAdapter.submit(request, context());
+    const terminal = await falAdapter.poll(handle, context());
+    expect(terminal.state).toBe('completed');
+    const output = (
+      terminal as { result?: { outputs?: Array<{ kind: string; base64?: string; mime?: string }> } }
+    ).result?.outputs?.[0];
+    expect(output?.kind).toBe('json');
+    expect(output?.mime).toBe('application/json');
+    const transcript = JSON.parse(Buffer.from(output!.base64!, 'base64').toString('utf8')) as {
+      kilnry_transcript: number;
+      words: Array<{ w: string; start: number; end: number }>;
+      language: string;
+    };
+    expect(transcript.kilnry_transcript).toBe(1);
+    expect(transcript.language).toBe('en');
+    expect(transcript.words.map((word) => word.w)).toEqual(['Kilnry', 'makes', 'video.']);
+    expect(transcript.words[0]).toEqual({ w: 'Kilnry', start: 0.1, end: 0.6 });
+  });
+});
+
 describe('fal file inputs', () => {
   it('puts a local file in fal storage and returns the address to send', async () => {
     const put: Array<{ length: number; type: string | null }> = [];

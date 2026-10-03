@@ -245,6 +245,18 @@ export function startTestMsw(): void {
         });
       }
       const isVideo = /video|kling|veo|seedance|lipsync|sync|latentsync/i.test(path);
+      // Speech-to-text (scribe) answers with the recognised text and per-word
+      // timestamps, which the fal adapter turns into a Kilnry transcript (F-WFL-06).
+      if (/speech-to-text|scribe|transcrib/i.test(path)) {
+        return HttpResponse.json({
+          text: 'Kilnry makes video.',
+          chunks: [
+            { text: 'Kilnry', timestamp: [0.1, 0.6] },
+            { text: 'makes', timestamp: [0.7, 1.1] },
+            { text: 'video.', timestamp: [1.2, 1.8] },
+          ],
+        });
+      }
       // A speech or music model answers with one audio file (fal adapter §3.1's
       // output table reads `audio.url`).
       const isAudio = /speech|kokoro|tts|music|sound-effects|ace-step/i.test(path);

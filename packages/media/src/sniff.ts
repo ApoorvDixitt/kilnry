@@ -24,6 +24,10 @@ export function sniffMimeBytes(bytes: Uint8Array): string {
     return 'audio/wav';
   if (value.subarray(0, 4).toString('ascii') === 'glTF') return 'model/gltf-binary';
   if (value.subarray(0, 4).toString('hex') === '1a45dfa3') return 'video/webm';
+  // A Kilnry transcript is a JSON document (TRD-09 §4.1): recognise it by its
+  // marker so it indexes as a document rather than an unknown binary.
+  const head = value.subarray(0, 64).toString('utf8');
+  if (/^\s*\{/.test(head) && head.includes('kilnry_transcript')) return 'application/json';
   return 'application/octet-stream';
 }
 
@@ -52,6 +56,7 @@ export function extensionForMime(mime: string): string {
     'audio/ogg': '.ogg',
     'audio/mp4': '.m4a',
     'model/gltf-binary': '.glb',
+    'application/json': '.json',
   };
   return extensions[mime] ?? '.bin';
 }

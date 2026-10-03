@@ -41,6 +41,8 @@ export default defineConfig({
       KILNRY_HOST: '127.0.0.1',
       KILNRY_PORT: '3123',
       KILNRY_TEST_MSW: '1',
+      ...(process.env.KILNRY_FFMPEG ? { KILNRY_FFMPEG: process.env.KILNRY_FFMPEG } : {}),
+      ...(process.env.KILNRY_FFPROBE ? { KILNRY_FFPROBE: process.env.KILNRY_FFPROBE } : {}),
     },
   },
 });

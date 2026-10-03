@@ -595,8 +595,13 @@ test.describe('M6 workflows acceptance', () => {
     expect(manifest.outputs?.final ?? '').not.toBe('');
     const assembled = [...completedAssets(manifest, 'assemble'), ...completedAssets(manifest, 'export')];
     expect(assembled.some((a) => (a.asset_id ?? '') !== '')).toBe(true);
+    // ffmpeg burned the captions into a real mp4 and the transcribe step wrote a
+    // Kilnry transcript JSON into the run folder.
     const files = readdirSync(folder);
-    expect(files.some((name) => /\.(mp3|wav)$/.test(name))).toBe(true);
+    expect(files.some((name) => /\.mp4$/.test(name))).toBe(true);
+    expect(files.some((name) => /\.json$/.test(name) && name !== 'run.kilnry.json')).toBe(true);
+    const captioned = join(folder, files.find((name) => /captioned\.mp4$/.test(name)) ?? 'captioned.mp4');
+    expect(existsSync(captioned)).toBe(true);
   });
 
   test('@m6 kilnry-ugc-ad actual cost is within 15 percent of its plan estimate', async ({ page }) => {

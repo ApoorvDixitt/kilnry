@@ -194,6 +194,31 @@ function outputs(body: Record<string, unknown>): ProviderOutput[] {
       });
     }
   }
+  // A speech-to-text response carries the words inline, not as a file. Turn it
+  // into a Kilnry transcript JSON (TRD-09 §4.1) and hand it back as a json
+  // output the orchestrator writes as a document asset (F-WFL-06).
+  if (result.length === 0 && Array.isArray(body.chunks)) {
+    const words = (body.chunks as Array<{ text?: unknown; timestamp?: unknown }>).flatMap((chunk) => {
+      const text = typeof chunk.text === 'string' ? chunk.text.trim() : '';
+      const span = Array.isArray(chunk.timestamp) ? (chunk.timestamp as unknown[]) : [];
+      const start = Number(span[0]);
+      const end = Number(span[1]);
+      if (text === '' || !Number.isFinite(start) || !Number.isFinite(end)) return [];
+      return [{ w: text, start, end }];
+    });
+    const transcript = {
+      kilnry_transcript: 1 as const,
+      language: typeof body.language === 'string' ? body.language : 'en',
+      duration_s: words.length > 0 ? words[words.length - 1]!.end : 0,
+      source: 'fal' as const,
+      words,
+    };
+    result.push({
+      kind: 'json',
+      base64: Buffer.from(JSON.stringify(transcript), 'utf8').toString('base64'),
+      mime: 'application/json',
+    });
+  }
   return result;
 }
 
