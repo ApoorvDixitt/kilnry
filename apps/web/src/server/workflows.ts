@@ -803,10 +803,10 @@ async function rebuildRunState(
 ): Promise<RunState> {
   const state = expandRunState(workflow, baseScope);
   const rows = await db.db.select().from(runSteps).where(eq(runSteps.runId, runId));
-  const byId = new Map(rows.map((row) => [row.stepId, row] as const));
+  const byId = new Map(rows.map((row) => [row.instanceId, row] as const));
   let spent = 0;
   for (const node of state.steps) {
-    const row = byId.get(node.step_id);
+    const row = byId.get(node.instance_id);
     if (!row) continue;
     node.status = (row.status ?? 'pending') as RunStep['status'];
     if (row.outputs) node.outputs = row.outputs;
@@ -900,7 +900,7 @@ export async function approveRun(
         approvedAt: new Date(),
         decidedBy: 'owner',
       })
-      .where(and(eq(runSteps.runId, runId), eq(runSteps.stepId, step.stepId)));
+      .where(and(eq(runSteps.runId, runId), eq(runSteps.instanceId, step.instanceId)));
   }
   await db.db.update(runs).set({ status: 'running' }).where(eq(runs.id, runId));
   return driveResumed(db, engine, dataDir, runId, analyze ? { analyze } : {});
@@ -914,12 +914,12 @@ export async function denyRun(db: DatabaseState, runId: string): Promise<RunStat
       await db.db
         .update(runSteps)
         .set({ status: 'denied', outputs: { choice: 'deny' }, decidedBy: 'owner' })
-        .where(and(eq(runSteps.runId, runId), eq(runSteps.stepId, step.stepId)));
+        .where(and(eq(runSteps.runId, runId), eq(runSteps.instanceId, step.instanceId)));
     } else if (step.status === 'pending') {
       await db.db
         .update(runSteps)
         .set({ status: 'cancelled' })
-        .where(and(eq(runSteps.runId, runId), eq(runSteps.stepId, step.stepId)));
+        .where(and(eq(runSteps.runId, runId), eq(runSteps.instanceId, step.instanceId)));
     }
   }
   await db.db.update(runs).set({ status: 'cancelled', finishedAt: new Date() }).where(eq(runs.id, runId));
@@ -942,7 +942,7 @@ export async function cancelRun(db: DatabaseState, engine: JobEngine, runId: str
       await db.db
         .update(runSteps)
         .set({ status: 'cancelled' })
-        .where(and(eq(runSteps.runId, runId), eq(runSteps.stepId, step.stepId)));
+        .where(and(eq(runSteps.runId, runId), eq(runSteps.instanceId, step.instanceId)));
     }
   }
   await db.db.update(runs).set({ status: 'cancelled', finishedAt: new Date() }).where(eq(runs.id, runId));
@@ -1026,7 +1026,7 @@ export async function retryStep(
           ...(node.model === undefined ? {} : { modelId: node.model }),
           adjustments: node.adjustments,
         })
-        .where(and(eq(runSteps.runId, runId), eq(runSteps.stepId, node.step_id)));
+        .where(and(eq(runSteps.runId, runId), eq(runSteps.instanceId, node.instance_id)));
     }
   }
   await db.db.update(runs).set({ status: 'running' }).where(eq(runs.id, runId));
@@ -1665,7 +1665,7 @@ async function spendThroughEngine(
       modelId: created.route.model,
       provider: created.route.provider,
     })
-    .where(and(eq(runSteps.runId, run.runId), eq(runSteps.stepId, node.step_id)));
+    .where(and(eq(runSteps.runId, run.runId), eq(runSteps.instanceId, node.instance_id)));
 
   // Wait for the job's terminal state, bounded by the engine's own poll window so
   // a real video or lip-sync step that runs long is not cut off. waitForJob
@@ -1719,12 +1719,13 @@ async function jobAssetIds(db: DatabaseState, jobId: string): Promise<string[]> 
 // Write one run_steps row from a RunStep node.
 async function upsertStep(db: DatabaseState, runId: string, node: RunStep, status: string): Promise<void> {
   const existing = await db.db
-    .select({ stepId: runSteps.stepId })
+    .select({ instanceId: runSteps.instanceId })
     .from(runSteps)
-    .where(and(eq(runSteps.runId, runId), eq(runSteps.stepId, node.step_id)))
+    .where(and(eq(runSteps.runId, runId), eq(runSteps.instanceId, node.instance_id)))
     .limit(1);
   const values = {
     status,
+    stepId: node.step_id,
     name: node.step.name ?? node.step_id,
     kind: node.kind,
     approvalRequired: node.kind === 'approval' || node.approval !== false,
@@ -1746,9 +1747,9 @@ async function upsertStep(db: DatabaseState, runId: string, node: RunStep, statu
     await db.db
       .update(runSteps)
       .set(values)
-      .where(and(eq(runSteps.runId, runId), eq(runSteps.stepId, node.step_id)));
+      .where(and(eq(runSteps.runId, runId), eq(runSteps.instanceId, node.instance_id)));
   } else {
-    await db.db.insert(runSteps).values({ runId, stepId: node.step_id, ...values });
+    await db.db.insert(runSteps).values({ runId, instanceId: node.instance_id, ...values });
   }
 }
 

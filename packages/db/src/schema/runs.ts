@@ -30,6 +30,11 @@ export const runSteps = pgTable(
   {
     runId: text('run_id').notNull(),
     stepId: text('step_id').notNull(),
+    // The unique id of an expanded step: `<step_id>` at the top level, or
+    // `<foreach>[k].<step_id>` inside an iteration. The step_id alone is not
+    // unique across foreach iterations, so a per-iteration step's outputs
+    // (a set's vo_dur duration) collided and were lost on resume (F-WFL-04).
+    instanceId: text('instance_id').notNull().default(''),
     position: integer('position'),
     name: text('name'),
     kind: text('kind'),
@@ -49,5 +54,5 @@ export const runSteps = pgTable(
     approvedAt: timestamp('approved_at', { withTimezone: true, mode: 'date' }),
     decidedBy: text('decided_by'),
   },
-  (table) => [primaryKey({ columns: [table.runId, table.stepId] })],
+  (table) => [primaryKey({ columns: [table.runId, table.instanceId] })],
 );
