@@ -70,6 +70,10 @@ describe('request proxy security boundaries (F-SET-08)', () => {
     }
     // A non-spending route stays on the generous default bucket.
     expect(ratePolicy('/api/runs/abc/approve')).toEqual({ name: 'default', limit: 600 });
+    // The run-status read is polled while a run proceeds, so it shares the
+    // high-limit read bucket, but its sub-routes (approve, cancel) do not.
+    expect(ratePolicy('/api/runs/abc')).toEqual({ name: 'media', limit: 2000 });
+    expect(ratePolicy('/api/runs/abc/cancel').name).toBe('default');
     // The workflow plan route does not spend, so it is not in the spend bucket.
     expect(ratePolicy('/api/workflows/kilnry-ugc-ad/plan').name).not.toBe('spend');
   });

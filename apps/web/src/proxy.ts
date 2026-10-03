@@ -92,7 +92,11 @@ export function ratePolicy(path: string): { name: string; limit: number } {
     path.startsWith('/api/media/') ||
     path.startsWith('/api/thumb/') ||
     path.startsWith('/api/preview/') ||
-    path.startsWith('/api/sprite/')
+    path.startsWith('/api/sprite/') ||
+    // Run-status reads are polled by the run view and the acceptance harness
+    // while a long run proceeds; they are cheap reads, so they share the
+    // high-limit read bucket rather than the 600/min default (F-SET-08).
+    /^\/api\/runs\/[^/]+$/.test(path)
   )
     return { name: 'media', limit: 2000 };
   if (path === '/api/estimate') return { name: 'estimate', limit: 120 };

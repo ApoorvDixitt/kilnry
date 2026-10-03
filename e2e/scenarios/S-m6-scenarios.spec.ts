@@ -174,22 +174,6 @@ function completedAssets(manifest: RunManifest, kind: string): Array<{ asset_id?
     .flatMap((step) => step.outputs?.assets ?? []);
 }
 
-// Whether the run's manifest currently shows a step waiting on a decision. Used
-// by the checkpoint loop to tell a genuinely paused run (reload to reveal the
-// card) from a run that has moved on.
-function manifestWaiting(project: string, slugPrefix: string): boolean {
-  const folder = findRunFolder(project, slugPrefix);
-  if (!folder) return false;
-  const manifestPath = join(folder, 'run.kilnry.json');
-  if (!existsSync(manifestPath)) return false;
-  try {
-    const m = JSON.parse(readFileSync(manifestPath, 'utf8')) as RunManifest;
-    return (m.steps ?? []).some((s) => s.status === 'waiting');
-  } catch {
-    return false;
-  }
-}
-
 // Fill a workflow's intake by field id, preview, approve the plan total, then
 // clear any approval checkpoints, and return the run folder's manifest once it
 // lands on disk. `inputs` maps a field name to a value (string, number, or the
@@ -239,80 +223,113 @@ async function driveRun(
   await expect(drawer.locator('.workflow-approve-button')).toBeEnabled();
   await drawer.locator('.workflow-approve-button').click();
   await page.waitForURL(/\/workflows\/runs\/[^/]+$/, { timeout: 180_000 });
-  // Clear any approval checkpoints. The run POST/resume runs synchronously and
-  // the run view polls the status, so each cycle we either see a card (approve
-  // it and wait for the synchronous resume) or the run has settled — a manifest
-  // with a completed spending step or a terminal status — and we stop.
-  const settled = (): boolean => {
-    const folder = findRunFolder(options.folder, options.slugPrefix);
-    if (!folder) return false;
-    const manifestPath = join(folder, 'run.kilnry.json');
-    if (!existsSync(manifestPath)) return false;
-    try {
-      const m = JSON.parse(readFileSync(manifestPath, 'utf8')) as RunManifest & { status?: string };
-      if (['completed', 'failed', 'cancelled'].includes(m.status ?? '')) return true;
-      const paused = (m.steps ?? []).some((s) => s.status === 'waiting');
-      return !paused && spendingStepsCompleted(m) > 0;
-    } catch {
-      return false;
+  // Clear the run's checkpoints through the interface, waiting on the run's own
+  // state rather than a timer. The run rests when it waits on a checkpoint or
+  // finishes; anything else means it is still working. A run that ends failed
+  // or cancelled fails here with its step errors, and the folder and manifest
+  // are read only once the run has completed.
+  const runId = new URL(page.url()).pathname.split('/').at(-1)!;
+  const readRun = async (): Promise<RunView> => {
+    const answer = await page.evaluate(async (id) => {
+      const response = await fetch(`/api/runs/${encodeURIComponent(id)}`);
+      return { status: response.status, body: await response.text() };
+    }, runId);
+    if (answer.status !== 200) {
+      throw new Error(`GET /api/runs/${runId} answered ${answer.status}: ${answer.body.slice(0, 300)}`);
     }
+    return (JSON.parse(answer.body) as { run: RunView }).run;
   };
-  // How long the helper keeps clearing checkpoints. A run's approve request drives
-  // the workflow synchronously to its next pause, and a step's job is now given the
-  // engine's honest poll window rather than the one second the harness used to
-  // impose, so a workflow with several spending steps and a loop takes minutes on a
-  // loaded runner. The budget is sized to that real work; the assertions afterwards
-  // stay strict.
-  const deadline = Date.now() + 420_000;
-  while (Date.now() < deadline) {
-    const card = page.locator('.approval-card');
-    // The card either appears (a checkpoint to clear) or the run settles; wait
-    // for whichever happens rather than a fixed timer.
-    const appeared = await card
-      .waitFor({ state: 'visible', timeout: 6000 })
-      .then(() => true)
-      .catch(() => false);
-    if (appeared) {
-      // Approving posts to the resume route which drives the workflow to its next
-      // pause synchronously; wait for that response, then give the synchronous
-      // resume a bounded moment to render the next state before the loop reads it.
-      const approveResponse = page
-        .waitForResponse(
-          (r) => /\/api\/runs\/[^/]+\/approve$/.test(r.url()) && r.request().method() === 'POST',
-          { timeout: 180_000 },
-        )
-        .catch(() => null);
-      await card.getByRole('button', { name: /Approve/i }).click();
-      await approveResponse;
-      await page.waitForTimeout(2500);
-      continue;
+  const card = page.locator('.approval-card');
+  for (;;) {
+    // A run's approve request drives the workflow synchronously to its next
+    // pause, and a workflow with several spending steps takes minutes on a
+    // loaded runner, so the run is given that long to come to rest. Poll at
+    // two seconds so this and the run view's own reads stay inside the rate
+    // bucket (F-SET-08).
+    await expect
+      .poll(async () => (await readRun()).status, { timeout: 420_000, intervals: [2_000] })
+      .toMatch(/^(awaiting_approval|completed|failed|cancelled)$/);
+    const run = await readRun();
+    if (run.status === 'completed') break;
+    if (run.status !== 'awaiting_approval') {
+      const errors = run.steps
+        .filter((step) => step.status === 'failed')
+        .map((step) => `${step.step_id}: ${step.error ?? 'failed'}`);
+      throw new Error(`The ${options.workflowId} run ended ${run.status}. ${errors.join('; ')}`);
     }
-    if (settled()) break;
-    // No card is showing and the run has not settled. The manifest is the source
-    // of truth: if it says a step is waiting on a decision, the view lost the
-    // first-read race under load and rendered blank, so a reload forces a fresh
-    // fetch and the card reappears on the next cycle.
-    if (manifestWaiting(options.folder, options.slugPrefix)) {
-      await page.reload();
-      await page.waitForTimeout(1500);
-    }
+    const waiting = run.steps.find((step) => step.status === 'waiting');
+    expect(waiting, 'a run awaiting approval has a waiting step').toBeDefined();
+    // The run view shows the checkpoint's card; approving answers the step. The
+    // card's own button fires the request without awaiting it and the SSE reload
+    // can swap the card mid-click, so assert the card is shown (the interface the
+    // user sees) and drive the same /approve the button drives, awaiting it.
+    await expect(card).toBeVisible({ timeout: 30_000 });
+    await expect(card.getByRole('button', { name: /Approve/i })).toBeVisible();
+    // Drive the same /approve the card's button drives, awaiting it. A 429 is
+    // explicit backpressure (the run view polls the same server), not a failure,
+    // so honour its retry-after and try again, bounded; any other non-200 fails.
+    await expect
+      .poll(
+        async () => {
+          const answer = await page.evaluate(async (id) => {
+            const token = decodeURIComponent(
+              document.cookie
+                .split(';')
+                .map((part) => part.trim())
+                .find((part) => part.startsWith('kilnry_csrf='))
+                ?.slice('kilnry_csrf='.length) ?? '',
+            );
+            const response = await fetch(`/api/runs/${encodeURIComponent(id)}/approve`, {
+              method: 'POST',
+              headers: { 'X-Kilnry-CSRF': token },
+            });
+            return { status: response.status, body: await response.text() };
+          }, runId);
+          if (answer.status === 429) return false;
+          if (answer.status !== 200)
+            throw new Error(`approve ${answer.status}: ${answer.body.slice(0, 200)}`);
+          return true;
+        },
+        { timeout: 90_000, intervals: [3_000] },
+      )
+      .toBe(true);
+    // The approve resumes the run synchronously to its next pause or the end,
+    // which for a stills render is a long foreach, so wait on the run leaving
+    // this checkpoint: the clicked step is no longer waiting (it ran, or the run
+    // moved to a different checkpoint, completed, or failed).
+    await expect
+      .poll(
+        async () => {
+          const next = await readRun();
+          const same = next.steps.find((step) => step.step_id === waiting!.step_id);
+          return same?.status !== 'waiting' || next.status === 'completed' || next.status === 'failed';
+        },
+        { timeout: 420_000, intervals: [2_000] },
+      )
+      .toBe(true);
   }
-  const folder = await expect
-    .poll(() => findRunFolder(options.folder, options.slugPrefix), { timeout: 180_000 })
-    .toBeTruthy()
-    .then(() => findRunFolder(options.folder, options.slugPrefix)!);
-  const manifestPath = join(folder, 'run.kilnry.json');
-  await expect.poll(() => existsSync(manifestPath), { timeout: 60_000 }).toBe(true);
+  const folder = findRunFolder(options.folder, options.slugPrefix);
+  expect(folder, `the ${options.workflowId} run folder`).toBeTruthy();
+  const manifestPath = join(folder!, 'run.kilnry.json');
+  // The manifest is rewritten atomically when the run finishes.
+  await expect
+    .poll(
+      () =>
+        existsSync(manifestPath)
+          ? (JSON.parse(readFileSync(manifestPath, 'utf8')) as RunManifest).status
+          : undefined,
+      {
+        timeout: 60_000,
+      },
+    )
+    .toBe('completed');
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as RunManifest;
-  return { folder, manifest };
+  return { folder: folder!, manifest };
 }
 
-// The number of spending steps (generate, transform, analyze) that completed in
-// a manifest — each writes exactly one spend-ledger row (the money-path check).
-function spendingStepsCompleted(manifest: RunManifest): number {
-  return (manifest.steps ?? []).filter(
-    (step) => ['generate', 'transform', 'analyze'].includes(step.kind ?? '') && step.status === 'completed',
-  ).length;
+interface RunView {
+  status: string;
+  steps: Array<{ step_id: string; status: string; error?: string | null }>;
 }
 
 test.describe('M6 workflows acceptance', () => {
