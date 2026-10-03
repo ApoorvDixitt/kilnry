@@ -36,6 +36,9 @@ import { fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
 import { and, eq, inArray } from 'drizzle-orm';
 import { KilnryError, loadConfig, loadRegistry, ulid, listCharacters, loadFullCharacter } from '@kilnry/core';
+import { indexAsset, libraryMarker, resolveInRoot } from '@kilnry/core';
+import { ffmpegExtension, isSupportedFfmpegOp, probeMedia, runFfmpegOp, STILL_IMAGE } from '@kilnry/media';
+import { mkdir } from 'node:fs/promises';
 import { CanonicalRequestSchema, type CanonicalRequest, type RouteConstraints } from '@kilnry/core';
 import { analyzeTool, capabilityFor, type ToolServices } from '@kilnry/core';
 import { assets, assetTags, assetLineage, jobs, runSteps, runs, type DatabaseState } from '@kilnry/db';
@@ -711,6 +714,7 @@ export async function startRun(
     folder,
     startedAt,
     libraryRoot: config.library_root ?? '',
+    libraryId: config.library_root ? (await libraryMarker(config.library_root)).library_id : '',
     ...(options.analyze ? { analyze: options.analyze } : {}),
   });
 
@@ -812,6 +816,7 @@ async function driveResumed(
     folder,
     startedAt,
     libraryRoot: config.library_root ?? '',
+    libraryId: config.library_root ? (await libraryMarker(config.library_root)).library_id : '',
     ...(options.analyze ? { analyze: options.analyze } : {}),
   });
   const state = await execute(entry.workflow, baseScope, effects, options, existing);
@@ -1082,6 +1087,9 @@ export interface RunContext {
   folder: string;
   startedAt: string;
   libraryRoot: string;
+  // The Library id, so an assembled output is indexed with the same sidecar and
+  // thumbnail path a dropped file gets (TRD-12 §6, F-WFL-06).
+  libraryId: string;
   // What an analyze step needs to run through the metered analyze tool: an
   // OpenRouter key and a way to turn an asset id into a loopback media URL.
   // Absent means analyze steps cannot run (no key configured).
@@ -1257,26 +1265,107 @@ async function assembleFile(
     ? (step.inputs as unknown[]).map(String).filter((id) => id !== '')
     : [];
   const op = String(step.op ?? '');
-  // A probe measures a source; it produces no new file. Pass the first input
-  // through so a later `{{ steps.probe.outputs.asset }}` still resolves, and
-  // expose any declared measurement (duration) the step reads from `result`.
+  const params = (step.params ?? {}) as Record<string, unknown>;
+  const root = run.libraryRoot;
+
+  // Resolve an input ref — an asset id, a Library-relative path, or an https URL
+  // — to an absolute path ffmpeg can read.
+  const resolveInput = async (ref: string): Promise<string> => {
+    if (/^https?:\/\//.test(ref)) return ref;
+    if (ref.startsWith('/')) return (await resolveInRoot(root, ref, { mustExist: true })).abs;
+    const [row] = await db.db.select({ path: assets.path }).from(assets).where(eq(assets.id, ref)).limit(1);
+    if (!row) throw new KilnryError('NOT_FOUND', `Assemble input ${ref} is not in the Library.`);
+    return (await resolveInRoot(root, row.path, { mustExist: true })).abs;
+  };
+
+  // A probe measures its source and mints no file. It passes the input through
+  // so a later `steps.probe.outputs.asset` resolves, and exposes the real
+  // duration (TRD-09 §3.1) so a narrated workflow can time cuts from it.
   if (op === 'probe' || op === 'metadata') {
     const source = inputs[0] ?? '';
+    let durationS = 0;
+    if (source !== '' && root !== '') {
+      const probe = await probeMedia(await resolveInput(source));
+      durationS = probe.duration_s ?? 0;
+    }
     return {
-      outputs: { result: { asset_id: source, assets: source === '' ? [] : [source] }, asset: source },
+      outputs: {
+        result: { asset_id: source, assets: source === '' ? [] : [source], duration_s: durationS },
+        asset: source,
+        duration_s: durationS,
+      },
       actual_usd: 0,
       status: 'completed',
     };
   }
-  // The output file the op writes into the run folder. Fall back to a name keyed
-  // on the step so two assemble steps in one run never collide.
+
   const outputName =
     typeof step.output_name === 'string' && step.output_name !== ''
       ? step.output_name
-      : `${node.step_id}.mp4`;
+      : `${node.step_id}${ffmpegExtension(op)}`;
   const targetRelative = join(run.folder, outputName);
-  // Inherit kind and audio flag from the primary input asset when it is known,
-  // so a concatenated cut is a video and a joined narration is audio.
+
+  // Render the output for real through the same local ffmpeg path kilnry_ffmpeg
+  // uses (TRD-12 §6: assemble → kilnry_ffmpeg.execute, in-process, no provider),
+  // then index the file so it carries a sidecar and lineage like any asset. A
+  // run with no Library root is the unit-test stub below.
+  if (root !== '' && isSupportedFfmpegOp(op) && inputs.length > 0) {
+    const resolved = await Promise.all(inputs.map(resolveInput));
+    const outputAbs = (await resolveInRoot(root, targetRelative, { mustExist: false })).abs;
+    await mkdir(dirname(outputAbs), { recursive: true });
+    // Concat needs each input's audio flag and duration so a still or a silent
+    // clip gets a bounded silent track in the ladder (TRD-09 §3.3).
+    const opParams: Record<string, unknown> = { ...params };
+    if (op === 'concat') {
+      opParams.sources = await Promise.all(
+        resolved.map(async (abs) => {
+          const still = STILL_IMAGE.test(abs);
+          if (still) return { still: true };
+          const probe = await probeMedia(abs);
+          return { still: false, has_audio: probe.has_audio ?? false, duration_s: probe.duration_s ?? 0 };
+        }),
+      );
+    }
+    try {
+      await runFfmpegOp(op, resolved, outputAbs, opParams);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      return { outputs: {}, actual_usd: 0, status: 'failed', error: `ffmpeg ${op} failed: ${detail}` };
+    }
+    const indexed = await indexAsset(db, root, targetRelative, run.libraryId);
+    const assetId = indexed.sidecar.asset_id;
+    for (const parentId of inputs) {
+      await db.db.insert(assetLineage).values({ childId: assetId, parentId, role: op }).onConflictDoNothing();
+    }
+    await db.db
+      .update(assets)
+      .set({ runId: run.runId, stepId: node.step_id, source: 'assemble' })
+      .where(eq(assets.id, assetId));
+    return {
+      outputs: {
+        result: {
+          asset_id: assetId,
+          assets: [assetId],
+          duration_s: indexed.sidecar.file.duration_s ?? 0,
+        },
+        asset: assetId,
+        assets: [assetId],
+        path: targetRelative,
+      },
+      actual_usd: 0,
+      status: 'completed',
+    };
+  }
+  if (root !== '' && !isSupportedFfmpegOp(op)) {
+    return {
+      outputs: {},
+      actual_usd: 0,
+      status: 'failed',
+      error: `The assemble op ${op || '(none)'} has no local ffmpeg handler.`,
+    };
+  }
+
+  // No Library root: record the asset row only (the F-WFL-09 unit stub).
   let kind = 'video';
   const [primary] = inputs[0]
     ? await db.db

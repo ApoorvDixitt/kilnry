@@ -34,6 +34,15 @@ export function isSupportedFfmpegOp(op: string): op is FfmpegOp {
   return (FFMPEG_OPS as readonly string[]).includes(op);
 }
 
+// The output file extension a local FFmpeg operation writes.
+export function ffmpegExtension(op: string): string {
+  if (op === 'gif') return '.gif';
+  if (op === 'extract_audio') return '.mp3';
+  if (op === 'thumbnail' || op === 'sprite_sheet') return '.png';
+  if (op === 'extract_frames') return '_%04d.png';
+  return '.mp4';
+}
+
 // The aspect ratio as width:height for the pad filter.
 function aspectPad(target: string): string {
   const [w, h] = target.split(':').map((part) => Number(part.trim()));
@@ -125,36 +134,123 @@ export function ffmpegArgs(
     case 'loop':
       return [...base, '-stream_loop', String(num('count', 1)), '-i', input!, '-c', 'copy', output];
     case 'concat': {
-      if (inputs.length < 2) throw new Error('Concat needs at least two inputs.');
+      if (inputs.length < 1) throw new Error('Concat needs at least one input.');
+      // An audio-only join (narrator stitches voice takes): concat the audio
+      // streams, no video.
+      if (String(params.mode ?? '') === 'audio') {
+        const args = [...base];
+        for (const source of inputs) args.push('-i', source);
+        const streams = inputs.map((_, index) => `[${index}:a]`).join('');
+        return [
+          ...args,
+          '-filter_complex',
+          `${streams}concat=n=${inputs.length}:v=0:a=1[a]`,
+          '-map',
+          '[a]',
+          output,
+        ];
+      }
+      // The re-encode ladder (TRD-09 §3.3): a still image becomes a held clip of
+      // image_hold_s seconds, every input is scaled and padded to one target and
+      // given a stereo audio track (silence of the clip's own length when it has
+      // none), then the inputs are concatenated. This lets the faceless stills
+      // mode and any mix of clips and images join without a stream mismatch. The
+      // host passes each input's audio flag and duration under `sources`.
+      const hold = num('image_hold_s', 4);
+      const [tw, th] = targetDimensions(params);
+      const fps = targetFps(params);
+      const sources = Array.isArray(params.sources)
+        ? (params.sources as Array<{ still?: boolean; has_audio?: boolean; duration_s?: number }>)
+        : [];
       const args = [...base];
-      for (const source of inputs) args.push('-i', source);
-      const streams = inputs.map((_, index) => `[${index}:v][${index}:a]`).join('');
+      const chains: string[] = [];
+      const pairs: string[] = [];
+      inputs.forEach((source, index) => {
+        const info = sources[index] ?? {};
+        const still = info.still ?? isStillImage(source);
+        const clipLength = still ? hold : (info.duration_s ?? 0) > 0 ? info.duration_s! : undefined;
+        if (still) {
+          args.push('-loop', '1', '-framerate', String(fps), '-t', String(hold), '-i', source);
+        } else {
+          args.push('-i', source);
+        }
+        chains.push(
+          `[${index}:v]scale=${tw}:${th}:force_original_aspect_ratio=decrease,` +
+            `pad=${tw}:${th}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps=${fps},format=yuv420p[v${index}]`,
+        );
+        if (!still && info.has_audio !== false) {
+          chains.push(`[${index}:a]aresample=48000,aformat=channel_layouts=stereo[a${index}]`);
+        } else {
+          // Silence of the clip's own length (bounded, so concat terminates).
+          const duration = clipLength !== undefined ? `:d=${clipLength}` : '';
+          chains.push(`anullsrc=r=48000:cl=stereo${duration}[a${index}]`);
+        }
+        pairs.push(`[v${index}][a${index}]`);
+      });
       return [
         ...args,
         '-filter_complex',
-        `${streams}concat=n=${inputs.length}:v=1:a=1[v][a]`,
+        `${chains.join(';')};${pairs.join('')}concat=n=${inputs.length}:v=1:a=1[v][a]`,
         '-map',
         '[v]',
         '-map',
         '[a]',
+        '-c:v',
+        'libx264',
+        '-crf',
+        '18',
+        '-c:a',
+        'aac',
+        '-movflags',
+        '+faststart',
         output,
       ];
     }
     case 'mux_audio': {
       const audio = inputs[1];
       if (!audio) throw new Error('Muxing needs a video and an audio input.');
+      const mode = String(params.mode ?? 'replace');
+      const gain = num('audio_gain_db', num('gain_db', 0));
+      // mix / under: blend the new audio with the video's own track, the "under"
+      // bed quieter; replace: swap the track outright (TRD-09 §3.8).
+      if (mode === 'mix' || mode === 'under') {
+        return [
+          ...base,
+          '-i',
+          input!,
+          '-i',
+          audio,
+          '-filter_complex',
+          `[0:a]volume=${num('video_gain_db', 0)}dB[a0];[1:a]volume=${gain}dB[a1];` +
+            `[a0][a1]amix=inputs=2:duration=first:normalize=0[a]`,
+          '-map',
+          '0:v:0',
+          '-map',
+          '[a]',
+          '-c:v',
+          'copy',
+          '-c:a',
+          'aac',
+          '-shortest',
+          output,
+        ];
+      }
       return [
         ...base,
         '-i',
         input!,
         '-i',
         audio,
+        '-filter_complex',
+        `[1:a]volume=${gain}dB,apad[a]`,
         '-c:v',
         'copy',
         '-map',
         '0:v:0',
         '-map',
-        '1:a:0',
+        '[a]',
+        '-c:a',
+        'aac',
         '-shortest',
         output,
       ];
@@ -163,6 +259,33 @@ export function ffmpegArgs(
       // Probe is handled by probeMedia in the tool, not by an FFmpeg render.
       return [];
   }
+}
+
+// A target width:height for the concat ladder from the step's `target` (a
+// {width,height} or {aspect,resolution}) or a sensible portrait-safe default.
+function targetDimensions(params: Record<string, unknown>): [number, number] {
+  const target = (params.target ?? {}) as Record<string, unknown>;
+  const w = Number(target.width);
+  const h = Number(target.height);
+  if (Number.isFinite(w) && Number.isFinite(h) && w > 0 && h > 0) return [Math.round(w), Math.round(h)];
+  const resolution = String(target.resolution ?? '1080p');
+  const short = resolution === '720p' ? 720 : resolution === '4k' ? 2160 : 1080;
+  const aspect = String(target.aspect ?? '9:16');
+  const [aw, ah] = aspect.split(':').map((part) => Number(part.trim()));
+  if (aw && ah && aw > ah) return [Math.round((short * aw) / ah), short];
+  if (aw && ah) return [short, Math.round((short * ah) / aw)];
+  return [short, Math.round((short * 16) / 9)];
+}
+
+function targetFps(params: Record<string, unknown>): number {
+  const target = (params.target ?? {}) as Record<string, unknown>;
+  const fps = Number(target.fps);
+  return Number.isFinite(fps) && fps > 0 ? Math.round(fps) : 30;
+}
+
+export const STILL_IMAGE = /\.(png|jpe?g|webp|avif|bmp|tiff?)$/i;
+function isStillImage(source: string): boolean {
+  return STILL_IMAGE.test(source.split('?')[0] ?? source);
 }
 
 // Run an FFmpeg operation, producing `output`. Returns the trimmed log tail.

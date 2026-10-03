@@ -113,6 +113,7 @@ function runContext(id: string, priced: ReturnType<typeof plan>): RunContext {
     folder: `inbox/${id}`,
     startedAt: new Date().toISOString(),
     libraryRoot: '',
+    libraryId: '',
   };
 }
 

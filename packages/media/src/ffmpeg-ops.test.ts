@@ -32,8 +32,14 @@ describe('ffmpeg-ops (F-MCP-02)', () => {
     expect(args.join(' ')).toContain('concat=n=2:v=1:a=1');
   });
 
-  it('rejects concat with a single input', () => {
-    expect(() => ffmpegArgs('concat', ['/a.mp4'], '/out.mp4')).toThrow();
+  it('normalises a single-input concat to the target rather than rejecting it', () => {
+    // A clips loop that produced one clip concats one input (TRD-09 §3.3 ladder).
+    const args = ffmpegArgs('concat', ['/a.mp4'], '/out.mp4');
+    expect(args.join(' ')).toContain('concat=n=1:v=1:a=1');
+  });
+
+  it('rejects concat with no inputs', () => {
+    expect(() => ffmpegArgs('concat', [], '/out.mp4')).toThrow();
   });
 
   it('builds a gif filter with fps and scale', () => {

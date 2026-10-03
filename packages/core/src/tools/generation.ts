@@ -12,7 +12,7 @@
 
 import * as z from 'zod';
 import { basename, join } from 'node:path';
-import { FFMPEG_OPS, isSupportedFfmpegOp, runFfmpegOp } from '@kilnry/media';
+import { FFMPEG_OPS, ffmpegExtension, isSupportedFfmpegOp, runFfmpegOp } from '@kilnry/media';
 import { probeMedia } from '@kilnry/media';
 import { auditEvents, spendLedger } from '@kilnry/db';
 import { confirmationDecision } from '../budget/confirmation.js';
@@ -625,10 +625,3 @@ export const GENERATION_TOOLS: KilnryTool[] = [
 ];
 
 // The output file extension for a local FFmpeg operation.
-function ffmpegExtension(op: string): string {
-  if (op === 'gif') return '.gif';
-  if (op === 'extract_audio') return '.mp3';
-  if (op === 'thumbnail' || op === 'sprite_sheet') return '.png';
-  if (op === 'extract_frames') return '_%04d.png';
-  return '.mp4';
-}
