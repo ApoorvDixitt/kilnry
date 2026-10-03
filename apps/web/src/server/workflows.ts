@@ -58,6 +58,7 @@ import {
   packagesRootFrom,
   parseWorkflow,
   plan,
+  rehydrateDeferred,
   renderStep,
   resetFrom,
   runFolder,
@@ -805,9 +806,9 @@ async function rebuildRunState(
   const rows = await db.db.select().from(runSteps).where(eq(runSteps.runId, runId));
   const byId = new Map(rows.map((row) => [row.instanceId, row] as const));
   let spent = 0;
-  for (const node of state.steps) {
+  const overlay = (node: RunStep): void => {
     const row = byId.get(node.instance_id);
-    if (!row) continue;
+    if (!row) return;
     node.status = (row.status ?? 'pending') as RunStep['status'];
     if (row.outputs) node.outputs = row.outputs;
     if (row.modelId) node.model = row.modelId;
@@ -825,7 +826,15 @@ async function rebuildRunState(
     // gate is cleared so the step runs instead of pausing again (F-WFL-04).
     if (row.approvedAt) node.approval_cleared = true;
     spent += Number(row.actualUsd ?? 0);
-  }
+  };
+  for (const node of state.steps) overlay(node);
+  // A deferred foreach (over a step output) expands only to a placeholder in a
+  // fresh graph; its children were created at run time and persisted. Rebuild
+  // them from the restored `over` output, then overlay their rows so the
+  // container namespace a later step reads is whole again on resume (F-WFL-06).
+  const before = new Set(state.steps.map((node) => node.instance_id));
+  rehydrateDeferred(state, baseScope);
+  for (const node of state.steps) if (!before.has(node.instance_id)) overlay(node);
   state.spent_usd = spent;
   return state;
 }

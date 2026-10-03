@@ -411,6 +411,62 @@ export function expandRunState(workflow: WorkflowFile, baseScope: Scope): RunSta
 }
 
 /**
+ * Reconstruct the children of any deferred foreach whose placeholder has already
+ * been expanded in a previous run (its `over` step output is present in the
+ * state). `expandRunState` emits only the placeholder for a foreach over a step
+ * output, so a run that paused after such a foreach ran would, on resume, lose
+ * the children it had already produced; this puts them back so the container
+ * namespace (`steps.<id>.outputs`, `steps.<id>.assets`) is whole again. The
+ * caller overlays the persisted rows onto the returned nodes. Returns the new
+ * child instance ids so the caller can overlay their rows too. Idempotent: a
+ * placeholder whose children are already present is skipped.
+ */
+export function rehydrateDeferred(state: RunState, baseScope: Scope): void {
+  // Resolve each foreach `over` against the state built so far, so a placeholder
+  // whose `over` reads a now-restored step output expands to the same children.
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const node of [...state.steps]) {
+      if (node.deferred_prefix === undefined || node.step.kind !== 'foreach') continue;
+      if (node.status !== 'completed') continue;
+      const container = node.step.id;
+      const prefix = `${node.deferred_prefix}${container}[`;
+      if (state.steps.some((other) => other.instance_id.startsWith(prefix))) continue;
+      const scope = {
+        ...baseScope,
+        ...node.scope_extra,
+        steps: stepsScope(state).steps,
+        vars: (baseScope.vars as Record<string, unknown> | undefined) ?? {},
+      };
+      const over = renderString(node.step.over, scope);
+      const items = Array.isArray(over) ? over : [];
+      if (items.length === 0) continue;
+      const foreachStep = node.step;
+      const children: RunStep[] = [];
+      items.forEach((item, index) => {
+        const childExtra = {
+          ...node.scope_extra,
+          [foreachStep.as]: item,
+          [foreachStep.index_as]: index,
+        };
+        children.push(
+          ...expandRun(
+            foreachStep.steps,
+            baseScope,
+            `${node.deferred_prefix}${foreachStep.id}[${index}].`,
+            childExtra,
+          ),
+        );
+      });
+      const at = state.steps.indexOf(node);
+      state.steps.splice(at + 1, 0, ...children);
+      changed = true;
+    }
+  }
+}
+
+/**
  * Execute a plan's steps to a terminal or awaiting state. Returns the run state;
  * when a hard checkpoint is reached with no decision, the run pauses with status
  * awaiting_approval and the caller resumes it later by calling run again after

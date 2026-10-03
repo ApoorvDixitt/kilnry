@@ -61,6 +61,7 @@ export {
   execute,
   resetFrom,
   expandRunState,
+  rehydrateDeferred,
   expandExportStep,
   type RunState,
   type RunStep,
