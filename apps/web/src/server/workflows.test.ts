@@ -338,7 +338,19 @@ describe('every spending step of every kind reaches the engine once (F-WFL-06)',
         }
         // A local assemble/export answers the shape the host's assembleFile does,
         // so a step's declared `asset: '{{ result.asset_id }}'` resolves and a
-        // later set reading it (ugc-ad's cut) has a value.
+        // later set reading it (ugc-ad's cut) has a value. A probe reports a
+        // duration the narrated workflows time cuts from.
+        if (node.kind === 'assemble' && String((rendered as { op?: unknown }).op ?? '') === 'probe') {
+          return {
+            outputs: {
+              result: { asset_id: 'local', assets: ['local'], duration_s: 3 },
+              asset: 'local',
+              duration_s: 3,
+            },
+            actual_usd: 0,
+            status: 'completed',
+          };
+        }
         return {
           outputs: { asset: 'local', assets: ['local'], result: { asset_id: 'local', assets: ['local'] } },
           actual_usd: 0,
@@ -734,7 +746,23 @@ describe('a gated step still does its own work in the shipped workflows (F-WFL-0
               words: [],
               // A probe answers a duration; the narrated workflows time cuts from it.
               duration_s: 4,
-              structured: { ok: true, pass: true, reasons: [], issues: [], segments: ['a', 'b', 'c'] },
+              structured: {
+                ok: true,
+                pass: true,
+                reasons: [],
+                issues: [],
+                segments: ['a', 'b', 'c'],
+                // A script analyze returns blocks and scenes the narrated and
+                // motion workflows loop over (one per block the prompt asked for).
+                title: 'Fixture script',
+                blocks: Array.from({ length: 6 }, (_, i) => ({
+                  line: `Line ${i + 1}.`,
+                  shots: [`shot ${i}`],
+                })),
+                scenes: Array.from({ length: 6 }, (_, i) => ({ line: `Scene ${i + 1}.`, visual: `v${i}` })),
+                roster: [],
+                line: 'A spoken line.',
+              },
               score: 0.9,
               badge: 'high',
             },
@@ -798,9 +826,12 @@ describe('a gated step still does its own work in the shipped workflows (F-WFL-0
   // stays empty), or if a set reads a sibling from the wrong foreach iteration:
   // any set that cannot resolve now fails its node with the missing path.
   // kilnry-faceless-video and kilnry-product-photoshoot also run end to end in
-  // the M6 acceptance shard. kilnry-motion-design and kilnry-faceless-video stop
-  // in this fake before their later sets (a check step's foreach and the stills
-  // timing read shapes the fake does not model), so they are not listed here.
+  // the M6 acceptance shard. kilnry-faceless-video is not listed here: its
+  // `voiced` foreach is over range(0, vars.n_blocks) while its `narration`
+  // foreach is over steps.script.outputs.blocks, and the executor expands every
+  // foreach once at the start — before `script` runs — so narration expands to
+  // zero and voiced[k] reads an absent narration[k].dur. Lazy foreach expansion
+  // over a step output is its own fix, tracked for M8.
   it.each([
     [
       'kilnry-narrator',

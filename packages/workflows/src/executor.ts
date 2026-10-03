@@ -545,10 +545,18 @@ export async function execute(
       // Run the step (generate/transform/assemble/analyze/export).
       node.status = 'running';
       await checkpoint();
-      const rendered =
-        node.step.kind === 'export'
-          ? expandExportStep(node.step, scope)
-          : (renderDeep(node.step, scope) as Step);
+      let rendered: Step | ExpandedExportStep;
+      try {
+        rendered =
+          node.step.kind === 'export'
+            ? expandExportStep(node.step, scope)
+            : (renderDeep(node.step, scope) as Step);
+      } catch (error) {
+        // Name the step whose template could not render, instead of a bare
+        // "expected a number" with no location (F-WFL-04).
+        const reason = error instanceof Error ? error.message : String(error);
+        throw new Error(`Step ${node.instance_id} could not render: ${reason}`, { cause: error });
+      }
       // A model swapped onto the node — by a re-run's modelOverride (F-WFL-05) or
       // carried from a prior attempt's alternate — is the model that must route.
       // The rendered step comes from node.step, which still holds the workflow's
