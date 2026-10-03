@@ -1948,6 +1948,7 @@ export async function getRun(
     name: string;
     kind: string;
     status: string;
+    error: string | null;
     model: string | null;
     estimate_usd: number | null;
     actual_usd: number | null;
@@ -1985,6 +1986,11 @@ export async function getRun(
         name: step.name ?? step.stepId,
         kind: step.kind ?? '',
         status: step.status ?? 'pending',
+        // Surface the step's recorded error so a failed assemble (an ffmpeg op
+        // that failed) names its cause to a run reader and the acceptance
+        // helper, instead of a bare "failed" (the drive stores the ffmpeg log
+        // tail here).
+        error: step.error ?? null,
         model: step.modelId ?? null,
         estimate_usd: step.estimateUsd === null ? null : Number(step.estimateUsd),
         actual_usd: step.actualUsd === null ? null : Number(step.actualUsd),
