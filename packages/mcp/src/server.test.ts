@@ -6,7 +6,13 @@
 import { describe, expect, it } from 'vitest';
 import * as z from 'zod';
 import { KILNRY_TOOLS, toolAllowedForScope, type KilnryTool, type ToolServices } from '@kilnry/core';
-import { MCP_INSTRUCTIONS, TOOLS_LIST_TTL_MS, createKilnryMcpServer, handleMcpRequest } from './server.js';
+import {
+  MCP_INSTRUCTIONS,
+  TOOLS_LIST_TTL_MS,
+  createKilnryMcpServer,
+  handleMcpRequest,
+  uiWidgetHtml,
+} from './server.js';
 
 const services = { db: {} as never, scope: 'full' } as ToolServices;
 
@@ -84,7 +90,7 @@ describe('MCP server core (F-MCP-01)', () => {
   });
 
   it('registers the resource templates and prompt starters (F-MCP-03, F-MCP-04)', () => {
-    // Building the server registers the four resource templates and four prompts;
+    // Building the server registers the five resource templates and four prompts;
     // a duplicate registration would throw, so a clean build proves they land.
     const server = createKilnryMcpServer({
       version: '0.2.0',
@@ -92,6 +98,17 @@ describe('MCP server core (F-MCP-01)', () => {
       tools: [readOnlyTool('kilnry_models')],
     });
     expect(server).toBeDefined();
+  });
+
+  it('renders a self-contained, read-only MCP Apps widget (F-MCP-07)', () => {
+    const html = uiWidgetHtml('job_progress');
+    expect(html.startsWith('<!doctype html>')).toBe(true);
+    expect(html).toContain('Job progress');
+    expect(html).toContain('read-only');
+    // No external assets so a sandboxed iframe can render it.
+    expect(html).not.toMatch(/src=|href=/);
+    // An unknown or unsafe view falls back to the Kilnry title and is sanitised.
+    expect(uiWidgetHtml('../../etc')).toContain('data-view="etc"');
   });
 
   it('serves a legacy 2025-11-25 client initialize and tools/list over the endpoint (F-MCP-08)', async () => {

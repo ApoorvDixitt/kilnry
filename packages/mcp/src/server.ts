@@ -24,6 +24,39 @@ export const TOOLS_LIST_TTL_MS = 300_000;
 export const MCP_INSTRUCTIONS = `Kilnry is a local AI media studio. Tools are grouped: discovery (kilnry_models, kilnry_estimate, kilnry_providers, kilnry_budget), creation (kilnry_generate, kilnry_transform, kilnry_ffmpeg, kilnry_analyze), library (kilnry_library, kilnry_library_manage, kilnry_import), reusable things (kilnry_characters, kilnry_characters_manage, kilnry_voices), templates (kilnry_presets, kilnry_workflows, kilnry_skills), and kilnry_jobs.
 Rules: (1) Every generation costs the user real money. Call kilnry_estimate or read the estimate in the tool result, state the price in one line, and pass confirm_cost_usd only after the user agreed, unless the workspace is in Run-automatically mode. (2) Reference people and things with @handle; kilnry_characters resolve_prompt shows exactly what will be sent. (3) For anything multi-step (ads, explainers, sheets, thumbnails) call kilnry_skills list, then load ONE skill and follow it. (4) Use asset ids and paths, never bytes. Import URLs with kilnry_import. (5) Be concise: no raw JSON or bare ids in chat; show file paths and previews. (6) Never retry a submitted spend after a timeout; check kilnry_jobs first. (7) Reply in the user's language.`;
 
+// The self-contained HTML for an MCP Apps widget (F-MCP-07). No external assets
+// so it renders in a sandboxed iframe; read-only, every action is host-gated. A
+// title and a short line per view, keyed off the window.openai/mcp bridge when
+// the host injects it, with a static fallback when it does not.
+const UI_WIDGET_TITLES: Record<string, string> = {
+  job_progress: 'Job progress',
+  asset_picker: 'Pick an asset',
+  character_picker: 'Pick a character',
+};
+
+export function uiWidgetHtml(view: string): string {
+  const title = UI_WIDGET_TITLES[view] ?? 'Kilnry';
+  const safeView = view.replace(/[^a-z_]/g, '');
+  return `<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${title}</title>
+<style>
+  :root { color-scheme: light dark; font: 14px/1.5 system-ui, sans-serif; }
+  body { margin: 0; padding: 16px; }
+  h1 { font-size: 15px; margin: 0 0 8px; }
+  .kilnry-widget-note { opacity: 0.7; }
+</style>
+</head>
+<body>
+  <main class="kilnry-widget" data-view="${safeView}">
+    <h1>${title}</h1>
+    <p class="kilnry-widget-note">This Kilnry widget is read-only; every action it offers is confirmed in the Kilnry window.</p>
+  </main>
+</body>
+</html>`;
+}
+
 // Build an McpServer from the Kilnry tool set. The tools carry their own
 // implementations (from @kilnry/core); this registrar binds them to the
 // protocol and injects the runtime services. Passing the caller scope lets the
@@ -144,6 +177,27 @@ export function createKilnryMcpServer(options: {
       return {
         contents: [
           { uri: `kilnry://run/${id}`, mimeType: 'application/json', text: JSON.stringify({ run_id: id }) },
+        ],
+      };
+    },
+  );
+  // F-MCP-07: the MCP Apps widget. kilnry_ui returns ui://kilnry/{view}; a client
+  // that supports MCP Apps reads it as text/html;profile=mcp-app and renders it
+  // in a sandboxed iframe. The HTML is self-contained (no external assets) and
+  // read-only; every action it offers is host-gated, so the widget only reads.
+  server.registerResource(
+    'kilnry-ui',
+    new ResourceTemplate('ui://kilnry/{view}', { list: undefined }),
+    { description: 'An MCP Apps widget (job progress, asset picker, character picker).' },
+    (_uri, variables) => {
+      const view = String(variables.view ?? 'job_progress');
+      return {
+        contents: [
+          {
+            uri: `ui://kilnry/${view}`,
+            mimeType: 'text/html;profile=mcp-app',
+            text: uiWidgetHtml(view),
+          },
         ],
       };
     },

@@ -25,7 +25,7 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 
 const root = process.cwd();
 const dataDir = join(root, '.dev', 'e2e-data');
@@ -723,4 +723,65 @@ test('@m7 F-WFL-08 Ad Multiplier is in the catalogue, gated on a video-edit prov
   }, token);
   expect(plan.ok, `plan failed: ${plan.status ?? ''} ${plan.body ?? ''}`).toBe(true);
   expect(Math.abs((plan.total ?? 0) - (plan.summed ?? 0))).toBeLessThanOrEqual(0.01);
+});
+
+async function mintToken(page: Page, name: string, scope: 'full' | 'read_only'): Promise<string> {
+  const token = await csrf(page);
+  return page.evaluate(
+    async ({ token, name, scope }) => {
+      const response = await fetch('/api/mcp/tokens', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Kilnry-CSRF': token },
+        body: JSON.stringify({ name, scope }),
+      });
+      const body = (await response.json()) as { token: string };
+      return body.token;
+    },
+    { token, name, scope },
+  );
+}
+
+async function mcpCall(
+  request: APIRequestContext,
+  bearer: string,
+  method: string,
+  params: Record<string, unknown> = {},
+): Promise<Record<string, unknown>> {
+  const response = await request.post('http://127.0.0.1:3123/mcp', {
+    headers: {
+      Authorization: `Bearer ${bearer}`,
+      'Content-Type': 'application/json',
+      Accept: 'application/json, text/event-stream',
+    },
+    data: { jsonrpc: '2.0', id: 1, method, params },
+  });
+  const text = await response.text();
+  const line = text.includes('data:') ? (text.split('data:').at(-1) ?? text) : text;
+  const parsed = JSON.parse(line.trim()) as { result?: Record<string, unknown> };
+  return parsed.result ?? {};
+}
+
+test('@m7 F-MCP-07 kilnry_ui returns a ui:// resource served as an MCP Apps widget', async ({
+  page,
+  request,
+}) => {
+  await ensureSignedIn(page, '/settings/mcp');
+  const bearer = await mintToken(page, 'm7-ui', 'read_only');
+
+  // kilnry_ui returns the widget's resource_uri and a text fallback.
+  const call = (await mcpCall(request, bearer, 'tools/call', {
+    name: 'kilnry_ui',
+    arguments: { view: 'job_progress' },
+  })) as { structuredContent?: { resource_uri?: string; fallback_text?: string } };
+  expect(call.structuredContent?.resource_uri).toBe('ui://kilnry/job_progress');
+  expect(typeof call.structuredContent?.fallback_text).toBe('string');
+
+  // Reading that resource yields the sandboxed MCP Apps HTML.
+  const read = (await mcpCall(request, bearer, 'resources/read', {
+    uri: 'ui://kilnry/job_progress',
+  })) as { contents?: Array<{ mimeType?: string; text?: string }> };
+  const content = read.contents?.[0];
+  expect(content?.mimeType).toBe('text/html;profile=mcp-app');
+  expect(content?.text ?? '').toContain('<!doctype html>');
+  expect(content?.text ?? '').toContain('read-only');
 });
