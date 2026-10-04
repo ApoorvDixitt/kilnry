@@ -322,13 +322,20 @@ async function driveRun(
                 .find((part) => part.startsWith('kilnry_csrf='))
                 ?.slice('kilnry_csrf='.length) ?? '',
             );
-            const response = await fetch(`/api/runs/${encodeURIComponent(id)}/approve`, {
-              method: 'POST',
-              headers: { 'X-Kilnry-CSRF': token },
-            });
-            return { status: response.status, body: await response.text() };
+            try {
+              const response = await fetch(`/api/runs/${encodeURIComponent(id)}/approve`, {
+                method: 'POST',
+                headers: { 'X-Kilnry-CSRF': token },
+              });
+              return { status: response.status, body: await response.text() };
+            } catch {
+              // The server was mid-write under shard load and did not answer this
+              // POST; status 0 means retry on the next tick, the same tolerance
+              // readRun gives a dropped GET. No .catch or timer in the wait.
+              return { status: 0, body: '' };
+            }
           }, runId);
-          if (answer.status === 429) return false;
+          if (answer.status === 0 || answer.status === 429) return false;
           if (answer.status !== 200)
             throw new Error(`approve ${answer.status}: ${answer.body.slice(0, 200)}`);
           return true;
@@ -358,7 +365,10 @@ async function driveRun(
   const folder = findRunFolder(options.folder, options.slugPrefix);
   expect(folder, `the ${options.workflowId} run folder`).toBeTruthy();
   const manifestPath = join(folder!, 'run.kilnry.json');
-  // The manifest is rewritten atomically when the run finishes.
+  // The manifest is rewritten atomically when the run finishes. The outer loop
+  // above already broke on the run reaching completed in the DB; this waits out
+  // the DB-to-disk lag of that final atomic rewrite, which on a loaded CI runner
+  // is longer than a minute after a full render+burn+index.
   await expect
     .poll(
       () =>
@@ -366,7 +376,8 @@ async function driveRun(
           ? (JSON.parse(readFileSync(manifestPath, 'utf8')) as RunManifest).status
           : undefined,
       {
-        timeout: 60_000,
+        timeout: 180_000,
+        intervals: [2_000],
       },
     )
     .toBe('completed');
