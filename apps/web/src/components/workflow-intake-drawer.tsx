@@ -69,6 +69,18 @@ function Field({
 }): React.ReactNode {
   const label = field.help ?? field.description ?? field.name;
   const id = `wf-input-${field.name}`;
+  if (field.readOnly) {
+    // A value fixed when the run was saved as a workflow (PRD-10 §8): shown as a
+    // read-only chip, not editable, and never asked for.
+    return (
+      <div className="workflow-field workflow-field-const" data-testid="workflow-field-const">
+        <span className="workflow-field-label">{label}</span>
+        <span className="workflow-field-chip" data-readonly="true" aria-readonly="true">
+          {String(field.constValue ?? field.default ?? '')}
+        </span>
+      </div>
+    );
+  }
   if (field.widget === 'toggle') {
     return (
       <label className="workflow-field workflow-field-toggle" htmlFor={id}>

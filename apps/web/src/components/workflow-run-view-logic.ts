@@ -32,6 +32,7 @@ export interface RunView {
   folder: string | null;
   estimate_usd: number;
   spent_usd: number;
+  inputs?: Record<string, unknown> | null;
   steps: RunStepView[];
 }
 

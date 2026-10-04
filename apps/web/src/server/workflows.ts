@@ -154,9 +154,18 @@ export async function saveRunAsWorkflow(
   runId: string,
   name: string,
   author?: string,
+  fields?: Record<string, boolean>,
 ): Promise<SaveRunResult> {
   const runRow = (await db.db.select().from(runs).where(eq(runs.id, runId)).limit(1))[0];
   if (!runRow) throw new KilnryError('NOT_FOUND', `Run ${runId} was not found.`);
+  // Only a completed run can be saved: an in-progress or failed run has no stable
+  // set of inputs and step models to reproduce (PRD-10 §8).
+  if (runRow.status !== 'completed') {
+    throw new KilnryError(
+      'INVALID_INPUT',
+      `Only a completed run can be saved as a workflow; this run is ${runRow.status}.`,
+    );
+  }
   const entry = getWorkflow(dataDir, runRow.workflowId);
   if (!entry) {
     throw new KilnryError('NOT_FOUND', `The run's workflow ${runRow.workflowId} is no longer installed.`);
@@ -169,15 +178,40 @@ export async function saveRunAsWorkflow(
     const defId = step.stepId ?? step.instanceId;
     if (defId && step.modelId && !models[defId]) models[defId] = step.modelId;
   }
-  const saved = buildSavedWorkflow({
-    source: entry.workflow,
-    name,
-    ...(author ? { author } : {}),
-    inputs: runRow.inputs,
-    models,
-  });
   const dir = userCatalogueRoot(dataDir);
   await mkdir(dir, { recursive: true });
+
+  // Avoid clobbering an existing saved workflow with the same slug: suffix the
+  // display name so the derived slug and filename become <slug>-2, <slug>-3…
+  let saveName = name;
+  for (
+    let n = 2;
+    existsSync(
+      join(
+        dir,
+        buildSavedWorkflow({
+          source: entry.workflow,
+          name: saveName,
+          ...(author ? { author } : {}),
+          inputs: runRow.inputs as Record<string, unknown>,
+          models,
+          ...(fields ? { fields } : {}),
+        }).filename,
+      ),
+    );
+    n += 1
+  ) {
+    saveName = `${name} ${n}`;
+  }
+
+  const saved = buildSavedWorkflow({
+    source: entry.workflow,
+    name: saveName,
+    ...(author ? { author } : {}),
+    inputs: runRow.inputs as Record<string, unknown>,
+    models,
+    ...(fields ? { fields } : {}),
+  });
   const path = join(dir, saved.filename);
   await writeFile(path, saved.yaml);
   return { id: saved.id, filename: saved.filename, path };
@@ -2008,6 +2042,7 @@ export async function getRun(
   folder: string | null;
   estimate_usd: number;
   spent_usd: number;
+  inputs: Record<string, unknown> | null;
   steps: Array<{
     step_id: string;
     name: string;
@@ -2044,6 +2079,7 @@ export async function getRun(
     folder: run.folder,
     estimate_usd: Number(run.estimateUsd ?? 0),
     spent_usd: Number(run.spentUsd ?? 0),
+    inputs: (run.inputs as Record<string, unknown> | null) ?? null,
     steps: steps
       .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
       .map((step) => ({

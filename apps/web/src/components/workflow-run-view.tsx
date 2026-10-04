@@ -498,6 +498,11 @@ export function WorkflowRunView({ runId, initial }: { runId: string; initial?: R
   const [run, setRun] = useState<RunView | null>(initial ?? null);
   const [selected, setSelected] = useState<string>();
   const [savedWorkflowNote, setSavedWorkflowNote] = useState<string>();
+  // The Save-as-workflow dialog: a name and a "make this a field" toggle per
+  // run input (PRD-10 §8). A toggle off fixes that input as a const.
+  const [saveDialog, setSaveDialog] = useState<{ name: string; fields: Record<string, boolean> } | null>(
+    null,
+  );
 
   const reload = useCallback(async (): Promise<void> => {
     try {
@@ -626,16 +631,23 @@ export function WorkflowRunView({ runId, initial }: { runId: string; initial?: R
     URL.revokeObjectURL(url);
   }, [run]);
 
-  // Save this run as a new user workflow (F-WFL-10): the run's steps with its
-  // inputs pinned as fields and its models pinned as defaults, written under
-  // ~/.kilnry/workflows and shown in the catalogue under "Mine".
+  // Open the Save-as-workflow dialog, defaulting every run input to a field.
   const saveAsWorkflow = useCallback((): void => {
     if (!run) return;
-    const name = run.workflow_id ? `${run.workflow_id} (saved)` : 'Saved run';
+    const keys = Object.keys(run.inputs ?? {});
+    const fields: Record<string, boolean> = {};
+    for (const key of keys) fields[key] = true;
+    setSaveDialog({ name: run.workflow_id ? `${run.workflow_id} (saved)` : 'Saved run', fields });
+  }, [run]);
+
+  const confirmSaveAsWorkflow = useCallback((): void => {
+    if (!saveDialog) return;
+    const { name, fields } = saveDialog;
+    setSaveDialog(null);
     void apiFetch(`/api/runs/${encodeURIComponent(runId)}/save-as-workflow`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({ name, fields }),
     })
       .then(
         (response) => response.json() as Promise<{ workflow?: { id: string }; error?: { message: string } }>,
@@ -651,7 +663,7 @@ export function WorkflowRunView({ runId, initial }: { runId: string; initial?: R
           cause instanceof Error ? cause.message : message('workflows.runView.saveFailed'),
         ),
       );
-  }, [run, runId]);
+  }, [saveDialog, runId]);
 
   const current = useMemo(
     () => run?.steps.find((step) => step.step_id === selected) ?? run?.steps[0],
@@ -675,6 +687,56 @@ export function WorkflowRunView({ runId, initial }: { runId: string; initial?: R
         <p className="run-saved-note" role="status" data-testid="run-saved-note">
           {savedWorkflowNote}
         </p>
+      ) : null}
+      {saveDialog ? (
+        <div className="dialog-backdrop" role="dialog" aria-modal="true" data-testid="run-save-dialog">
+          <div className="dialog">
+            <h3>{message('workflows.runView.saveTitle')}</h3>
+            <label className="run-save-name">
+              {message('workflows.runView.saveName')}
+              <input
+                type="text"
+                value={saveDialog.name}
+                onChange={(event) =>
+                  setSaveDialog((prev) => (prev ? { ...prev, name: event.target.value } : prev))
+                }
+              />
+            </label>
+            <p className="muted">{message('workflows.runView.saveFieldsHint')}</p>
+            <ul className="run-save-fields">
+              {Object.keys(saveDialog.fields).map((key) => (
+                <li key={key}>
+                  <label>
+                    <input
+                      type="checkbox"
+                      data-testid={`run-save-field-${key}`}
+                      checked={saveDialog.fields[key]}
+                      onChange={(event) =>
+                        setSaveDialog((prev) =>
+                          prev ? { ...prev, fields: { ...prev.fields, [key]: event.target.checked } } : prev,
+                        )
+                      }
+                    />
+                    <span>{key}</span>
+                  </label>
+                </li>
+              ))}
+            </ul>
+            <div className="dialog-actions">
+              <button type="button" className="btn" onClick={() => setSaveDialog(null)}>
+                {message('workflows.runView.saveCancel')}
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                data-testid="run-save-confirm"
+                onClick={confirmSaveAsWorkflow}
+              >
+                {message('workflows.runView.saveConfirm')}
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
       {run.status === 'awaiting_approval' ? (
         <ApprovalCard

@@ -15,6 +15,8 @@ import { saveRunAsWorkflow } from '../../../../../server/workflows';
 const Body = z.object({
   name: z.string().min(1).max(80),
   author: z.string().min(1).max(32).optional(),
+  // Per-input "make this a field" choices (PRD-10 §8); omitted = all fields.
+  fields: z.record(z.string(), z.boolean()).optional(),
 });
 
 export async function POST(
@@ -27,7 +29,14 @@ export async function POST(
     const body = Body.parse(await request.json());
     const config = await loadConfig();
     const services = await runtimeServices();
-    const result = await saveRunAsWorkflow(services.database, config.data_dir, id, body.name, body.author);
+    const result = await saveRunAsWorkflow(
+      services.database,
+      config.data_dir,
+      id,
+      body.name,
+      body.author,
+      body.fields,
+    );
     return NextResponse.json({ workflow: result });
   } catch (error) {
     return errorResponse(error);

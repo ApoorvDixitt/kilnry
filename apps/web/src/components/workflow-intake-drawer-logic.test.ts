@@ -43,6 +43,22 @@ describe('workflow intake drawer logic (F-WFL-02)', () => {
     expect(captions.widget).toBe('toggle');
   });
 
+  it('reads a const-fixed input (saved from a run) as a read-only field, never required', () => {
+    const fields = readInputFields({
+      type: 'object',
+      required: ['subject'],
+      properties: {
+        subject: { type: 'string', const: 'a red mug', 'x-kilnry': { widget: 'const' } },
+      },
+    });
+    const subject = fields.find((field) => field.name === 'subject')!;
+    expect(subject.readOnly).toBe(true);
+    expect(subject.constValue).toBe('a red mug');
+    expect(subject.required).toBe(false);
+    // Its initial value is the fixed value, so Run never asks for it.
+    expect(initialInputs(fields).subject).toBe('a red mug');
+  });
+
   it('applies defaults and reports missing required fields', () => {
     const fields = readInputFields(INPUTS);
     const values = initialInputs(fields);

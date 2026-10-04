@@ -85,4 +85,27 @@ describe('save a run as a workflow (F-WFL-10)', () => {
     const shot = parseWorkflow(saved.yaml).steps.find((step) => step.id === 'shot');
     if (shot?.kind === 'generate') expect(shot.model).toBe('auto');
   });
+
+  it('fixes an input turned off as a const read-only field and drops it from required', () => {
+    const source = parseWorkflow(SOURCE);
+    const saved = buildSavedWorkflow({
+      source,
+      name: 'Fixed Subject',
+      author: 'kiro',
+      inputs: { subject: 'a red mug', variants: 4 },
+      // subject off (fixed), variants on (editable field).
+      fields: { subject: false, variants: true },
+    });
+    const reparsed = parseWorkflow(saved.yaml);
+    const props = reparsed.inputs as {
+      required?: string[];
+      properties: Record<string, { const?: unknown; default?: unknown; 'x-kilnry'?: { widget?: string } }>;
+    };
+    // subject is a const chip and no longer required; variants stays a field.
+    expect(props.properties.subject?.const).toBe('a red mug');
+    expect(props.properties.subject?.['x-kilnry']?.widget).toBe('const');
+    expect(props.required ?? []).not.toContain('subject');
+    expect(props.properties.variants?.const).toBeUndefined();
+    expect(props.properties.variants?.default).toBe(4);
+  });
 });

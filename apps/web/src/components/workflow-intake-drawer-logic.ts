@@ -18,6 +18,9 @@ export interface WorkflowInputField {
   options?: Array<string | number>;
   unit?: string;
   help?: string;
+  // A fixed value saved from a run (PRD-10 §8): rendered as a read-only chip.
+  readOnly?: boolean;
+  constValue?: unknown;
 }
 
 export interface PlanStepView {
@@ -45,6 +48,7 @@ interface JsonSchemaProperty {
   description?: string;
   enum?: string[];
   default?: unknown;
+  const?: unknown;
   'x-kilnry'?: {
     widget?: string;
     labels?: Record<string, string>;
@@ -79,6 +83,13 @@ export function readInputFields(inputs: Record<string, unknown> | undefined): Wo
     if (hint.options !== undefined) field.options = hint.options;
     if (hint.unit !== undefined) field.unit = hint.unit;
     if (hint.help !== undefined) field.help = hint.help;
+    if (property.const !== undefined) {
+      // A fixed value saved from a run: read-only, not editable (PRD-10 §8).
+      field.readOnly = true;
+      field.constValue = property.const;
+      field.default = property.const;
+      field.required = false;
+    }
     return field;
   });
 }

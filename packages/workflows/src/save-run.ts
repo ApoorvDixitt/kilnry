@@ -26,6 +26,10 @@ export interface SaveRunOptions {
   inputs: Record<string, unknown>;
   // The model each step ran on, keyed by the step's id, pinned as its default.
   models?: Record<string, string>;
+  // Per-input "make this a field" choice (PRD-10 §8). true (default) keeps the
+  // input as an editable field with the run's value as its default; false fixes
+  // the value as a schema `const`, which the intake renders as a read-only chip.
+  fields?: Record<string, boolean>;
 }
 
 export interface SavedWorkflow {
@@ -66,19 +70,37 @@ function pinModels(steps: Step[], models: Record<string, string>): Step[] {
   });
 }
 
-// Turn the run's resolved inputs into the new workflow's input defaults, keeping
-// the source's input schema (widgets, enums) but stamping each value as the
-// default so a re-run reproduces the run unless the user changes a field.
+// Turn the run's resolved inputs into the new workflow's inputs. An input kept
+// as a field (default, or fields[key] === true) carries the run value as its
+// `default`, so a re-run reproduces the run unless the user changes it. An input
+// turned off (fields[key] === false) is fixed as a `const` with that value and
+// marked widget 'const', which the intake renders as a read-only chip; it is
+// dropped from `required` since the value is already supplied (PRD-10 §8).
 function inputsWithDefaults(
   sourceInputs: Record<string, unknown>,
   runInputs: Record<string, unknown>,
+  fields: Record<string, boolean>,
 ): Record<string, unknown> {
   const properties = (sourceInputs.properties ?? {}) as Record<string, Record<string, unknown>>;
+  const required = Array.isArray(sourceInputs.required) ? [...(sourceInputs.required as string[])] : [];
   const nextProperties: Record<string, Record<string, unknown>> = {};
+  const stillRequired = new Set(required);
   for (const [key, schema] of Object.entries(properties)) {
-    nextProperties[key] = runInputs[key] === undefined ? schema : { ...schema, default: runInputs[key] };
+    const runValue = runInputs[key];
+    if (runValue === undefined) {
+      nextProperties[key] = schema;
+      continue;
+    }
+    if (fields[key] === false) {
+      // Fixed value: a const read-only chip, no longer a required field.
+      const hint = { ...((schema['x-kilnry'] as Record<string, unknown>) ?? {}), widget: 'const' };
+      nextProperties[key] = { ...schema, const: runValue, default: runValue, 'x-kilnry': hint };
+      stillRequired.delete(key);
+    } else {
+      nextProperties[key] = { ...schema, default: runValue };
+    }
   }
-  return { ...sourceInputs, properties: nextProperties };
+  return { ...sourceInputs, required: [...stillRequired], properties: nextProperties };
 }
 
 export function buildSavedWorkflow(options: SaveRunOptions): SavedWorkflow {
@@ -92,7 +114,7 @@ export function buildSavedWorkflow(options: SaveRunOptions): SavedWorkflow {
     name: options.name.slice(0, 80),
     version: '1.0.0',
     description: `Saved from a run of ${options.source.name}.`,
-    inputs: inputsWithDefaults(options.source.inputs, options.inputs),
+    inputs: inputsWithDefaults(options.source.inputs, options.inputs, options.fields ?? {}),
     steps: pinModels(options.source.steps, models),
   };
   // Validate the generated object parses as a WorkflowFile: the round-trip is the
