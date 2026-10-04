@@ -669,7 +669,7 @@ export function WorkflowRunView({ runId, initial }: { runId: string; initial?: R
         onDuplicate={() => void duplicate()}
         onOpenFolder={openFolder}
         onExportManifest={exportManifest}
-        onSaveAsWorkflow={run.status === 'completed' ? saveAsWorkflow : undefined}
+        {...(run.status === 'completed' ? { onSaveAsWorkflow: saveAsWorkflow } : {})}
       />
       {savedWorkflowNote ? (
         <p className="run-saved-note" role="status" data-testid="run-saved-note">
