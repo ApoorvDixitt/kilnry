@@ -13,12 +13,7 @@
 import { useState } from 'react';
 import { apiFetch } from '../lib/api-client';
 import { message } from '../lib/messages';
-import {
-  defaultExportState,
-  exportRequest,
-  showsC2paNote,
-  type ExportDialogState,
-} from './export-bundle-logic';
+import { defaultExportState, exportRequest, type ExportDialogState } from './export-bundle-logic';
 
 export function ExportBundleDialog({
   assetIds,
@@ -90,13 +85,11 @@ export function ExportBundleDialog({
         <select value={state.provenance} onChange={(event) => set('provenance', event.target.value as never)}>
           <option value="none">{message('library.export.provNone')}</option>
           <option value="iptc">{message('library.export.provIptc')}</option>
-          <option value="c2pa">{message('library.export.provC2pa')}</option>
-          <option value="both">{message('library.export.provBoth')}</option>
+          {/* C2PA signing is hidden until the c2patool path ships (M8); nothing
+              signs today, so offering it would promise a signature that is never
+              written. The core 'c2pa'/'both' values remain for when it lands. */}
         </select>
       </label>
-      {showsC2paNote(state.provenance) ? (
-        <p className="export-note">{message('library.export.c2paNote')}</p>
-      ) : null}
 
       <label className="export-check">
         <input
