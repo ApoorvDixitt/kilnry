@@ -8,7 +8,7 @@
 // importing (never a client-supplied absolute path). A JSON body with a
 // server-resolved bundle_path is still accepted for the automated check.
 
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { NextResponse } from 'next/server';
 import * as z from 'zod';
@@ -23,6 +23,10 @@ const JsonBody = z.object({
 });
 
 export async function POST(request: Request): Promise<Response> {
+  // The temp zip written for a multipart upload; removed in finally so uploads
+  // do not accumulate under the data dir (item 7). A JSON bundle_path is the
+  // caller's own file and is left alone.
+  let uploadedPath: string | undefined;
   try {
     await requireSession();
     const services = await characterBundleServices();
@@ -41,6 +45,7 @@ export async function POST(request: Request): Promise<Response> {
       const dir = join(loadConfig().data_dir, 'bundles');
       await mkdir(dir, { recursive: true });
       bundlePath = join(dir, `upload-${ulid()}.zip`);
+      uploadedPath = bundlePath;
       await writeFile(bundlePath, Buffer.from(await file.arrayBuffer()));
       const conflict = form.get('on_conflict');
       onConflict = conflict === 'version' || conflict === 'rename' ? conflict : undefined;
@@ -60,5 +65,7 @@ export async function POST(request: Request): Promise<Response> {
     return NextResponse.json({ result });
   } catch (error) {
     return errorResponse(error);
+  } finally {
+    if (uploadedPath) await rm(uploadedPath, { force: true }).catch(() => undefined);
   }
 }
