@@ -7,6 +7,7 @@ import { randomBytes } from 'node:crypto';
 import { mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
+import { RELEASES_FIXTURE_PORT, startReleasesFixture } from './releases-fixture.js';
 
 const root = process.cwd();
 for (const directory of ['e2e-data', 'e2e-library']) {
@@ -15,6 +16,10 @@ for (const directory of ['e2e-data', 'e2e-library']) {
   mkdirSync(path, { recursive: true, mode: 0o700 });
 }
 
+// Serve the release-manifest fixture so "Check now" hits a real loopback host
+// via KILNRY_RELEASES_BASE rather than a mock inside the app (F-SET-07).
+const releases = startReleasesFixture();
+
 const detached = process.platform !== 'win32';
 const child = spawn('tsx', ['scripts/dev.ts'], {
   cwd: root,
@@ -22,6 +27,7 @@ const child = spawn('tsx', ['scripts/dev.ts'], {
   env: {
     ...process.env,
     KILNRY_MASTER_KEY: process.env.KILNRY_MASTER_KEY ?? randomBytes(32).toString('hex'),
+    KILNRY_RELEASES_BASE: `http://127.0.0.1:${RELEASES_FIXTURE_PORT}`,
   },
   stdio: 'inherit',
 });
@@ -30,6 +36,7 @@ let stopping = false;
 function stop(signal: NodeJS.Signals): void {
   if (stopping) return;
   stopping = true;
+  releases.server.close();
   if (!child.pid) {
     process.stderr.write('The e2e server process has no pid; it cannot be stopped cleanly.\n');
     process.exitCode = 1;

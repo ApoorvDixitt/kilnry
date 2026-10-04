@@ -42,14 +42,9 @@ export async function POST(request: Request): Promise<Response> {
     const body = Body.parse(await request.json());
     const config = loadConfig();
     if ('action' in body) {
-      // Under the acceptance harness the release manifest is served by MSW, which
-      // starts with the job engine; a settings-only session may not have started
-      // it yet, so start it here before the one explicit fetch (test only;
-      // forbidden in a release build, as runtime.ts enforces).
-      if (process.env.KILNRY_TEST_MSW === '1' && process.env.KILNRY_RELEASE_BUILD !== '1') {
-        const { startTestMsw } = await import('../../../test/msw-server');
-        startTestMsw();
-      }
+      // The one explicit manifest GET. In the e2e run KILNRY_RELEASES_BASE points
+      // at a loopback fixture (e2e/releases-fixture.ts); in production it is the
+      // real releases host. No request happens until the user clicks.
       const state = await checkForUpdate({ channel: config.update_channel });
       return NextResponse.json({ state });
     }

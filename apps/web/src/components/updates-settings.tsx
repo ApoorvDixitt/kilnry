@@ -73,7 +73,7 @@ export function UpdatesSettings({ initial }: { initial: UpdatesInfo }): React.Re
         </select>
       </label>
       {info.channel === 'beta' ? (
-        <p className="updates-beta-note" role="note">
+        <p className="updates-beta-note" role="note" data-testid="updates-beta-note">
           {message('settings.updates.betaNote')}
         </p>
       ) : null}
@@ -110,7 +110,11 @@ export function UpdatesSettings({ initial }: { initial: UpdatesInfo }): React.Re
                   .replace('{version}', result.latest)
                   .replace('{date}', result.released_at ?? '')}
               </p>
-              {result.notes ? <pre className="updates-notes">{result.notes}</pre> : null}
+              {result.notes ? (
+                <pre className="updates-notes" data-testid="updates-notes">
+                  {result.notes}
+                </pre>
+              ) : null}
             </>
           )}
         </div>

@@ -816,20 +816,37 @@ test('@m7 F-SET-07 the Updates page shows the version, checks a manifest, and of
   page,
 }) => {
   await ensureSignedIn(page, '/settings/updates');
-  await expect(page.getByTestId('updates-settings')).toBeVisible();
+  await expect(page.getByTestId('updates-settings')).toBeVisible({ timeout: 20_000 });
   // The current version is shown without any network call (auto-check is off).
   await expect(page.getByTestId('updates-version')).toContainText('Kilnry');
   // The terminal update command is offered.
   await expect(page.getByTestId('updates-command')).toHaveText('npx kilnry@latest');
 
-  // Check now is the one explicit request; the fixture manifest advertises a
-  // newer version, so an available update with its notes is shown.
+  // The fixture counts manifest requests. Auto-check is off, so nothing has
+  // been fetched before the user clicks Check now (PRD-16 §7 acceptance 1).
+  const manifestRequests = async (): Promise<number> => {
+    const r = await fetch('http://127.0.0.1:3124/__count');
+    return ((await r.json()) as { manifest_requests: number }).manifest_requests;
+  };
+  expect(await manifestRequests()).toBe(0);
+
+  // Check now is the one explicit request; the stable fixture advertises 9.9.9,
+  // so the available copy and its notes are shown exactly as specified.
   await page.getByTestId('updates-check').click();
-  // Check now runs the one explicit request and renders a result (an available
-  // update under the fixture, or offline/up-to-date if the host is unreachable);
-  // the available-vs-offline logic itself is covered deterministically by the
-  // core updates/check unit test.
-  await expect(page.getByTestId('updates-result')).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId('updates-available')).toHaveText(
+    'Kilnry 9.9.9 is available (released 1 Dec). Read the notes below.',
+    { timeout: 15_000 },
+  );
+  await expect(page.getByTestId('updates-notes')).toContainText('What is new in 9.9.9');
+  expect(await manifestRequests()).toBe(1);
+
+  // Switching to the Beta channel and checking again shows the beta note and
+  // the beta manifest's notes (the fixture serves a distinct beta manifest).
+  await page.getByLabel('Release channel').selectOption('beta');
+  await expect(page.getByTestId('updates-beta-note')).toBeVisible();
+  await page.getByTestId('updates-check').click();
+  await expect(page.getByTestId('updates-notes')).toContainText('Beta channel 9.9.9', { timeout: 15_000 });
+  expect(await manifestRequests()).toBe(2);
 });
 
 test('@m7 F-SET-11 the About page shows the version, licence, and third-party notices', async ({ page }) => {
