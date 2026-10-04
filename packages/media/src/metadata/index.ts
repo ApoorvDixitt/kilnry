@@ -312,9 +312,13 @@ export async function readEmbeddedMetadata(
   try {
     const result = await runMediaProcess(
       process.env.KILNRY_FFPROBE ?? 'ffprobe',
-      ['-v', 'quiet', '-print_format', 'json', '-show_format', path],
+      ['-v', 'error', '-print_format', 'json', '-show_format', path],
       { timeoutMs: 20_000 },
     );
+    if (result.stdout.trim() === '') {
+      const tail = result.stderr.trim().split('\n').slice(-5).join('\n');
+      throw new Error(`ffprobe produced no output for ${path}${tail ? `: ${tail}` : ''}`);
+    }
     const parsed = JSON.parse(result.stdout) as { format?: { tags?: Record<string, string> } };
     const tags = parsed.format?.tags ?? {};
     const encoded = tags['com.kilnry.generation'] ?? tags.KILNRY ?? tags.kilnry;

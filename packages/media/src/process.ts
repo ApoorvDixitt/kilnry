@@ -56,7 +56,11 @@ export async function runMediaProcess(
     child.once('error', (error) =>
       finish(new Error(`Could not start ${command}: ${error.message}`, { cause: error })),
     );
-    child.once('exit', (code, signal) => {
+    // Settle on 'close', not 'exit': Node fires 'exit' while the child's stdio
+    // pipes may still hold data, so under load the tail of stdout (ffprobe's
+    // JSON) was lost and the caller parsed a truncated or empty string. 'close'
+    // fires only after every stdio stream has ended.
+    child.once('close', (code, signal) => {
       if (code === 0) {
         finish();
         return;

@@ -34,9 +34,13 @@ export async function probeMedia(path: string): Promise<MediaProbe> {
   if (mime.startsWith('video/') || mime.startsWith('audio/')) {
     const result = await runMediaProcess(
       process.env.KILNRY_FFPROBE ?? 'ffprobe',
-      ['-v', 'quiet', '-print_format', 'json', '-show_format', '-show_streams', path],
+      ['-v', 'error', '-print_format', 'json', '-show_format', '-show_streams', path],
       { timeoutMs: 20_000 },
     );
+    if (result.stdout.trim() === '') {
+      const tail = result.stderr.trim().split('\n').slice(-5).join('\n');
+      throw new Error(`ffprobe produced no output for ${path}${tail ? `: ${tail}` : ''}`);
+    }
     const parsed = JSON.parse(result.stdout) as {
       format?: { duration?: string };
       streams?: Array<{
