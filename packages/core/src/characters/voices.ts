@@ -17,6 +17,9 @@ export interface VoiceListItem {
   gender: string;
   tags: string[];
   is_clone: boolean;
+  // The stored ulid for a clone or designed voice (absent for a provider
+  // preset), so the list can bind it to a Character.
+  id?: string;
   // Price per 1,000 characters, or per minute for the token-priced models, shown
   // exactly as the reference documents it.
   price_label: string;
@@ -147,6 +150,7 @@ export function filterVoices(list: VoiceListItem[], filter: VoiceFilter): VoiceL
 export async function listVoices(db: DatabaseState, filter: VoiceFilter = {}): Promise<VoiceListItem[]> {
   const cloneRows = await db.db.select().from(voicesTable).orderBy(desc(voicesTable.createdAt));
   const clones: VoiceListItem[] = cloneRows.map((row) => ({
+    id: row.id,
     provider: row.providerId,
     voice_id: row.voiceId,
     name: row.name ?? row.voiceId,
@@ -252,6 +256,26 @@ export interface ClonedVoiceInput {
   cost_usd?: number;
   sample_asset_id?: string;
   preview_asset_id?: string;
+}
+
+// Record a designed voice row (F-VOI-03). Like a clone it carries is_clone and
+// the provider voice id, but clone_kind is 'design' and there is no sample —
+// the voice came from a text description, not a recording. Bindable like a
+// clone. No consent is required (synthetic, no real speaker).
+export async function recordDesignedVoice(db: DatabaseState, input: ClonedVoiceInput): Promise<void> {
+  await db.db.insert(voicesTable).values({
+    id: input.id,
+    providerId: input.provider,
+    voiceId: input.voice_id,
+    name: input.name,
+    language: input.language ?? null,
+    isClone: true,
+    cloneKind: 'design',
+    consentConfirmedAt: input.consent_confirmed_at,
+    costUsd: input.cost_usd === undefined ? null : String(input.cost_usd),
+    sampleAssetId: input.sample_asset_id ?? null,
+    previewAssetId: input.preview_asset_id ?? null,
+  });
 }
 
 // Record a cloned voice row (F-VOI-02). A clone always carries is_clone, its

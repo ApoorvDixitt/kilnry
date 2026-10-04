@@ -431,6 +431,18 @@ export const minimaxSeed: ModelManifest[] = [
     eta_s: 60,
   }),
   minimax({
+    model_id: 'voice_design',
+    display_name: 'MiniMax Voice Design',
+    capabilities: ['voice_clone'],
+    // A designed voice is billed once per voice (PRD-08 §B3: $3 per voice).
+    price_rule: { kind: 'flat_per_unit', unit: 'clone', amount: 3, extras: [] },
+    supports: voiceSupports,
+    media_roles: [],
+    retention_days: null,
+    moderation: minimaxModeration,
+    eta_s: 60,
+  }),
+  minimax({
     model_id: 'asr-1.0',
     display_name: 'MiniMax ASR',
     capabilities: ['stt'],

@@ -1280,7 +1280,17 @@
       "filterLanguage": "Language",
       "allProviders": "All providers",
       "empty": "No voices match.",
-      "previewUnavailable": "Voice previews arrive with the text-to-speech adapters."
+      "previewUnavailable": "Voice previews arrive with the text-to-speech adapters.",
+      "design": "Design voice",
+      "designTitle": "Design a voice from a description",
+      "designSynthetic": "Designed voices are synthetic. Do not describe a real person's voice to imitate them.",
+      "designName": "Name",
+      "designDescription": "Describe the voice (up to 300 characters)",
+      "designPreview": "Preview line",
+      "designConfirm": "Design for $3",
+      "designCancel": "Cancel",
+      "designDone": "Designed the voice. It is now in your voices, bindable like a clone.",
+      "designFailed": "Kilnry could not design that voice. Check the details and try again."
     },
     "consent": {
       "title": "Is this a real person?",

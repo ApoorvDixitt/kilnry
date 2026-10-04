@@ -13,7 +13,10 @@ import {
   KilnryError,
   cloneVoice,
   deleteVoice,
+  designVoice,
   previewVoice,
+  type DesignInput,
+  type DesignResult,
   type VoiceCloner,
   type VoiceDeleter,
   type VoicePreviewer,
@@ -26,6 +29,24 @@ export async function voiceCloner(): Promise<VoiceCloner> {
   return {
     clone: (input) =>
       cloneVoice(
+        {
+          db: services.database,
+          keyFor: (provider) => services.keyStore.get(provider),
+        },
+        input,
+      ),
+  };
+}
+
+export interface VoiceDesigner {
+  design: (input: DesignInput) => Promise<DesignResult>;
+}
+
+export async function voiceDesigner(): Promise<VoiceDesigner> {
+  const services = await runtimeServices();
+  return {
+    design: (input) =>
+      designVoice(
         {
           db: services.database,
           keyFor: (provider) => services.keyStore.get(provider),

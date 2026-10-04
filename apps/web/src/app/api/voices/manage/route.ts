@@ -15,10 +15,10 @@ import {
 } from '@kilnry/core';
 import { assertMayMutate, errorResponse, requireSessionOrBearer } from '../../../../server/http';
 import { runtimeServices } from '../../../../server/runtime';
-import { voiceCloner } from '../../../../server/voices';
+import { voiceCloner, voiceDesigner } from '../../../../server/voices';
 
 const Body = z.object({
-  action: z.enum(['clone', 'bind', 'unbind']),
+  action: z.enum(['clone', 'bind', 'unbind', 'design']),
   handle: z.string().optional(),
   // Cloning.
   name: z.string().min(1).max(60).optional(),
@@ -27,6 +27,11 @@ const Body = z.object({
   sample_seconds: z.number().optional(),
   consent: z.boolean().optional(),
   confirm_cost_usd: z.number().optional(),
+  // Design (F-VOI-03).
+  description: z.string().optional(),
+  preview_text: z.string().optional(),
+  language: z.string().optional(),
+  gender: z.string().optional(),
   // Binding a preset or clone by its stored ulid.
   voice_ulid: z.string().optional(),
   // Binding a provider-preset voice by its provider and voice id.
@@ -63,6 +68,28 @@ export async function POST(request: Request): Promise<Response> {
         sample_seconds: body.sample_seconds ?? 0,
         consent_confirmed: true,
         confirmed_cost_usd: body.confirm_cost_usd,
+        ...(body.handle ? { bind_to: body.handle } : {}),
+      });
+      return NextResponse.json({ voice: result });
+    }
+
+    if (body.action === 'design') {
+      if (!body.name || !body.description || !body.preview_text) {
+        throw new KilnryError('INVALID_INPUT', 'A name, a description and preview text are required.');
+      }
+      if (body.confirm_cost_usd === undefined) {
+        throw new KilnryError('CONFIRMATION_REQUIRED', 'Confirm the design cost first.');
+      }
+      const provider = body.provider === 'fal' ? 'fal' : 'minimax';
+      const designer = await voiceDesigner();
+      const result = await designer.design({
+        name: body.name,
+        provider,
+        description: body.description,
+        preview_text: body.preview_text,
+        confirmed_cost_usd: body.confirm_cost_usd,
+        ...(body.language ? { language: body.language } : {}),
+        ...(body.gender ? { gender: body.gender } : {}),
         ...(body.handle ? { bind_to: body.handle } : {}),
       });
       return NextResponse.json({ voice: result });

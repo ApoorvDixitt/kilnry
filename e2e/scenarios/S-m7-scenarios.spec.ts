@@ -37,6 +37,7 @@ const HOST_PORT = '127.0.0.1:3123';
 const FAL_KEY = ['00000000-0000-4000-8000-000000000000', ':', '0'.repeat(32)].join('');
 const OPENROUTER_KEY = ['sk-or-v1-', '0'.repeat(64)].join('');
 const POLLINATIONS_KEY = `sk_${'p'.repeat(32)}`;
+const MINIMAX_KEY = ['eyJhbGciOiJIUzI1NiJ9', 'eyJzdWIiOiJraWxucnkifQ', '0'.repeat(43)].join('.');
 
 async function ensureSignedIn(page: Page, path: string): Promise<void> {
   await page.goto(path);
@@ -578,4 +579,95 @@ test('@m7 F-CHR-14 export a character to a bundle and import it back round-trips
   const importedPath = await assetPath(page, importedAssetId);
   expect(importedPath.startsWith('Characters/@potter_m7_2/imported/')).toBe(true);
   expect(existsSync(join(libraryRoot, importedPath))).toBe(true);
+});
+
+async function ledgerRowsByKind(page: Page, kind: string): Promise<number> {
+  const token = await csrf(page);
+  return page.evaluate(
+    async ({ token, kind }) => {
+      const response = await fetch('/api/budget/ledger/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Kilnry-CSRF': token },
+        body: JSON.stringify({ from: '2000-01-01T00:00:00.000Z', to: '2100-01-01T00:00:00.000Z' }),
+      });
+      if (!response.ok) return -1;
+      const body = (await response.json()) as { csv?: string };
+      const lines = (body.csv ?? '')
+        .split('\n')
+        .slice(1)
+        .filter((line) => line.trim() !== '');
+      return lines.filter((line) => line.split(',')[5] === kind).length;
+    },
+    { token, kind },
+  );
+}
+
+test('@m7 F-VOI-03 design a voice: connect MiniMax, price shown, one ledger row, bindable', async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  // Connect-MiniMax state: with no MiniMax or fal key, the Voices tab shows no
+  // Design voice control.
+  await ensureSignedIn(page, '/characters?tab=voices');
+  await expect(page.getByTestId('voices-tab')).toBeVisible();
+  await expect(page.getByTestId('voice-design-open')).toHaveCount(0);
+
+  // Connect MiniMax; the Design voice control appears.
+  await ensureProvider(page, 'minimax', MINIMAX_KEY);
+  await page.goto('/characters?tab=voices');
+  await expect(page.getByTestId('voice-design-open')).toBeVisible();
+
+  // A fictional Character to bind the designed voice to.
+  const token = await csrf(page);
+  await page.evaluate(async (token) => {
+    await fetch('/api/characters/manage', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Kilnry-CSRF': token },
+      body: JSON.stringify({
+        action: 'create',
+        kind: 'character',
+        handle: 'narrator_m7',
+        display_name: 'Narrator',
+        is_real_person: false,
+      }),
+    });
+  }, token);
+
+  // Open the form, see the $3 price before submit, fill it, and design.
+  await page.getByTestId('voice-design-open').click();
+  await expect(page.getByTestId('voice-design-price')).toContainText('$3.00');
+  await page.getByLabel('Name').fill('Warm Narrator');
+  await page
+    .getByLabel('Describe the voice (up to 300 characters)')
+    .fill('A warm, low-pitched narrator in her forties, unhurried, with a slight smile in the voice.');
+  await page.getByTestId('voice-design-submit').click();
+  await expect(page.getByTestId('voice-design-note')).toContainText('bindable', { timeout: 30_000 });
+
+  // Exactly one voice_clone ledger row (a designed voice bills as voice_clone),
+  // and the designed voice is stored as a design, bindable like a clone.
+  await expect.poll(() => ledgerRowsByKind(page, 'voice_clone'), { timeout: 10_000 }).toBe(1);
+  const designed = await page.evaluate(async () => {
+    const response = await fetch('/api/voices?type=clone');
+    const body = (await response.json()) as {
+      voices?: Array<{ name?: string; is_clone?: boolean }>;
+    };
+    return body.voices?.find((voice) => voice.name === 'Warm Narrator') ?? null;
+  });
+  expect(designed?.is_clone).toBe(true);
+
+  // Bind it to the Character through the manage route (bindable like a clone).
+  const bound = await page.evaluate(async (token) => {
+    const list = await fetch('/api/voices?type=clone').then(
+      (r) => r.json() as Promise<{ voices?: Array<{ name?: string; ulid?: string; id?: string }> }>,
+    );
+    const voice = list.voices?.find((v) => v.name === 'Warm Narrator');
+    const ulid = voice?.ulid ?? voice?.id ?? '';
+    const response = await fetch('/api/voices/manage', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Kilnry-CSRF': token },
+      body: JSON.stringify({ action: 'bind', handle: 'narrator_m7', voice_ulid: ulid }),
+    });
+    return response.ok;
+  }, token);
+  expect(bound).toBe(true);
 });

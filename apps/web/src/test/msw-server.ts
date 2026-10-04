@@ -340,6 +340,13 @@ export function startTestMsw(): void {
     http.post('https://api.minimax.io/v1/voice_clone', () =>
       HttpResponse.json({ base_resp: { status_code: 0, status_msg: 'success' } }),
     ),
+    http.post('https://api.minimax.io/v1/voice_design', () =>
+      HttpResponse.json({
+        voice_id: 'ttv-voice-fixture-1',
+        trial_audio: 'ab',
+        base_resp: { status_code: 0, status_msg: 'success' },
+      }),
+    ),
     // --- ElevenLabs (M5): key test, voice add, and text to speech ---
     http.get('https://api.elevenlabs.io/v1/user/subscription', () =>
       HttpResponse.json({ tier: 'starter', character_limit: 100_000, character_count: 0 }),

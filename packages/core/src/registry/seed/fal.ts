@@ -628,6 +628,15 @@ export const falSeed: ModelManifest[] = [
     eta_s: 60,
   }),
   fal({
+    model_id: 'fal-ai/minimax/voice-design',
+    display_name: 'MiniMax Voice Design',
+    capabilities: ['voice_clone'],
+    price_rule: { kind: 'flat_per_unit', unit: 'clone', amount: 3, extras: [] },
+    supports: { resolutions: [], references_max: 0, voice_ids: true, aspect_ratios: ['auto'] },
+    media_roles: [],
+    eta_s: 60,
+  }),
+  fal({
     model_id: 'fal-ai/elevenlabs/speech-to-text/scribe-v2',
     display_name: 'ElevenLabs Scribe v2 via fal',
     capabilities: ['stt'],

@@ -57,6 +57,7 @@ const IDS: Record<string, string[]> = {
     'speech-2.8-hd',
     'speech-2.8-turbo',
     'voice_clone',
+    'voice_design',
   ],
   higgsfield: [
     '/v1/custom-references',
@@ -95,7 +96,7 @@ describe('canonical registry seed', () => {
   it('contains unique, complete fal and OpenRouter manifests', () => {
     const keys = registrySeed.map((model) => `${model.provider}:${model.model_id}`);
     expect(new Set(keys).size).toBe(keys.length);
-    expect(registrySeed.filter((model) => model.provider === 'fal')).toHaveLength(71);
+    expect(registrySeed.filter((model) => model.provider === 'fal')).toHaveLength(72);
     expect(registrySeed.filter((model) => model.provider === 'openrouter')).toHaveLength(36);
     for (const model of registrySeed) {
       expect(() => ModelManifestSchema.parse(model)).not.toThrow();
