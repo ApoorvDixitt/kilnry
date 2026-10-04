@@ -47,4 +47,36 @@ describe('ffmpeg-ops (F-MCP-02)', () => {
     expect(args.join(' ')).toContain('fps=10');
     expect(args.join(' ')).toContain('scale=320:-1');
   });
+
+  it('mux_audio replace delays by offset_s and bounds apad to fit_duration_s (TRD-09 §3.8)', () => {
+    const args = ffmpegArgs('mux_audio', ['/v.mp4', '/a.wav'], '/out.mp4', {
+      mode: 'replace',
+      offset_s: 1,
+      fit: 'video',
+      fit_duration_s: 2.5,
+    });
+    const filter = args.join(' ');
+    expect(filter).toContain('adelay=1000:all=1');
+    expect(filter).toContain('apad=whole_dur=2.500');
+    expect(filter).toContain('atrim=end=2.500');
+    expect(filter).toContain('-shortest');
+  });
+
+  it('mux_audio fit=shortest pads nothing and keeps -shortest', () => {
+    const args = ffmpegArgs('mux_audio', ['/v.mp4', '/a.wav'], '/out.mp4', {
+      mode: 'replace',
+      fit: 'shortest',
+      fit_duration_s: 2.5,
+    });
+    const filter = args.join(' ');
+    expect(filter).not.toContain('apad');
+    expect(filter).not.toContain('adelay');
+    expect(filter).toContain('-shortest');
+  });
+
+  it('mux_audio rejects an unimplemented fit', () => {
+    expect(() =>
+      ffmpegArgs('mux_audio', ['/v.mp4', '/a.wav'], '/out.mp4', { mode: 'replace', fit: 'loop_audio' }),
+    ).toThrow(/not implemented in V1/);
+  });
 });

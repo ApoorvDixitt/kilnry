@@ -214,8 +214,25 @@ export function ffmpegArgs(
       if (!audio) throw new Error('Muxing needs a video and an audio input.');
       const mode = String(params.mode ?? 'replace');
       const gain = num('audio_gain_db', num('gain_db', 0));
-      // mix / under: blend the new audio with the video's own track, the "under"
-      // bed quieter; replace: swap the track outright (TRD-09 §3.8).
+      const offset = num('offset_s', 0);
+      const fit = String(params.fit ?? 'video');
+      // offset_s shifts the new audio later by delaying every channel; a
+      // negative offset is clamped to 0 (the spec's max(0,offset)), since a
+      // track cannot start before zero. adelay all=1 applies the one delay to
+      // every channel (verified: ffmpeg -h filter=adelay lists `all`).
+      const delayMs = Math.round(Math.max(0, offset) * 1000);
+      const adelay = delayMs > 0 ? `adelay=${delayMs}:all=1,` : '';
+      // fit=video pads the shorter audio with silence to the video's length and
+      // cuts a longer one — the voice sits inside its block (TRD-09 §3.8,
+      // CR-09-2). apad is BOUNDED by whole_dur = the probed video duration and
+      // the result trimmed to it, so it terminates on every build; an unbounded
+      // apad hung on the static ffmpeg 7.0.2 under -c:v copy -shortest. The host
+      // passes the duration as fit_duration_s (verified: apad has whole_dur,
+      // atrim has end). fit=shortest cuts both to the shorter: no pad.
+      const fitDuration = num('fit_duration_s', 0);
+      if (fit === 'loop_audio' || fit === 'pad_silence') {
+        throw new Error(`mux_audio fit=${fit} is not implemented in V1 (default; adjustable)`);
+      }
       if (mode === 'mix' || mode === 'under') {
         return [
           ...base,
@@ -224,7 +241,7 @@ export function ffmpegArgs(
           '-i',
           audio,
           '-filter_complex',
-          `[0:a]volume=${num('video_gain_db', 0)}dB[a0];[1:a]volume=${gain}dB[a1];` +
+          `[0:a]volume=${num('video_gain_db', 0)}dB[a0];[1:a]${adelay}volume=${gain}dB[a1];` +
             `[a0][a1]amix=inputs=2:duration=first:normalize=0[a]`,
           '-map',
           '0:v:0',
@@ -238,20 +255,18 @@ export function ffmpegArgs(
           output,
         ];
       }
+      const pad =
+        fit === 'video' && fitDuration > 0
+          ? `apad=whole_dur=${fitDuration.toFixed(3)},atrim=end=${fitDuration.toFixed(3)},`
+          : '';
       return [
         ...base,
         '-i',
         input!,
         '-i',
         audio,
-        // Swap the track to the new audio. No `apad`: padding to the longest
-        // stream never terminates under `-c:v copy` with `-shortest` on some
-        // ffmpeg builds (the copied video gives no re-encode boundary, so the
-        // padded audio runs forever and the process hangs). `-shortest` alone
-        // ends the output at the shorter of the copied video and the new audio,
-        // which is the swap this op means (TRD-09 §3.8).
         '-filter_complex',
-        `[1:a]volume=${gain}dB[a]`,
+        `[1:a]${adelay}volume=${gain}dB,${pad}anull[a]`,
         '-c:v',
         'copy',
         '-map',

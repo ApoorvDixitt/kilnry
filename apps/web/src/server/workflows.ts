@@ -1595,6 +1595,13 @@ async function assembleFile(
         }),
       );
     }
+    // mux_audio with fit=video bounds the padded audio to the video's length;
+    // the builder needs that length as a number (apad=whole_dur=<D>) so the pad
+    // terminates on every ffmpeg build (TRD-09 §3.8). The host probes it the
+    // same way concat probes its sources.
+    if (op === 'mux_audio' && resolved[0]) {
+      opParams.fit_duration_s = (await probeMedia(resolved[0])).duration_s ?? 0;
+    }
     try {
       await runFfmpegOp(op, resolved, outputAbs, opParams);
     } catch (error) {

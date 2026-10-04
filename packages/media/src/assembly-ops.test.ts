@@ -135,6 +135,49 @@ describe('assembly ops on a real ffmpeg (F-WFL-06, TRD-09 §3)', () => {
     expect(probe.duration_s ?? 0).toBeGreaterThan(1.5);
   });
 
+  it.skipIf(!ffmpegAvailable)(
+    'mux_audio fit=video pads a shorter audio and cuts a longer one to the video length (TRD-09 §3.8)',
+    async () => {
+      // silent is a 2 s video; voice is 3 s audio. Shorter audio (sound's 2 s is
+      // equal, so build a 1 s voice) must pad to the video; longer audio (voice
+      // 3 s) must cut to the video. Both outputs equal the video's 2 s within
+      // 0.15 s and carry audio — the bounded apad terminates (no hang).
+      const shortVoice = join(root, 'short.m4a');
+      await run([
+        '-hide_banner',
+        '-nostdin',
+        '-y',
+        '-f',
+        'lavfi',
+        '-i',
+        'sine=frequency=330:duration=1',
+        shortVoice,
+      ]);
+      const videoDur = (await probeMedia(silent)).duration_s ?? 0;
+
+      const padded = join(root, 'fit-pad.mp4');
+      await runFfmpegOp('mux_audio', [silent, shortVoice], padded, {
+        mode: 'replace',
+        fit: 'video',
+        fit_duration_s: videoDur,
+      });
+      const paddedProbe = await probeMedia(padded);
+      expect(paddedProbe.has_audio).toBe(true);
+      expect(Math.abs((paddedProbe.duration_s ?? 0) - videoDur)).toBeLessThanOrEqual(0.15);
+
+      const cut = join(root, 'fit-cut.mp4');
+      await runFfmpegOp('mux_audio', [silent, voice], cut, {
+        mode: 'replace',
+        fit: 'video',
+        fit_duration_s: videoDur,
+      });
+      const cutProbe = await probeMedia(cut);
+      expect(cutProbe.has_audio).toBe(true);
+      expect(Math.abs((cutProbe.duration_s ?? 0) - videoDur)).toBeLessThanOrEqual(0.15);
+    },
+    60_000,
+  );
+
   it.skipIf(!ffmpegAvailable)('extracts audio and frames', async () => {
     const audio = join(root, 'track.mp3');
     await runFfmpegOp('extract_audio', [sound], audio);
