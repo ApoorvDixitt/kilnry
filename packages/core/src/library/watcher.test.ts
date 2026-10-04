@@ -137,4 +137,54 @@ describe('Library watcher', () => {
     expect(event.folder).toBe('inbox');
     expect(existsSync(join(library, 'inbox', 'watched.png.kilnry.json'))).toBe(true);
   }, 30_000);
+
+  it('enqueues one import per added file and ignores a run.kilnry.json rewrite', async () => {
+    // TRD-05 §13: with an engine present the watcher enqueues an import_path
+    // job instead of indexing inline, so the worker owns the write. A rewrite
+    // of run.kilnry.json (whose media sibling `run` never exists) must enqueue
+    // nothing — that was the "Library path not found …/run" log.
+    const root = mkdtempSync(join(tmpdir(), 'kilnry-watcher-enqueue-'));
+    const dataDir = join(root, 'data');
+    const library = join(root, 'library');
+    mkdirSync(dataDir);
+    const prepared = prepareLibraryRoot(library, dataDir);
+    const state = createDatabase(dataDir, { memory: true });
+    await state.ready;
+    const enqueued: string[] = [];
+    const watcher = watchLibrary({
+      state,
+      root: library,
+      libraryId: prepared.marker.library_id,
+      dataDir,
+      stabilityThresholdMs: 100,
+      debounceMs: 25,
+      enqueueImport: async (path) => {
+        enqueued.push(path);
+      },
+      onError: () => {},
+    });
+    disposers.push(async () => {
+      await watcher.close();
+      await closeDatabaseState(state);
+      rmSync(root, { recursive: true, force: true });
+    });
+    await watcher.ready;
+    const png = join(library, 'inbox', 'added.png');
+    writeFileSync(
+      png,
+      Buffer.from(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+        'base64',
+      ),
+    );
+    await expect.poll(() => enqueued.length, { timeout: 15_000 }).toBe(1);
+    expect(enqueued[0]).toBe(png);
+
+    // A run.kilnry.json whose media sibling `run` does not exist: write it, then
+    // rewrite it. Neither event should enqueue an import.
+    writeFileSync(join(library, 'inbox', 'run.kilnry.json'), '{"schema_version":1}');
+    writeFileSync(join(library, 'inbox', 'run.kilnry.json'), '{"schema_version":1,"n":2}');
+    await new Promise((r) => setTimeout(r, 600));
+    expect(enqueued).toEqual([png]);
+  }, 30_000);
 });

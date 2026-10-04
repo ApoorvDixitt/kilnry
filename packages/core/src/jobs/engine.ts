@@ -4,12 +4,14 @@
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
 import { mkdir, rm } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, dirname, relative } from 'node:path';
 import { and, desc, eq, gte, inArray, sql } from 'drizzle-orm';
 import { PgBoss, fromPglite, type Job } from 'pg-boss';
 import type { DatabaseState } from '@kilnry/db';
 import { jobs, providers, spendLedger, auditEvents, characters, characterVersions, runs } from '@kilnry/db';
 import { resolveMediaInputs } from './media-inputs.js';
+import { indexAsset } from '../library/index.js';
+import { createDerivatives } from '@kilnry/media';
 import { assertCostConfirmation, reserveBudget } from '../budget/enforcer.js';
 import { normalizeConfirmedBy } from '../budget/confirmation.js';
 import { KilnryError } from '../errors.js';
@@ -47,7 +49,8 @@ interface QueuePayload {
 }
 
 interface MaintenancePayload {
-  op: 'price_refresh';
+  op: 'price_refresh' | 'import_path';
+  path?: string;
 }
 
 interface StoredResolved {
@@ -331,6 +334,10 @@ export class JobEngine {
       { batchSize: 1, localConcurrency: 1, pollingIntervalSeconds: 2 },
       async (messages) => {
         for (const message of messages) {
+          if (message.data.op === 'import_path') {
+            await this.#importPath(message.data.path);
+            continue;
+          }
           if (message.data.op !== 'price_refresh') {
             throw new Error(`Unknown maintenance operation: ${String(message.data.op)}`);
           }
@@ -787,6 +794,56 @@ export class JobEngine {
   async enqueueRun(runId: string): Promise<void> {
     const result = await this.boss.send('runs', { run_id: runId }, { singletonKey: runId });
     if (!result) this.#options.log('debug', 'run_drive_singleton_reused', { run_id: runId });
+  }
+
+  /**
+   * Enqueue a Library import for one absolute path (TRD-05 §13). The watcher
+   * calls this on an add/change instead of indexing inline, so the worker — not
+   * the file event — owns the write and it is serialized with the run drive.
+   * singletonKey is the path and singletonSeconds a 10 s debounce window: a
+   * burst of events for the same file within the window (an editor's save, a
+   * copy finishing) collapses to one job. pg-boss 12.33.1 types.d.ts:489–490
+   * define `singletonKey`/`singletonSeconds`; manager.d.ts:69
+   * `getDebounceStartAfter(singletonSeconds, …)` is the throttle slot they drive.
+   */
+  async enqueueImport(path: string): Promise<void> {
+    const result = await this.boss.send(
+      'maintenance',
+      { op: 'import_path', path },
+      { singletonKey: path, singletonSeconds: 10 },
+    );
+    if (!result) this.#options.log('debug', 'import_path_debounced', { path });
+  }
+
+  async #importPath(path: string | undefined): Promise<void> {
+    if (!path) return;
+    try {
+      const result = await indexAsset(
+        this.#options.state,
+        this.#options.libraryRoot,
+        path,
+        this.#options.libraryId,
+      );
+      await createDerivatives({
+        source: path,
+        dataDir: this.#options.dataDir,
+        assetId: result.sidecar.asset_id,
+        mime: result.sidecar.file.mime,
+        ...(result.sidecar.file.duration_s === undefined
+          ? {}
+          : { durationS: result.sidecar.file.duration_s }),
+      });
+      this.#options.events.emit({
+        type: 'library.imported',
+        asset_id: result.sidecar.asset_id,
+        folder: relative(this.#options.libraryRoot, dirname(path)).split('\\').join('/'),
+        ts: new Date().toISOString(),
+      });
+    } catch (error) {
+      // A watcher import failure is non-fatal, as it was when the watcher
+      // indexed inline: log it and move on (TRD-05 §13).
+      this.#options.log('error', 'library_watcher_error', { path, error: redact(error) });
+    }
   }
 
   /** The poll window for one provider: its own override, or the default. */

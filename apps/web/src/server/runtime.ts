@@ -234,6 +234,7 @@ export async function ensureRuntimeEngine(): Promise<JobEngine> {
       root: config.library_root,
       libraryId: marker.library_id,
       dataDir: config.data_dir,
+      enqueueImport: (path) => engine.enqueueImport(path),
       polling: process.env.CHOKIDAR_USEPOLLING === '1' || process.env.KILNRY_DOCKER === '1',
       onImported: (assetId, folder) =>
         eventHub.emit({

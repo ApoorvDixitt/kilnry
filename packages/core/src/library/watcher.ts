@@ -44,6 +44,13 @@ export function watchLibrary(input: {
   debounceMs?: number;
   onImported?: (assetId: string, folder: string) => void;
   onError: (error: unknown) => void;
+  /**
+   * Enqueue the import on the engine's maintenance queue instead of indexing
+   * inline (TRD-05 §13). When present, the worker owns the write, serialized
+   * with the run drive, so a file a run just produced is not indexed twice at
+   * once. The inline path remains for a watcher created without an engine.
+   */
+  enqueueImport?: (path: string) => Promise<void>;
 }): LibraryWatcher {
   let readyResolve!: () => void;
   const ready = new Promise<void>((resolve) => {
@@ -72,6 +79,12 @@ export function watchLibrary(input: {
       mediaPath,
       setTimeout(() => {
         pending.delete(mediaPath);
+        // Prefer the queue (TRD-05 §13): the maintenance worker indexes,
+        // derives and emits library.imported, serialized with the run drive.
+        if (input.enqueueImport) {
+          void input.enqueueImport(mediaPath).catch(input.onError);
+          return;
+        }
         void indexAsset(input.state, input.root, mediaPath, input.libraryId)
           .then(async (result) => {
             if (input.dataDir) {
@@ -113,7 +126,14 @@ export function watchLibrary(input: {
     const mediaPath = path.endsWith('.kilnry.json') ? path.slice(0, -'.kilnry.json'.length) : path;
     if (!path.endsWith('.kilnry.json') || existsSync(mediaPath)) schedule(path);
   });
-  watcher.on('change', schedule);
+  // A change to a *.kilnry.json whose media file does not exist is ignored, as
+  // the add handler already does (TRD-05 §13): a rewrite of run.kilnry.json —
+  // the live run state file, whose "media" sibling `run` never exists —
+  // otherwise became indexAsset('…/run') and the "Library path not found" log.
+  watcher.on('change', (path) => {
+    const mediaPath = path.endsWith('.kilnry.json') ? path.slice(0, -'.kilnry.json'.length) : path;
+    if (!path.endsWith('.kilnry.json') || existsSync(mediaPath)) schedule(path);
+  });
   watcher.on('unlink', markMissing);
   watcher.on('error', input.onError);
   return {

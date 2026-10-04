@@ -654,7 +654,7 @@ export async function execute(
           }
         } catch (error) {
           node.status = 'failed';
-          node.error = `Set step ${node.instance_id} failed: ${error instanceof Error ? error.message : String(error)}`;
+          node.error = `Set step ${node.instance_id} failed: ${reasonFor(error)}`;
           progressed = true;
           if (applyFailPolicy(node, state)) {
             await checkpoint();
@@ -685,7 +685,7 @@ export async function execute(
       } catch (error) {
         // Name the step whose template could not render, instead of a bare
         // "expected a number" with no location (F-WFL-04).
-        const reason = error instanceof Error ? error.message : String(error);
+        const reason = reasonFor(error);
         throw new Error(`Step ${node.instance_id} could not render: ${reason}`, { cause: error });
       }
       // A model swapped onto the node — by a re-run's modelOverride (F-WFL-05) or
@@ -812,6 +812,17 @@ function renderedInputs(rendered: Step | ExpandedExportStep): Record<string, unk
 
 // on_fail: fail stops the run; skip marks dependants skipped; continue lets
 // independent branches finish.
+function reasonFor(error: unknown): string {
+  if (!(error instanceof Error)) return String(error);
+  // A wrapped driver error (drizzle "Failed query: …") carries its constraint
+  // name only on error.cause; surface it so the step names why it failed.
+  const cause = error.cause;
+  const causeMessage = cause instanceof Error ? cause.message : typeof cause === 'string' ? cause : '';
+  return causeMessage && !error.message.includes(causeMessage)
+    ? `${error.message} (${causeMessage})`
+    : error.message;
+}
+
 function applyFailPolicy(node: RunStep, state: RunState): boolean {
   const policy = node.step.on_fail;
   if (policy === 'fail') {

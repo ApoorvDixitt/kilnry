@@ -899,13 +899,25 @@ export async function driveRunToRest(
  * marked failed with the reason, the run is failed, and the terminal event is
  * emitted so a poll or the run view sees why it stopped (F-WFL-04).
  */
+function reasonWithCause(error: unknown): string {
+  if (!(error instanceof Error)) return String(error);
+  // Drizzle wraps the driver error: "Failed query: …" carries no constraint
+  // name, but error.cause is the pg/PGlite error whose message does (D-54: the
+  // step must name why it failed, not just the SQL).
+  const cause = error.cause;
+  const causeMessage = cause instanceof Error ? cause.message : typeof cause === 'string' ? cause : '';
+  return causeMessage && !error.message.includes(causeMessage)
+    ? `${error.message} (${causeMessage})`
+    : error.message;
+}
+
 async function markRunFailed(
   db: DatabaseState,
   engine: JobEngine,
   runId: string,
   error: unknown,
 ): Promise<void> {
-  const reason = error instanceof Error ? error.message : String(error);
+  const reason = reasonWithCause(error);
   const rows = await db.db.select().from(runSteps).where(eq(runSteps.runId, runId));
   for (const step of rows) {
     if (step.status === 'running' || step.status === 'pending' || step.status === 'waiting') {

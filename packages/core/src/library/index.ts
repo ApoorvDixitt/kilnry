@@ -9,10 +9,11 @@ import { basename, posix } from 'node:path';
 import { access, rename, rm, stat } from 'node:fs/promises';
 import { and, eq, ne } from 'drizzle-orm';
 import type { DatabaseState } from '@kilnry/db';
-import { assetCharacters, assetLineage, assets, assetTags, folders } from '@kilnry/db';
+import { assetLineage, assets, assetTags, folders } from '@kilnry/db';
 import { probeMedia, readEmbeddedMetadata } from '@kilnry/media';
 import { ulid } from '../ids.js';
 import { resolveInRoot } from './containment.js';
+import { withPathLock } from './locks.js';
 import { SidecarSchema, readSidecar, sidecarPath, writeSidecar, type Sidecar } from './sidecar.js';
 
 export function kindForMime(mime: string): Sidecar['kind'] {
@@ -50,9 +51,10 @@ export async function buildMinimalSidecar(input: {
   libraryId: string;
   source?: Sidecar['source'];
   embedded?: unknown;
+  sha256?: string;
 }): Promise<Sidecar> {
   const probe = await probeMedia(input.path);
-  const hash = await sha256File(input.path);
+  const hash = input.sha256 ?? (await sha256File(input.path));
   const generation = generationFromEmbedded(input.embedded);
   return SidecarSchema.parse({
     schema_version: 1,
@@ -110,8 +112,8 @@ async function recoverExternalMove(
   destinationRelative: string,
   probe: Awaited<ReturnType<typeof probeMedia>>,
   libraryId: string,
+  hash: string,
 ): Promise<Sidecar | undefined> {
-  const hash = await sha256File(destination);
   const matches = await state.db
     .select({ id: assets.id, path: assets.path })
     .from(assets)
@@ -157,8 +159,44 @@ export async function indexAsset(
 ): Promise<{ sidecar: Sidecar; recovered: boolean }> {
   await state.ready;
   const resolved = await resolveInRoot(root, file, { mustExist: true });
+  // Serialize every indexer of this absolute path (TRD-05 §3): the drive, the
+  // watcher and a UI action otherwise each mint a distinct id for the same file
+  // and collide on the unique `path`.
+  return withPathLock(resolved.abs, async () => {
+    // §4 no-op: if an assets row for this path already matches the file's mtime
+    // and size and the sidecar's mtime, nothing on disk changed since the last
+    // index — read the sidecar back and write nothing (no probe, no hash).
+    const fileStat = await stat(resolved.abs);
+    const sidecarStat = await stat(sidecarPath(resolved.abs)).catch(() => undefined);
+    if (sidecarStat) {
+      const [existing] = await state.db
+        .select({ bytes: assets.bytes, fileMtime: assets.fileMtime, sidecarMtime: assets.sidecarMtime })
+        .from(assets)
+        .where(eq(assets.path, resolved.rel))
+        .limit(1);
+      if (
+        existing &&
+        existing.bytes === fileStat.size &&
+        existing.fileMtime?.getTime() === fileStat.mtime.getTime() &&
+        existing.sidecarMtime?.getTime() === sidecarStat.mtime.getTime()
+      ) {
+        const unchanged = await readSidecar(resolved.abs);
+        if (unchanged.ok) return { sidecar: unchanged.value, recovered: false };
+      }
+    }
+    return indexAssetLocked(state, root, resolved, libraryId);
+  });
+}
+
+async function indexAssetLocked(
+  state: DatabaseState,
+  root: string,
+  resolved: Awaited<ReturnType<typeof resolveInRoot>>,
+  libraryId: string,
+): Promise<{ sidecar: Sidecar; recovered: boolean }> {
   const probe = await probeMedia(resolved.abs);
   if (probe.mime === 'application/octet-stream') throw new Error(`Unsupported media type: ${resolved.rel}`);
+  const hash = await sha256File(resolved.abs);
   const sidecarResult = await readSidecar(resolved.abs);
   let sidecar: Sidecar;
   let recovered = false;
@@ -167,7 +205,7 @@ export async function indexAsset(
     if (sidecarResult.bytes) {
       await rename(sidecarPath(resolved.abs), `${sidecarPath(resolved.abs)}.corrupt-${Date.now()}`);
     }
-    const moved = await recoverExternalMove(state, root, resolved.abs, resolved.rel, probe, libraryId);
+    const moved = await recoverExternalMove(state, root, resolved.abs, resolved.rel, probe, libraryId, hash);
     if (moved) sidecar = moved;
     else {
       const embedded = await readEmbeddedMetadata(resolved.abs, probe.mime);
@@ -175,6 +213,7 @@ export async function indexAsset(
         path: resolved.abs,
         libraryId,
         embedded: embedded.payload,
+        sha256: hash,
       });
       await writeSidecar(resolved.abs, sidecar);
       recovered = embedded.payload !== undefined;
@@ -291,6 +330,10 @@ export async function indexAsset(
         role: 'made_from',
       })),
     );
-  await state.db.delete(assetCharacters).where(eq(assetCharacters.assetId, sidecar.asset_id));
+  // Do NOT delete assetCharacters here: the sidecar does not carry character
+  // injections, so wiping them on every re-index erased the rows
+  // recordAssetCharacters wrote when a run injected a character (TRD-05 §4). The
+  // tags and made_from lineage above are sidecar-owned and are reconciled; the
+  // character links are owned by the run, not the sidecar, so they survive.
   return { sidecar, recovered };
 }

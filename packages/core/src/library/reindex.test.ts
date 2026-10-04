@@ -7,7 +7,7 @@ import { existsSync, mkdtempSync, mkdirSync, rmSync, unlinkSync, writeFileSync }
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { assets, closeDatabaseState, createDatabase } from '@kilnry/db';
+import { assetCharacters, assets, closeDatabaseState, createDatabase } from '@kilnry/db';
 import { embedMetadata, writePngMetadata } from '@kilnry/media';
 import { prepareLibraryRoot } from './root.js';
 import { buildMinimalSidecar, indexAsset } from './index.js';
@@ -145,4 +145,65 @@ describe('Library reindex', () => {
       },
     ]);
   });
+});
+
+describe('indexAsset incremental behaviour (F-LIB-04)', () => {
+  it('is a no-op when file mtime, bytes and sidecar mtime are unchanged', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'kilnry-noop-'));
+    const dataDir = join(root, 'data');
+    const library = join(root, 'library');
+    mkdirSync(dataDir);
+    const prepared = prepareLibraryRoot(library, dataDir);
+    const state = createDatabase(dataDir, { memory: true });
+    disposers.push(async () => {
+      await closeDatabaseState(state);
+      rmSync(root, { recursive: true, force: true });
+    });
+    await state.ready;
+    const file = join(library, 'inbox', 'asset.png');
+    await image(file);
+    await indexAsset(state, library, file, prepared.marker.library_id);
+    const first = (await state.db.select().from(assets))[0];
+    expect(first).toBeDefined();
+    const firstIndexedAt = first!.indexedAt?.getTime();
+    // Re-index the untouched file: the no-op reads the sidecar and writes
+    // nothing, so indexedAt is unchanged (a full re-index would stamp a new one).
+    await new Promise((r) => setTimeout(r, 10));
+    const result = await indexAsset(state, library, file, prepared.marker.library_id);
+    expect(result.sidecar.asset_id).toBe(first!.id);
+    const second = (await state.db.select().from(assets))[0];
+    expect(second!.indexedAt?.getTime()).toBe(firstIndexedAt);
+  }, 20_000);
+
+  it('does not wipe asset_characters that the sidecar does not carry', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'kilnry-chars-'));
+    const dataDir = join(root, 'data');
+    const library = join(root, 'library');
+    mkdirSync(dataDir);
+    const prepared = prepareLibraryRoot(library, dataDir);
+    const state = createDatabase(dataDir, { memory: true });
+    disposers.push(async () => {
+      await closeDatabaseState(state);
+      rmSync(root, { recursive: true, force: true });
+    });
+    await state.ready;
+    const file = join(library, 'inbox', 'asset.png');
+    await image(file);
+    const indexed = await indexAsset(state, library, file, prepared.marker.library_id);
+    // A run injected a character and recorded the link (the row the sidecar
+    // does not carry). Force a re-index by touching the sidecar's mtime.
+    await state.db.insert(assetCharacters).values({
+      assetId: indexed.sidecar.asset_id,
+      characterId: 'char-1',
+      version: 1,
+      strategy: 'reference',
+    });
+    await new Promise((r) => setTimeout(r, 10));
+    const { utimesSync } = await import('node:fs');
+    utimesSync(sidecarPath(file), new Date(), new Date());
+    await indexAsset(state, library, file, prepared.marker.library_id);
+    const rows = await state.db.select().from(assetCharacters);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ assetId: indexed.sidecar.asset_id, characterId: 'char-1' });
+  }, 20_000);
 });

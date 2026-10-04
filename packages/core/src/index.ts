@@ -18,6 +18,7 @@ export * from './library/containment.js';
 export * from './library/folders.js';
 export * from './library/import.js';
 export * from './library/index.js';
+export * from './library/locks.js';
 export * from './library/reindex.js';
 export * from './library/search.js';
 export * from './library/smart-folders.js';
