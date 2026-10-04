@@ -63,6 +63,25 @@ defaults:
   realism: 'preserve the original motion, pacing and cut points exactly; never time-stretch; edit only the named subject'
 budget: { max_usd: 14, warn_usd: 7 }
 steps:
+  - id: probe_source
+    kind: assemble
+    name: Measure the source
+    op: probe
+    inputs: ['{{ inputs.source }}']
+    outputs: { duration_s: '{{ result.duration_s }}' }
+
+  # Refuse a source outside the W10 window (4–30 s) before any paid step. The
+  # duration is the free probe reading, never a vision model's guess; the hard
+  # gate cannot be skipped from any surface, so it is the intake refusal with its
+  # named reason (W10 inputs; PRD-10 §10 acceptance 3).
+  - id: duration_gate
+    kind: approval
+    mode: hard
+    skippable: false
+    when: '{{ steps.probe_source.outputs.duration_s < 4 || steps.probe_source.outputs.duration_s > 30 }}'
+    title: 'SOURCE_OUT_OF_RANGE: the source ad must be 4–30 seconds'
+    message: "This source is {{ steps.probe_source.outputs.duration_s }} s. Ad Multiplier only edits 4–30 s ads so the variants keep the source's pacing. Trim the source and start again."
+
   - id: analyze
     kind: analyze
     name: Shot list
@@ -70,17 +89,16 @@ steps:
     model: auto
     refs: ['{{ inputs.source }}']
     instructions: >
-      You are a video editor reading one short ad. Return JSON {duration_s:number, cuts:number,
-      subjects:string[], on_screen_text:string[]} describing the source: its total length, the number of
-      hard cuts, the people or objects that could be replaced, and any burned-in captions. Do not invent
-      content; report only what the frames show.
+      You are a video editor reading one short ad. Return JSON {cuts:number, subjects:string[],
+      on_screen_text:string[]} describing the source: the number of hard cuts, the people or objects that
+      could be replaced, and any burned-in captions. Do not invent content; report only what the frames
+      show. (The duration is measured separately by a probe, not by you.)
     schema:
       {
         type: object,
-        required: [duration_s, cuts, subjects, on_screen_text],
+        required: [cuts, subjects, on_screen_text],
         properties:
           {
-            duration_s: { type: number },
             cuts: { type: integer },
             subjects: { type: array, items: { type: string } },
             on_screen_text: { type: array, items: { type: string } },
@@ -88,10 +106,20 @@ steps:
       }
     outputs:
       {
-        duration_s: '{{ result.structured.duration_s }}',
         subjects: '{{ result.structured.subjects }}',
         on_screen_text: '{{ result.structured.on_screen_text }}',
+        has_on_screen_text: '{{ len(result.structured.on_screen_text) > 0 }}',
       }
+
+  - id: transcribe_source
+    kind: transform
+    name: Transcribe the source captions
+    op: transcribe
+    source: '{{ inputs.source }}'
+    when: '{{ steps.analyze.outputs.has_on_screen_text }}'
+    params: { route: auto }
+    on_fail: continue
+    outputs: { transcript: '{{ result.assets[0] }}' }
 
   - id: plan_edits
     kind: analyze
@@ -105,6 +133,7 @@ steps:
       {{ len(inputs.edit_list) > 0 ? (inputs.edit_list | json) : 'auto — you choose N varied, brand-safe edits' }}.
       Return JSON {versions:[{edit:string, caption_changed:boolean}]} with {{ inputs.n }} entries. Never
       describe a real public person. caption_changed is true only when the edit changes words shown on screen.
+      The default video_model is the draft tier (flux-video-edit); higgsfield/genjutsu is the premium opt-in.
     schema:
       {
         type: object,
@@ -148,7 +177,7 @@ steps:
         model: '{{ inputs.video_model }}'
         constraints:
           {
-            duration_s: '{{ steps.analyze.outputs.duration_s }}',
+            duration_s: '{{ steps.probe_source.outputs.duration_s }}',
             min_resolution: '{{ inputs.resolution }}',
             refs_count: '{{ len(inputs.references) }}',
           }
@@ -164,14 +193,38 @@ steps:
         retry: { max: 1, on: [MODERATION_REJECTED, PROVIDER_ERROR], reword: true }
         outputs: { raw: '{{ result.assets[0] }}' }
 
+      # Caption strip and re-burn via W6's op (burn_captions), but only when the
+      # edit changed the words on screen AND the source actually had captions
+      # (W10). When neither holds, the edited video is kept as-is — no re-burn.
+      - id: reburn_captions
+        kind: assemble
+        name: 'Re-burn captions {{ k + 1 }}'
+        op: burn_captions
+        when: '{{ version.caption_changed && steps.analyze.outputs.has_on_screen_text }}'
+        inputs: ['{{ steps.edit_video.outputs.raw }}']
+        params:
+          transcript: '{{ steps.transcribe_source.outputs.transcript }}'
+          look: clean
+          position: lower_third
+          edit: '{{ version.edit }}'
+        output_name: 'version_{{ k + 1 | pad(2) }}_captioned.mp4'
+        on_fail: continue
+        outputs: { asset: '{{ result.asset_id }}' }
+
+      - id: pick
+        kind: set
+        name: 'Final variant {{ k + 1 }}'
+        values:
+          final: "{{ version.caption_changed && steps.analyze.outputs.has_on_screen_text ? steps.reburn_captions.outputs.asset : steps.edit_video.outputs.raw }}"
+
       - id: qa
         kind: analyze
         name: 'QA variant {{ k + 1 }}'
         task: describe
         model: auto
-        refs: ['{{ steps.edit_video.outputs.raw }}']
+        refs: ['{{ steps.pick.outputs.final }}']
         instructions: >
-          Sample frames across this edited variant. Fail if the pacing or cut points differ from a {{ steps.analyze.outputs.duration_s }} s
+          Sample frames across this edited variant. Fail if the pacing or cut points differ from a {{ steps.probe_source.outputs.duration_s }} s
           source, if a real public person appears, or if the edit introduced garbled text. Return {pass:boolean, issues:string[]}.
         schema:
           {
@@ -180,7 +233,7 @@ steps:
             properties: { pass: { type: boolean }, issues: { type: array, items: { type: string } } },
           }
         on_fail: continue
-        outputs: { pass: '{{ result.structured.pass }}', issues: '{{ result.structured.issues }}' }
+        outputs: { pass: '{{ result.structured.pass }}', issues: '{{ result.structured.issues }}', final: '{{ steps.pick.outputs.final }}' }
 
   - id: qa_gate
     kind: approval
@@ -188,12 +241,12 @@ steps:
     when: "{{ steps.versions.outputs | map('pass') | some(false) }}"
     title: "QA flagged {{ steps.versions.outputs | map('pass') | count(false) }} variant(s)"
     message: "{{ steps.versions.outputs | map('issues') | flatten | join(' · ') }}. Approve to keep them, or use Retry step on a flagged variant."
-    show: ['{{ steps.versions.assets }}']
+    show: ["{{ steps.versions.outputs | map('final') }}"]
 
   - id: deliver
     kind: export
     files:
-      - ref: '{{ steps.versions.assets }}'
+      - ref: "{{ steps.versions.outputs | map('final') }}"
         name: 'version_{{ index + 1 | pad(2) }}.mp4'
         tags: [ad_multiplier]
     manifest: true
