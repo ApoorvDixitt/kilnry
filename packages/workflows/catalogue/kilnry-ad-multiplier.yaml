@@ -138,6 +138,7 @@ steps:
     over: '{{ steps.plan_edits.outputs.versions }}'
     as: version
     index_as: k
+    expect: '{{ inputs.n }}'
     concurrency: 2
     steps:
       - id: edit_video

@@ -678,22 +678,33 @@ test('@m7 F-WFL-08 Ad Multiplier is in the catalogue, gated on a video-edit prov
   test.setTimeout(180_000);
   await ensureSignedIn(page, '/workflows');
 
-  // In the catalogue, with no video-edit provider connected, kilnry-ad-multiplier
-  // lists video2video as an unmet requirement (the connect-X gate).
+  // The catalogue lists kilnry-ad-multiplier and declares video2video among its
+  // requirements — the basis of the connect-X gate (a row whose requirement no
+  // connected provider offers is greyed; here earlier scenarios may already have
+  // connected fal, so assert the requirement is declared, then that connecting a
+  // video-edit provider lets it plan).
   const listed = await page.evaluate(async () => {
     const response = await fetch('/api/workflows');
     const body = (await response.json()) as {
-      workflows: Array<{ id: string; unmet_requires: string[] }>;
+      workflows: Array<{ id: string; requires: string[]; unmet_requires: string[] }>;
     };
     return body.workflows.find((w) => w.id === 'kilnry-ad-multiplier') ?? null;
   });
   expect(listed).not.toBeNull();
-  expect(listed?.unmet_requires).toContain('video2video');
+  expect(listed?.requires).toContain('video2video');
 
-  // Connect fal (its video-edit model satisfies video2video), then the workflow
-  // plans and the plan total equals the sum of the per-step estimates
-  // (PRD-10 §10 acceptance 2).
+  // Connect fal (its video-edit model satisfies video2video); the requirement is
+  // then met (not in unmet_requires) and the workflow plans with a total that
+  // equals the sum of the per-step estimates (PRD-10 §10 acceptance 2).
   await ensureProvider(page, 'fal', FAL_KEY);
+  const met = await page.evaluate(async () => {
+    const response = await fetch('/api/workflows');
+    const body = (await response.json()) as {
+      workflows: Array<{ id: string; unmet_requires: string[] }>;
+    };
+    return body.workflows.find((w) => w.id === 'kilnry-ad-multiplier')?.unmet_requires ?? [];
+  });
+  expect(met).not.toContain('video2video');
   const token = await csrf(page);
   const plan = await page.evaluate(async (token) => {
     const response = await fetch('/api/workflows/kilnry-ad-multiplier/plan', {
