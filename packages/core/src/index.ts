@@ -8,6 +8,7 @@ export * from './config/schema.js';
 export * from './errors.js';
 export * from './version.js';
 export * from './updates/check.js';
+export * from './about/info.js';
 export * from './net/network-state.js';
 export * from './ids.js';
 export * from './events/hub.js';

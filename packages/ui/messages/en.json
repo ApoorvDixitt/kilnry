@@ -329,7 +329,23 @@
       "skills": "Skills",
       "presets": "Presets",
       "characters": "Characters",
-      "updates": "Updates"
+      "updates": "Updates",
+      "about": "About"
+    },
+    "about": {
+      "title": "About Kilnry",
+      "version": "Kilnry {version}",
+      "build": "Node {node} · {platform}",
+      "licenceHeading": "Licence",
+      "readLicence": "Read licence",
+      "noticesHeading": "Third-party notices",
+      "showNotices": "Show third-party notices",
+      "ffmpegNote": "FFmpeg is invoked as a separate system process under its own licence (GPL).",
+      "diagnosticsHeading": "Diagnostics",
+      "diagnosticsBody": "The diagnostics file contains no keys and no prompts. It lists file paths and model names.",
+      "exportDiagnostics": "Export diagnostics",
+      "diagnosticsDone": "Saved the redacted diagnostics file.",
+      "diagnosticsFailed": "Kilnry could not export diagnostics. Check the details and try again."
     },
     "updates": {
       "title": "Updates",

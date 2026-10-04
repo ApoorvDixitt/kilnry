@@ -805,3 +805,41 @@ test('@m7 F-SET-07 the Updates page shows the version, checks a manifest, and of
   // core updates/check unit test.
   await expect(page.getByTestId('updates-result')).toBeVisible({ timeout: 15_000 });
 });
+
+test('@m7 F-SET-11 the About page shows the version, licence, and third-party notices', async ({ page }) => {
+  await ensureSignedIn(page, '/settings/about');
+  await expect(page.getByTestId('about-settings')).toBeVisible();
+  // The version matches the running build (PRD-16 §11 acceptance).
+  const version = await page.evaluate(async () => {
+    const r = await fetch('/api/about');
+    return ((await r.json()) as { info: { version: string } }).info.version;
+  });
+  await expect(page.getByTestId('about-version')).toContainText(version);
+  // The Sustainable Use License summary and Read licence are shown.
+  await expect(page.getByText('Sustainable Use License 1.0')).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Read licence' })).toBeVisible();
+
+  // Third-party notices are generated from the lockfile on request.
+  await page.getByTestId('about-notices-load').click();
+  await expect(page.getByTestId('about-notices')).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId('about-notices')).toContainText('pnpm');
+
+  // Exporting diagnostics returns a redacted snapshot with no keys and no prompts.
+  const diag = await page.evaluate(async () => {
+    const token = decodeURIComponent(
+      document.cookie
+        .split(';')
+        .map((part) => part.trim())
+        .find((part) => part.startsWith('kilnry_csrf='))
+        ?.slice('kilnry_csrf='.length) ?? '',
+    );
+    const r = await fetch('/api/about', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Kilnry-CSRF': token },
+      body: JSON.stringify({ action: 'diagnostics' }),
+    });
+    return JSON.stringify((await r.json()) as unknown);
+  });
+  expect(diag).toContain('"diagnostics"');
+  expect(diag).not.toMatch(/sk-or-v1-|sk_[a-z]|eyJ/);
+});

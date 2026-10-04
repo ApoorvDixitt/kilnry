@@ -5,6 +5,7 @@
 
 import Link from 'next/link';
 import {
+  Info,
   LayoutGrid,
   LockKeyhole,
   MessagesSquare,
@@ -31,6 +32,7 @@ const sections = [
   { id: 'characters', icon: UserRound },
   { id: 'appearance', icon: Palette },
   { id: 'updates', icon: RefreshCw },
+  { id: 'about', icon: Info },
 ] as const;
 
 export function SettingsLayout({

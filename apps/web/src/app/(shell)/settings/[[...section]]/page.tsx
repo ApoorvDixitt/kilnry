@@ -3,7 +3,8 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
-import { appVersion, loadConfig } from '@kilnry/core';
+import { appVersion, aboutInfo, loadConfig } from '@kilnry/core';
+import { AboutSettings } from '../../../../components/about-settings';
 import { AppearanceSettings } from '../../../../components/appearance-settings';
 import { BudgetSettings } from '../../../../components/budget-settings';
 import { CharactersSettings } from '../../../../components/characters-settings';
@@ -35,6 +36,7 @@ export default async function SettingsPage({
     'characters',
     'appearance',
     'updates',
+    'about',
   ].includes(requested)
     ? requested
     : 'providers';
@@ -73,6 +75,8 @@ export default async function SettingsPage({
           update_command: 'npx kilnry@latest',
         }}
       />
+    ) : section === 'about' ? (
+      <AboutSettings initial={aboutInfo()} />
     ) : (
       <ProviderSettings />
     );
