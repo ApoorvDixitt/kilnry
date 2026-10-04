@@ -11,7 +11,7 @@
 import { NextResponse } from 'next/server';
 import * as z from 'zod';
 import { appVersion, checkForUpdate, loadConfig, saveConfig } from '@kilnry/core';
-import { errorResponse, requireSession } from '../../../../server/http';
+import { errorResponse, requireSession } from '../../../server/http';
 
 const Body = z.union([
   z.object({ action: z.literal('check') }),
