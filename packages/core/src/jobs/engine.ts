@@ -800,17 +800,20 @@ export class JobEngine {
    * Enqueue a Library import for one absolute path (TRD-05 §13). The watcher
    * calls this on an add/change instead of indexing inline, so the worker — not
    * the file event — owns the write and it is serialized with the run drive.
-   * singletonKey is the path and singletonSeconds a 10 s debounce window: a
-   * burst of events for the same file within the window (an editor's save, a
-   * copy finishing) collapses to one job. pg-boss 12.33.1 types.d.ts:489–490
-   * define `singletonKey`/`singletonSeconds`; manager.d.ts:69
-   * `getDebounceStartAfter(singletonSeconds, …)` is the throttle slot they drive.
+   * singletonKey is the path and singletonSeconds a 10 s debounce window, with
+   * singletonNextSlot so a change *within* that window is not dropped but
+   * deferred to the next slot and indexed then (TRD-05 §13). Without it,
+   * pg-boss's createJob returns null on the singleton conflict (manager.js:1142
+   * — the deferred insert is guarded by `if (singletonNextSlot)`, otherwise it
+   * returns null at :1177), so a save 2 s after the first import would be lost.
+   * The first insert runs immediately; a burst inside the window collapses to
+   * one deferred follow-up. types.d.ts:489–491 define the three options.
    */
   async enqueueImport(path: string): Promise<void> {
     const result = await this.boss.send(
       'maintenance',
       { op: 'import_path', path },
-      { singletonKey: path, singletonSeconds: 10 },
+      { singletonKey: path, singletonSeconds: 10, singletonNextSlot: true },
     );
     if (!result) this.#options.log('debug', 'import_path_debounced', { path });
   }

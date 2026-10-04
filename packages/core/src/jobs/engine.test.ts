@@ -272,6 +272,33 @@ describe('pg-boss job engine', () => {
     expect(rows.rows[0]?.count).toBe('1');
   });
 
+  it('enqueueImport keeps a second import of one path, deferred to the next slot (F-LIB-04)', async () => {
+    const fake = fakeAdapter();
+    const { engine, state } = await harness(fake.adapter, true, {
+      runDriver: () => new Promise<void>(() => {}),
+    });
+    const path = '/library/inbox/edited.png';
+    // Two imports of the same path within the debounce window. singletonNextSlot
+    // means the first runs now and the second is deferred, not dropped — so a
+    // change 1 s after the first import is still indexed (pg-boss manager.js
+    // returns null on the conflict without it).
+    await engine.enqueueImport(path);
+    await engine.enqueueImport(path);
+    const rows = await state.client.query<{ count: string }>(
+      "select count(*)::text as count from pgboss.job where name = 'maintenance' and data->>'path' = $1",
+      [path],
+    );
+    expect(rows.rows[0]?.count).toBe('2');
+    const slots = await state.client.query<{ start_after: string }>(
+      "select start_after from pgboss.job where name = 'maintenance' and data->>'path' = $1 order by start_after",
+      [path],
+    );
+    // The second job's slot is strictly later than the first's.
+    expect(new Date(slots.rows[1]!.start_after).getTime()).toBeGreaterThan(
+      new Date(slots.rows[0]!.start_after).getTime(),
+    );
+  });
+
   it('runs estimate → confirm → reserve → submit → finalize → reconcile → ledger on shared PGlite', async () => {
     const fake = fakeAdapter();
     const { engine, state, stages, library } = await harness(fake.adapter);
