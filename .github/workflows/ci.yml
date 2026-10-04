@@ -195,3 +195,15 @@ jobs:
         run: pnpm exec playwright install --with-deps chromium
       - name: Acceptance shard ${{ matrix.shard.name }}
         run: pnpm e2e --grep "@smoke|${{ matrix.shard.grep }}"
+      - name: Keep the shard's evidence
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: e2e-${{ matrix.shard.name }}
+          path: |
+            test-results/
+            playwright-report/
+            .dev/e2e-data/logs/
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 7
