@@ -194,10 +194,6 @@ export function startTestMsw(): void {
         ],
       }),
     ),
-    // fal create-voice (Kling) is synchronous and returns a voice id (F-VOI-02).
-    http.post('https://queue.fal.run/fal-ai/kling-video/create-voice', () =>
-      HttpResponse.json({ voice_id: 'fal_kling_voice_1' }),
-    ),
     // fal is a queue provider: submit returns a request id and polling URLs, the
     // status turns to COMPLETED, and the response carries a downloadable output.
     // A prompt containing TRIGGER is rejected exactly as S-09 states: HTTP 422
@@ -256,6 +252,15 @@ export function startTestMsw(): void {
         });
       }
       const isVideo = /video|kling|veo|seedance|lipsync|sync|latentsync/i.test(path);
+      // Voice design and clone finish with { custom_voice_id, audio } — fal's
+      // documented output for fal-ai/minimax/voice-{design,clone} (schema
+      // MinimaxVoice{Design,Clone}Output). The preview audio lets the UI play it.
+      if (/voice-design|voice-clone/i.test(path)) {
+        return HttpResponse.json({
+          custom_voice_id: 'fal_minimax_voice_1',
+          audio: { url: FAL_AUDIO_URL, content_type: 'audio/mpeg' },
+        });
+      }
       // Speech-to-text (scribe) answers with the recognised text and per-word
       // timestamps, which the fal adapter turns into a Kilnry transcript (F-WFL-06).
       if (/speech-to-text|scribe|transcrib/i.test(path)) {

@@ -9,12 +9,18 @@
 // and the preview is priced and ledgered inside previewVoice, so these helpers
 // only hand over keys and the provider synthesis call.
 
+import { mkdir, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import {
   KilnryError,
   cloneVoice,
   deleteVoice,
   designVoice,
+  indexAsset,
+  libraryMarker,
+  loadConfig,
   previewVoice,
+  ulid,
   type DesignInput,
   type DesignResult,
   type VoiceCloner,
@@ -44,12 +50,40 @@ export interface VoiceDesigner {
 
 export async function voiceDesigner(): Promise<VoiceDesigner> {
   const services = await runtimeServices();
+  const config = loadConfig();
+  const libraryRoot = config.library_root;
+  const marker = libraryRoot ? await libraryMarker(libraryRoot).catch(() => null) : null;
   return {
     design: (input) =>
       designVoice(
         {
           db: services.database,
           keyFor: (provider) => services.keyStore.get(provider),
+          // Save the provider's preview audio as an asset so a paid design is
+          // audible in the voices list, the way clone previews are (item 7). It
+          // is fetched into the Library and indexed; a failure leaves the voice
+          // without a preview rather than failing the whole design.
+          ...(libraryRoot && marker
+            ? {
+                storePreview: async ({ url, name }) => {
+                  const response = await fetch(url);
+                  if (!response.ok) return undefined;
+                  const bytes = Buffer.from(await response.arrayBuffer());
+                  const voicesDir = join(libraryRoot, 'Characters', '_voices');
+                  await mkdir(voicesDir, { recursive: true });
+                  const safe = name.replace(/[^a-zA-Z0-9_-]+/g, '-').slice(0, 40) || 'voice';
+                  const absolute = join(voicesDir, `${safe}-${ulid()}.mp3`);
+                  await writeFile(absolute, bytes);
+                  const indexed = await indexAsset(
+                    services.database,
+                    libraryRoot,
+                    absolute,
+                    marker.library_id,
+                  );
+                  return indexed.sidecar.asset_id;
+                },
+              }
+            : {}),
         },
         input,
       ),

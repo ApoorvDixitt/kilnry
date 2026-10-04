@@ -671,6 +671,31 @@ test('@m7 F-VOI-03 design a voice: connect MiniMax, price shown, one ledger row,
     return response.ok;
   }, token);
   expect(bound).toBe(true);
+
+  // The fal path designs through fal's queue (submit → status → response). With
+  // fal connected, design via the manage route and assert a second voice_clone
+  // ledger row — the fal queue mock returns custom_voice_id only on the response,
+  // so this fails if the code reads a voice id off the submit (D-57, item 1).
+  await ensureProvider(page, 'fal', FAL_KEY);
+  const falVoiceId = await page.evaluate(async (token) => {
+    const response = await fetch('/api/voices/manage', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Kilnry-CSRF': token },
+      body: JSON.stringify({
+        action: 'design',
+        name: 'Fal Narrator',
+        provider: 'fal',
+        description: 'A crisp, energetic announcer with a bright tone.',
+        preview_text: 'This is a preview of the fal-designed voice.',
+        confirm_cost_usd: 3,
+      }),
+    });
+    const body = (await response.json()) as { voice?: { voice_id?: string }; error?: { message?: string } };
+    if (body.error) throw new Error(body.error.message);
+    return body.voice?.voice_id ?? '';
+  }, token);
+  expect(falVoiceId).toBe('fal_minimax_voice_1');
+  await expect.poll(() => ledgerRowsByKind(page, 'voice_clone'), { timeout: 10_000 }).toBe(2);
 });
 
 test('@m7 F-WFL-08 Ad Multiplier is in the catalogue, gated on a video-edit provider, and plans', async ({

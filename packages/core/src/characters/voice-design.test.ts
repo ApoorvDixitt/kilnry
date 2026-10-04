@@ -124,4 +124,86 @@ describe('voice design (F-VOI-03)', () => {
     expect(await state.db.select().from(spendLedger)).toHaveLength(0);
     expect(await state.db.select().from(voices).where(eq(voices.isClone, true))).toHaveLength(0);
   });
+
+  // A fal design goes through fal's queue: submit → status COMPLETED → response,
+  // whose output carries custom_voice_id (never on the submit). The mock mirrors
+  // that protocol, so it would fail if the code read voice_id off the submit.
+  function falQueueFetch(options: { stuck?: boolean } = {}): {
+    fetch: typeof fetch;
+    counter: { submits: number };
+  } {
+    const counter = { submits: 0 };
+    const fetchImpl = (async (url: string) => {
+      const u = String(url);
+      if (u.endsWith('/fal-ai/minimax/voice-design') && !u.includes('/requests/')) {
+        counter.submits += 1;
+        return new Response(
+          JSON.stringify({
+            request_id: 'req-1',
+            status_url: 'https://queue.fal.run/fal-ai/minimax/voice-design/requests/req-1/status',
+            response_url: 'https://queue.fal.run/fal-ai/minimax/voice-design/requests/req-1',
+          }),
+          { status: 200 },
+        );
+      }
+      if (u.includes('/status')) {
+        return new Response(JSON.stringify({ status: options.stuck ? 'IN_PROGRESS' : 'COMPLETED' }), {
+          status: 200,
+        });
+      }
+      // The response URL returns the output body.
+      return new Response(
+        JSON.stringify({ custom_voice_id: 'fal-voice-9', audio: { url: 'https://x/a.mp3' } }),
+        { status: 200 },
+      );
+    }) as unknown as typeof fetch;
+    return { fetch: fetchImpl, counter };
+  }
+
+  it('designs a fal voice through the queue, reading custom_voice_id from the response', async () => {
+    const state = await db();
+    const queue = falQueueFetch();
+    const result = await designVoice(
+      { db: state, keyFor: () => Promise.resolve('fal-key'), fetch: queue.fetch, now: () => new Date() },
+      {
+        name: 'Designed via fal',
+        provider: 'fal',
+        description: 'A bright, upbeat presenter.',
+        preview_text: 'Preview please.',
+        confirmed_cost_usd: 3,
+      },
+    );
+    expect(result.provider).toBe('fal');
+    expect(result.voice_id).toBe('fal-voice-9');
+    expect(result.preview_audio_url).toBe('https://x/a.mp3');
+    const ledger = await state.db.select().from(spendLedger);
+    expect(ledger).toHaveLength(1);
+    expect(ledger[0]?.currencyNote).toBe('voice design');
+  });
+
+  it('records an ambiguous ledger row and throws TIMEOUT when fal never completes', async () => {
+    const state = await db();
+    const queue = falQueueFetch({ stuck: true });
+    await expect(
+      designVoice(
+        {
+          db: state,
+          keyFor: () => Promise.resolve('fal-key'),
+          fetch: queue.fetch,
+          now: () => new Date(),
+          falPoll: { budgetMs: 40, intervalMs: 10, sleep: () => Promise.resolve() },
+        },
+        {
+          name: 'Stuck',
+          provider: 'fal',
+          description: 'A voice that never finishes.',
+          preview_text: 'Preview.',
+          confirmed_cost_usd: 3,
+        },
+      ),
+    ).rejects.toMatchObject({ code: 'TIMEOUT' });
+    const ledger = await state.db.select().from(spendLedger);
+    expect(ledger).toHaveLength(1);
+    expect(ledger[0]?.currencyNote).toContain('ambiguous: fal request req-1');
+  });
 });

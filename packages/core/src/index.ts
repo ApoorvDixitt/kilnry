@@ -10,6 +10,7 @@ export * from './version.js';
 export * from './updates/check.js';
 export * from './about/info.js';
 export * from './about/diagnostics.js';
+export * from './characters/fal-queue.js';
 export * from './net/network-state.js';
 export * from './ids.js';
 export * from './events/hub.js';

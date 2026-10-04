@@ -21,6 +21,7 @@ import type { CanonicalRequest, Estimate } from '../types.js';
 import { assertConsentForTraining } from './consent.js';
 import { lookupHandle } from './store.js';
 import { bindVoice, recordClonedVoice } from './voices.js';
+import { FalQueueTimeout, submitAndPollFalQueue } from './fal-queue.js';
 
 export type CloneProvider = 'minimax' | 'elevenlabs' | 'fal';
 
@@ -104,6 +105,8 @@ export interface CloneServices {
   keyFor: (provider: CloneProvider) => Promise<string | undefined>;
   fetch?: typeof fetch;
   now?: () => Date;
+  // Test-only poll tuning so a timeout can be exercised without a 2-minute wait.
+  falPoll?: { budgetMs?: number; intervalMs?: number; sleep?: (ms: number) => Promise<void> };
 }
 
 export interface CloneResult {
@@ -163,10 +166,39 @@ export async function cloneVoice(services: CloneServices, input: CloneInput): Pr
   });
   const chargedUsd = cloneEstimate.authoritative_usd ?? cloneEstimate.estimate_usd;
 
-  const voiceId = await cloneWithProvider(fetchImpl, input.provider, key, {
-    name: input.name,
-    sampleUrl: input.sample_url,
-  });
+  let cloned: { voiceId: string; previewAudioUrl?: string; requestId?: string };
+  try {
+    cloned = await cloneWithProvider(
+      fetchImpl,
+      input.provider,
+      key,
+      { name: input.name, sampleUrl: input.sample_url },
+      services.falPoll,
+    );
+  } catch (error) {
+    // A fal queue timeout: fal has accepted and may bill, so record the spend at
+    // the estimate with the request id rather than leaving it invisible, and
+    // surface a TIMEOUT naming the request (default; adjustable).
+    if (error instanceof FalQueueTimeout) {
+      await services.db.db.insert(spendLedger).values({
+        id: ulid(),
+        providerId: input.provider,
+        modelId: CLONE_PRICING[input.provider],
+        folder: 'inbox',
+        kind: 'voice_clone',
+        estimateUsd: cloneEstimate.estimate_usd.toFixed(6),
+        actualUsd: chargedUsd.toFixed(6),
+        currencyNote: `ambiguous: fal request ${error.request_id}`,
+        occurredAt: now(),
+      });
+      throw new KilnryError('TIMEOUT', `fal voice clone did not finish (request ${error.request_id}).`, {
+        provider: 'fal',
+        retryable: true,
+      });
+    }
+    throw error;
+  }
+  const voiceId = cloned.voiceId;
 
   const voiceUlid = ulid();
   await recordClonedVoice(services.db, {
@@ -198,7 +230,12 @@ export async function cloneVoice(services: CloneServices, input: CloneInput): Pr
     actor: 'user',
     action: 'voice.clone',
     target: input.name,
-    meta: { provider: input.provider, estimate_usd: cloneEstimate.estimate_usd, actual_usd: chargedUsd },
+    meta: {
+      provider: input.provider,
+      estimate_usd: cloneEstimate.estimate_usd,
+      actual_usd: chargedUsd,
+      ...(cloned.requestId ? { fal_request_id: cloned.requestId } : {}),
+    },
   });
 
   if (bindTarget) {
@@ -219,7 +256,8 @@ async function cloneWithProvider(
   provider: CloneProvider,
   key: string,
   input: { name: string; sampleUrl: string },
-): Promise<string> {
+  falPoll?: { budgetMs?: number; intervalMs?: number; sleep?: (ms: number) => Promise<void> },
+): Promise<{ voiceId: string; previewAudioUrl?: string; requestId?: string }> {
   if (provider === 'minimax') {
     // Upload the sample, then create the clone keyed to a Kilnry-stable id.
     const uploaded = (await postJson(fetchImpl, 'https://api.minimax.io/v1/files/upload', key, {
@@ -245,7 +283,7 @@ async function cloneWithProvider(
         provider: 'minimax',
         retryable: true,
       });
-    return voiceId;
+    return { voiceId };
   }
   if (provider === 'elevenlabs') {
     const added = (await postJson(fetchImpl, 'https://api.elevenlabs.io/v1/voices/add', key, {
@@ -259,14 +297,28 @@ async function cloneWithProvider(
         { provider: 'elevenlabs', retryable: false },
       );
     if (!added.voice_id) throw new KilnryError('PROVIDER_ERROR', 'ElevenLabs did not return a voice id.');
-    return added.voice_id;
+    return { voiceId: added.voice_id };
   }
-  // Kling via fal create-voice.
-  const created = (await postJson(fetchImpl, 'https://queue.fal.run/fal-ai/kling-video/create-voice', key, {
-    voice_url: input.sampleUrl,
-  })) as { voice_id?: string };
-  if (!created.voice_id) throw new KilnryError('PROVIDER_ERROR', 'fal did not return a voice id.');
-  return created.voice_id;
+  // fal: fal-ai/minimax/voice-clone is a QUEUE endpoint. Submit { audio_url } →
+  // poll status → GET response, whose output is { custom_voice_id, audio }
+  // (schema: MinimaxVoiceCloneOutput at fal.ai/models/fal-ai/minimax/voice-clone/
+  // api; required custom_voice_id). The old kling-video/create-voice call read a
+  // voice_id straight off the submit, which fal never returns.
+  const { output, request_id } = await submitAndPollFalQueue(
+    fetchImpl,
+    'fal-ai/minimax/voice-clone',
+    key,
+    { audio_url: input.sampleUrl },
+    falPoll ?? {},
+  );
+  const voiceId = typeof output.custom_voice_id === 'string' ? output.custom_voice_id : undefined;
+  if (!voiceId)
+    throw new KilnryError('PROVIDER_ERROR', 'fal voice clone returned no custom_voice_id.', {
+      provider: 'fal',
+      retryable: true,
+    });
+  const audio = output.audio as { url?: string } | undefined;
+  return { voiceId, requestId: request_id, ...(audio?.url ? { previewAudioUrl: audio.url } : {}) };
 }
 
 async function postJson(

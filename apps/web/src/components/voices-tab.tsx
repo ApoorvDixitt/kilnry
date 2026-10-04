@@ -23,6 +23,8 @@ export function VoicesTab(): React.ReactNode {
   const [designName, setDesignName] = useState('');
   const [designDescription, setDesignDescription] = useState('');
   const [designPreview, setDesignPreview] = useState('Hello, this is a preview of the designed voice.');
+  const [designLanguage, setDesignLanguage] = useState('');
+  const [designGender, setDesignGender] = useState('');
   const [designing, setDesigning] = useState(false);
   const [designNote, setDesignNote] = useState<string>();
 
@@ -59,6 +61,8 @@ export function VoicesTab(): React.ReactNode {
         provider: designProvider,
         description: designDescription,
         preview_text: designPreview,
+        ...(designLanguage ? { language: designLanguage } : {}),
+        ...(designGender ? { gender: designGender } : {}),
         confirm_cost_usd: DESIGN_COST_USD,
       }),
     })
@@ -76,7 +80,7 @@ export function VoicesTab(): React.ReactNode {
         setDesignNote(cause instanceof Error ? cause.message : message('characters.voices.designFailed')),
       )
       .finally(() => setDesigning(false));
-  }, [designProvider, designName, designDescription, designPreview, reload]);
+  }, [designProvider, designName, designDescription, designPreview, designLanguage, designGender, reload]);
 
   const visible = useMemo(() => (rows ? filterVoiceRows(rows, provider, '') : []), [rows, provider]);
 
@@ -142,6 +146,24 @@ export function VoicesTab(): React.ReactNode {
               onChange={(event) => setDesignPreview(event.target.value)}
               required
             />
+          </label>
+          <label>
+            {message('characters.voices.designLanguage')}
+            <input
+              type="text"
+              value={designLanguage}
+              placeholder={message('characters.voices.designLanguageHint')}
+              onChange={(event) => setDesignLanguage(event.target.value)}
+            />
+          </label>
+          <label>
+            {message('characters.voices.designGender')}
+            <select value={designGender} onChange={(event) => setDesignGender(event.target.value)}>
+              <option value="">{message('characters.voices.designGenderUnset')}</option>
+              <option value="female">{message('characters.voices.designGenderFemale')}</option>
+              <option value="male">{message('characters.voices.designGenderMale')}</option>
+              <option value="neutral">{message('characters.voices.designGenderNeutral')}</option>
+            </select>
           </label>
           <p className="voice-design-price" data-money="true" data-testid="voice-design-price">
             ${DESIGN_COST_USD.toFixed(2)}

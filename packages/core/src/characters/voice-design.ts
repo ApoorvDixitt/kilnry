@@ -20,6 +20,7 @@ import { loadRegistry } from '../registry/store.js';
 import type { CanonicalRequest, Estimate } from '../types.js';
 import { lookupHandle } from './store.js';
 import { bindVoice, recordDesignedVoice } from './voices.js';
+import { FalQueueTimeout, submitAndPollFalQueue } from './fal-queue.js';
 
 export type DesignProvider = 'minimax' | 'fal';
 
@@ -88,6 +89,12 @@ export interface DesignServices {
   keyFor: (provider: DesignProvider) => Promise<string | undefined>;
   fetch?: typeof fetch;
   now?: () => Date;
+  // Save the provider's preview audio as an asset and return its id, so a paid
+  // design is audible the way clones are (item 7). Optional: when absent, the
+  // preview url is still returned to the caller but not stored as an asset.
+  storePreview?: (input: { url: string; name: string }) => Promise<string | undefined>;
+  // Test-only poll tuning so a timeout can be exercised without a 2-minute wait.
+  falPoll?: { budgetMs?: number; intervalMs?: number; sleep?: (ms: number) => Promise<void> };
 }
 
 export interface DesignResult {
@@ -95,6 +102,7 @@ export interface DesignResult {
   provider: DesignProvider;
   voice_id: string;
   bound_to?: string;
+  preview_audio_url?: string;
 }
 
 // Design a voice from a text description and, optionally, bind it to a Character
@@ -135,10 +143,57 @@ export async function designVoice(services: DesignServices, input: DesignInput):
   });
   const chargedUsd = designEstimate.authoritative_usd ?? designEstimate.estimate_usd;
 
-  const voiceId = await designWithProvider(fetchImpl, input.provider, key, {
-    prompt: input.description,
-    previewText: input.preview_text,
-  });
+  // Fold the language and gender hints (PRD-08 §B3) into the description the
+  // provider reads; both MiniMax and fal design a voice from a single prompt.
+  const described = [
+    input.description,
+    input.gender ? `Gender: ${input.gender}.` : '',
+    input.language ? `Language: ${input.language}.` : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+
+  let designed: { voiceId: string; previewAudioUrl?: string; requestId?: string };
+  try {
+    designed = await designWithProvider(
+      fetchImpl,
+      input.provider,
+      key,
+      { prompt: described, previewText: input.preview_text },
+      services.falPoll,
+    );
+  } catch (error) {
+    // A fal queue timeout: fal has accepted and will bill, so record the spend
+    // at the estimate with the request id rather than leaving it invisible, and
+    // surface a TIMEOUT the caller can show (default; adjustable).
+    if (error instanceof FalQueueTimeout) {
+      await services.db.db.insert(spendLedger).values({
+        id: ulid(),
+        providerId: input.provider,
+        modelId: DESIGN_PRICING[input.provider],
+        folder: 'inbox',
+        kind: 'voice_clone',
+        estimateUsd: designEstimate.estimate_usd.toFixed(6),
+        actualUsd: chargedUsd.toFixed(6),
+        currencyNote: `ambiguous: fal request ${error.request_id}`,
+        occurredAt: now(),
+      });
+      throw new KilnryError('TIMEOUT', `fal voice design did not finish (request ${error.request_id}).`, {
+        provider: 'fal',
+        retryable: true,
+      });
+    }
+    throw error;
+  }
+  const voiceId = designed.voiceId;
+
+  // Store the preview audio as an asset when a sink is provided, so it plays in
+  // the voices list like a clone's preview (item 7).
+  const previewAssetId = designed.previewAudioUrl
+    ? await services
+        .storePreview?.({ url: designed.previewAudioUrl, name: input.name })
+        .catch(() => undefined)
+    : undefined;
 
   const voiceUlid = ulid();
   await recordDesignedVoice(services.db, {
@@ -149,9 +204,11 @@ export async function designVoice(services: DesignServices, input: DesignInput):
     consent_confirmed_at: now(),
     cost_usd: chargedUsd,
     ...(input.language ? { language: input.language } : {}),
+    ...(previewAssetId ? { preview_asset_id: previewAssetId } : {}),
   });
   // One spend-ledger row and one audit event, keyed by the voice ulid so a
-  // design is charged at most once (F-PRV-05, TRD-15).
+  // design is charged at most once (F-PRV-05, TRD-15). The fal request id is
+  // recorded in the audit meta so a spend can be traced back to fal.
   await services.db.db.insert(spendLedger).values({
     id: voiceUlid,
     providerId: input.provider,
@@ -168,7 +225,12 @@ export async function designVoice(services: DesignServices, input: DesignInput):
     actor: 'user',
     action: 'voice.design',
     target: input.name,
-    meta: { provider: input.provider, estimate_usd: designEstimate.estimate_usd, actual_usd: chargedUsd },
+    meta: {
+      provider: input.provider,
+      estimate_usd: designEstimate.estimate_usd,
+      actual_usd: chargedUsd,
+      ...(designed.requestId ? { fal_request_id: designed.requestId } : {}),
+    },
   });
 
   if (bindTarget) {
@@ -180,26 +242,31 @@ export async function designVoice(services: DesignServices, input: DesignInput):
     provider: input.provider,
     voice_id: voiceId,
     ...(input.bind_to ? { bound_to: input.bind_to.replace(/^@/, '') } : {}),
+    ...(designed.previewAudioUrl ? { preview_audio_url: designed.previewAudioUrl } : {}),
   };
 }
 
-// Send the description to the provider and return the new voice id. MiniMax:
-// POST /v1/voice_design { prompt, preview_text } → { voice_id, trial_audio,
-// base_resp.status_code } (platform.minimax.io/docs/api-reference/
+// Send the description to the provider and return the new voice id, the preview
+// audio (so a paid design is audible), and the fal request id when relevant.
+// MiniMax: POST /v1/voice_design { prompt, preview_text } → { voice_id,
+// trial_audio, base_resp.status_code } (platform.minimax.io/docs/api-reference/
 // voice-design-design; status_code 0 is success, 1026 is a moderation reject).
-// fal: fal-ai/minimax/voice-design returns { voice_id } (fal.ai/models/
-// fal-ai/minimax/voice-design/api).
+// fal: fal-ai/minimax/voice-design is a QUEUE endpoint — submit → poll status →
+// GET response — whose output is { custom_voice_id, audio } (schema:
+// MinimaxVoiceDesignOutput at fal.ai/api/openapi/queue/openapi.json?endpoint_id=
+// fal-ai/minimax/voice-design; required custom_voice_id, audio).
 async function designWithProvider(
   fetchImpl: typeof fetch,
   provider: DesignProvider,
   key: string,
   input: { prompt: string; previewText: string },
-): Promise<string> {
+  falPoll?: { budgetMs?: number; intervalMs?: number; sleep?: (ms: number) => Promise<void> },
+): Promise<{ voiceId: string; previewAudioUrl?: string; requestId?: string }> {
   if (provider === 'minimax') {
     const designed = (await postJson(fetchImpl, 'https://api.minimax.io/v1/voice_design', key, {
       prompt: input.prompt,
       preview_text: input.previewText,
-    })) as { voice_id?: string; base_resp?: { status_code?: number } };
+    })) as { voice_id?: string; trial_audio?: string; base_resp?: { status_code?: number } };
     const code = designed.base_resp?.status_code ?? 0;
     if (code === 1026)
       throw new KilnryError('MODERATION_REJECTED', 'MiniMax rejected the voice description.', {
@@ -211,14 +278,32 @@ async function designWithProvider(
         provider: 'minimax',
         retryable: true,
       });
-    return designed.voice_id;
+    // Keep the trial audio MiniMax returns as the voice's preview so a user who
+    // paid $3 can hear it (item 7); it is a URL or a base64 data string.
+    return {
+      voiceId: designed.voice_id,
+      ...(designed.trial_audio ? { previewAudioUrl: designed.trial_audio } : {}),
+    };
   }
-  const created = (await postJson(fetchImpl, 'https://queue.fal.run/fal-ai/minimax/voice-design', key, {
-    prompt: input.prompt,
-    preview_text: input.previewText,
-  })) as { voice_id?: string };
-  if (!created.voice_id) throw new KilnryError('PROVIDER_ERROR', 'fal did not return a voice id.');
-  return created.voice_id;
+  const { output, request_id } = await submitAndPollFalQueue(
+    fetchImpl,
+    'fal-ai/minimax/voice-design',
+    key,
+    { prompt: input.prompt, preview_text: input.previewText },
+    falPoll ?? {},
+  );
+  const voiceId = typeof output.custom_voice_id === 'string' ? output.custom_voice_id : undefined;
+  if (!voiceId)
+    throw new KilnryError('PROVIDER_ERROR', 'fal voice design returned no custom_voice_id.', {
+      provider: 'fal',
+      retryable: true,
+    });
+  const audio = output.audio as { url?: string } | undefined;
+  return {
+    voiceId,
+    requestId: request_id,
+    ...(audio?.url ? { previewAudioUrl: audio.url } : {}),
+  };
 }
 
 async function postJson(

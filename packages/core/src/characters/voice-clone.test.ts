@@ -175,4 +175,45 @@ describe('voice cloning (F-VOI-02) and binding (F-CHR-08)', () => {
     });
     expect(result.bound_to).toBe('real');
   });
+
+  // A fal clone goes through fal's queue (submit → status COMPLETED → response);
+  // the output carries custom_voice_id, never the submit. The mock mirrors that.
+  function falQueueFetch(): typeof fetch {
+    return (async (url: string) => {
+      const u = String(url);
+      if (u.endsWith('/fal-ai/minimax/voice-clone') && !u.includes('/requests/')) {
+        return new Response(
+          JSON.stringify({
+            request_id: 'req-c',
+            status_url: 'https://queue.fal.run/fal-ai/minimax/voice-clone/requests/req-c/status',
+            response_url: 'https://queue.fal.run/fal-ai/minimax/voice-clone/requests/req-c',
+          }),
+          { status: 200 },
+        );
+      }
+      if (u.includes('/status'))
+        return new Response(JSON.stringify({ status: 'COMPLETED' }), { status: 200 });
+      return new Response(
+        JSON.stringify({ custom_voice_id: 'fal-clone-7', audio: { url: 'https://x/p.mp3' } }),
+        { status: 200 },
+      );
+    }) as unknown as typeof fetch;
+  }
+
+  it('clones a fal voice through the queue and reads custom_voice_id from the response', async () => {
+    const state = await db();
+    const result = await cloneVoice(services(state, falQueueFetch()), {
+      name: 'Clone via fal',
+      provider: 'fal',
+      sample_url: 'https://media.test/sample.mp3',
+      sample_seconds: 20,
+      consent_confirmed: true,
+      confirmed_cost_usd: 1.5,
+    });
+    expect(result.provider).toBe('fal');
+    expect(result.voice_id).toBe('fal-clone-7');
+    const ledger = await state.db.select().from(spendLedger);
+    expect(ledger).toHaveLength(1);
+    expect(ledger[0]?.currencyNote).toBe('voice clone');
+  });
 });
