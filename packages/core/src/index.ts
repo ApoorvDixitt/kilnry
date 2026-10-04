@@ -32,6 +32,7 @@ export * from './skills/pipeline.js';
 export * from './skills/loader.js';
 export * from './skills/install.js';
 export * from './characters/store.js';
+export * from './characters/bundle.js';
 export * from './characters/parse.js';
 export * from './characters/resolver-types.js';
 export * from './characters/resolve.js';

@@ -23,7 +23,7 @@
 // KILNRY_TEST_MSW and in release builds) that drops the cached master key as a
 // boot with the keyring entry missing would, then drives the Providers banner.
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 
@@ -523,4 +523,62 @@ test('@m7 F-CHR-12 consistency check: enable with its download, badge on outputs
     consistency?: { badge?: string };
   };
   expect(kept.consistency?.badge).toBe('high');
+});
+
+test('@m7 F-CHR-14 export a character to a bundle and import it back round-trips on disk', async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  await ensureProvider(page, 'pollinations', POLLINATIONS_KEY);
+  // A character with one reference, built from a generated image.
+  const media = await generateOnCreate(page, 'a calm ceramicist in a green apron, studio light');
+  const assetId = media.split('/').pop()?.split('.')[0] ?? '';
+  expect(assetId).not.toBe('');
+  await characterWithReference(page, 'potter_m7', assetId);
+
+  const token = await csrf(page);
+  // Export through the route the UI button drives, then import with a handle
+  // clash so it lands as @potter_m7_2 (TRD-14 §15).
+  const result = await page.evaluate(
+    async ({ token }) => {
+      const exported = await fetch('/api/characters/potter_m7/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Kilnry-CSRF': token },
+        body: JSON.stringify({}),
+      }).then(
+        (r) =>
+          r.json() as Promise<{ bundle_path: string; manifest: { character: { references: unknown[] } } }>,
+      );
+      const imported = await fetch('/api/characters/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Kilnry-CSRF': token },
+        body: JSON.stringify({ bundle_path: exported.bundle_path, on_conflict: 'rename' }),
+      }).then((r) => r.json() as Promise<{ result: { handle: string; references_imported: number } }>);
+      return {
+        bundle_path: exported.bundle_path,
+        refs: exported.manifest.character.references.length,
+        imported: imported.result,
+      };
+    },
+    { token },
+  );
+
+  // The bundle is a real zip on disk, and the import created @potter_m7_2 with
+  // its reference re-indexed under Characters/@potter_m7_2/imported/.
+  expect(result.bundle_path.endsWith('.zip')).toBe(true);
+  expect(existsSync(result.bundle_path)).toBe(true);
+  expect(result.refs).toBe(1);
+  expect(result.imported.handle).toBe('potter_m7_2');
+  expect(result.imported.references_imported).toBe(1);
+
+  // The round-tripped character resolves and carries the same descriptor.
+  const resolved = await page.evaluate(async () => {
+    const r = await fetch('/api/characters/potter_m7_2');
+    return (await r.json()) as { item?: { display_name?: string; references?: unknown[] } };
+  });
+  expect(resolved.item?.display_name).toBe('potter_m7');
+  expect(resolved.item?.references ?? []).toHaveLength(1);
+  // The imported reference image is on disk in the character's imported folder.
+  const importedDir = join(libraryRoot, 'Characters', '@potter_m7_2', 'imported');
+  expect(existsSync(importedDir)).toBe(true);
 });

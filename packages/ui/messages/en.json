@@ -1153,6 +1153,9 @@
     "detail": {
       "useInCreate": "Use in Create",
       "buildSheet": "Build sheet",
+      "export": "Export bundle",
+      "exportDone": "Exported the character bundle to",
+      "exportFailed": "Kilnry could not export this character. Check the details and try again.",
       "tabSheet": "Reference sheet",
       "tabIdentities": "Identities",
       "tabVoice": "Voice",

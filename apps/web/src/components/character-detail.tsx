@@ -44,6 +44,32 @@ export function CharacterDetail({ handle }: { handle: string }): React.ReactNode
     cost: number;
   } | null>(null);
   const [cloneOpen, setCloneOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [exportNote, setExportNote] = useState<string>();
+
+  // Export this character to a .kilnry-character.zip bundle (F-CHR-14). The
+  // route stages references, a licence-safe local LoRA and the voice ids, zips
+  // them, and returns the bundle path with any notes (a hosted Soul ID or a
+  // non-exportable LoRA left out).
+  const exportBundle = useCallback(() => {
+    setExporting(true);
+    setExportNote(undefined);
+    void apiFetch(`/api/characters/${encodeURIComponent(handle)}/export`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    })
+      .then((response) => response.json() as Promise<{ bundle_path?: string; notes?: string[] }>)
+      .then((body) => {
+        setExportNote(
+          body.bundle_path
+            ? [message('characters.detail.exportDone'), body.bundle_path, ...(body.notes ?? [])].join(' ')
+            : message('characters.detail.exportFailed'),
+        );
+      })
+      .catch(() => setExportNote(message('characters.detail.exportFailed')))
+      .finally(() => setExporting(false));
+  }, [handle]);
 
   // Reload the character after a change (a clone, a bind, a set-current).
   const reloadCharacter = useCallback(() => {
@@ -219,8 +245,22 @@ export function CharacterDetail({ handle }: { handle: string }): React.ReactNode
           <button className="btn" type="button" disabled={building} onClick={buildSheet}>
             {message('characters.detail.buildSheet')}
           </button>
+          <button
+            className="btn"
+            type="button"
+            disabled={exporting}
+            onClick={exportBundle}
+            data-testid="character-export"
+          >
+            {message('characters.detail.export')}
+          </button>
         </div>
       </header>
+      {exportNote ? (
+        <p className="character-export-note" role="status">
+          {exportNote}
+        </p>
+      ) : null}
 
       <nav className="character-detail-tabs" role="tablist">
         {(['sheet', 'identities', 'voice', 'usage', 'settings'] as DetailTab[]).map((id) => (
