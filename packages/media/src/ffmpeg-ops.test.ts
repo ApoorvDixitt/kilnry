@@ -79,4 +79,10 @@ describe('ffmpeg-ops (F-MCP-02)', () => {
       ffmpegArgs('mux_audio', ['/v.mp4', '/a.wav'], '/out.mp4', { mode: 'replace', fit: 'loop_audio' }),
     ).toThrow(/not implemented in V1/);
   });
+
+  it('mux_audio fit=video without fit_duration_s throws instead of padding nothing', () => {
+    expect(() =>
+      ffmpegArgs('mux_audio', ['/v.mp4', '/a.wav'], '/out.mp4', { mode: 'replace', fit: 'video' }),
+    ).toThrow(/fit=video needs fit_duration_s/);
+  });
 });

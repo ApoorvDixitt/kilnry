@@ -9,6 +9,7 @@
 // tested without spawning FFmpeg; runFfmpegOp spawns the shared media process.
 
 import { runMediaProcess } from './process.js';
+import { probeMedia } from './probe.js';
 
 // The operations kilnry_ffmpeg can serve today. Anything outside this list is
 // not available yet and the tool names its milestone.
@@ -255,8 +256,17 @@ export function ffmpegArgs(
           output,
         ];
       }
+      // fit=video pads the audio to the video's length, which needs the probed
+      // duration. Without it the old code silently fell back to -shortest, which
+      // is the 04fd468 regression for any caller that forgets fit_duration_s
+      // (the MCP media tool did). Refuse rather than pad nothing (AGENTS.md §6: a
+      // param the builder ignores is a defect). runFfmpegOp probes it in; a
+      // caller that builds argv directly must pass it.
+      if (fit === 'video' && fitDuration <= 0) {
+        throw new Error('mux_audio fit=video needs fit_duration_s (the probed video duration).');
+      }
       const pad =
-        fit === 'video' && fitDuration > 0
+        fit === 'video'
           ? `apad=whole_dur=${fitDuration.toFixed(3)},atrim=end=${fitDuration.toFixed(3)},`
           : '';
       return [
@@ -392,7 +402,21 @@ export async function runFfmpegOp(
   params: Record<string, unknown> = {},
   ffmpeg = process.env.KILNRY_FFMPEG ?? 'ffmpeg',
 ): Promise<{ log_tail: string }> {
-  const args = ffmpegArgs(op, inputs, output, params);
+  // mux_audio fit=video needs the video's duration to bound apad. The workflow
+  // host probes it in (workflows.ts), but a direct caller — the MCP media tool
+  // (tools/generation.ts) — does not, so probe inputs[0] here when it is absent
+  // and the fit is video (the default), rather than let the builder throw.
+  let opParams = params;
+  if (
+    op === 'mux_audio' &&
+    (params.fit ?? 'video') === 'video' &&
+    typeof params.fit_duration_s !== 'number' &&
+    inputs[0]
+  ) {
+    const probed = await probeMedia(inputs[0]);
+    opParams = { ...params, fit_duration_s: probed.duration_s ?? 0 };
+  }
+  const args = ffmpegArgs(op, inputs, output, opParams);
   const result = await runMediaProcess(ffmpeg, args, { timeoutMs: 120_000 });
   const log = `${result.stderr}`.trim().split('\n').slice(-20).join('\n');
   return { log_tail: log };

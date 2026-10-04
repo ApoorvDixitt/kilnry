@@ -178,6 +178,22 @@ describe('assembly ops on a real ffmpeg (F-WFL-06, TRD-09 §3)', () => {
     60_000,
   );
 
+  it.skipIf(!ffmpegAvailable)(
+    'mux_audio replace with no fit_duration_s probes the video and still bounds to it (tool path)',
+    async () => {
+      // The MCP media tool calls runFfmpegOp without fit_duration_s; runFfmpegOp
+      // must probe inputs[0] and pass it, so the output equals the 2 s video and
+      // does not silently fall back to -shortest (04fd468). voice is 3 s.
+      const out = join(root, 'tool-fit.mp4');
+      await runFfmpegOp('mux_audio', [silent, voice], out, { mode: 'replace' });
+      const probe = await probeMedia(out);
+      const videoDur = (await probeMedia(silent)).duration_s ?? 0;
+      expect(probe.has_audio).toBe(true);
+      expect(Math.abs((probe.duration_s ?? 0) - videoDur)).toBeLessThanOrEqual(0.15);
+    },
+    60_000,
+  );
+
   it.skipIf(!ffmpegAvailable)('extracts audio and frames', async () => {
     const audio = join(root, 'track.mp3');
     await runFfmpegOp('extract_audio', [sound], audio);
