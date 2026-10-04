@@ -34,6 +34,7 @@ export function RunHeader({
   onDuplicate,
   onOpenFolder,
   onExportManifest,
+  onSaveAsWorkflow,
 }: {
   run: RunView;
   onCancel: () => void;
@@ -41,12 +42,13 @@ export function RunHeader({
   onDuplicate?: () => void;
   onOpenFolder?: () => void;
   onExportManifest?: () => void;
+  onSaveAsWorkflow?: () => void;
 }): React.ReactNode {
   const { done, total, fraction } = progress(run);
   const finished = ['completed', 'failed', 'cancelled'].includes(run.status);
   const [menuOpen, setMenuOpen] = useState(false);
   const [pickOpen, setPickOpen] = useState(false);
-  const hasMenu = Boolean(onRerunFrom || onDuplicate || onOpenFolder || onExportManifest);
+  const hasMenu = Boolean(onRerunFrom || onDuplicate || onOpenFolder || onExportManifest || onSaveAsWorkflow);
   const completedSteps = run.steps.filter((step) => step.status === 'completed');
   return (
     <header className="run-header">
@@ -137,6 +139,19 @@ export function RunHeader({
                     }}
                   >
                     {message('workflows.runView.menuExportManifest')}
+                  </button>
+                ) : null}
+                {onSaveAsWorkflow ? (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    data-testid="run-save-as-workflow"
+                    onClick={() => {
+                      onSaveAsWorkflow();
+                      setMenuOpen(false);
+                    }}
+                  >
+                    {message('workflows.runView.menuSaveAsWorkflow')}
                   </button>
                 ) : null}
               </div>
@@ -482,6 +497,7 @@ export function ApprovalCard({
 export function WorkflowRunView({ runId, initial }: { runId: string; initial?: RunView }): React.ReactNode {
   const [run, setRun] = useState<RunView | null>(initial ?? null);
   const [selected, setSelected] = useState<string>();
+  const [savedWorkflowNote, setSavedWorkflowNote] = useState<string>();
 
   const reload = useCallback(async (): Promise<void> => {
     try {
@@ -610,6 +626,33 @@ export function WorkflowRunView({ runId, initial }: { runId: string; initial?: R
     URL.revokeObjectURL(url);
   }, [run]);
 
+  // Save this run as a new user workflow (F-WFL-10): the run's steps with its
+  // inputs pinned as fields and its models pinned as defaults, written under
+  // ~/.kilnry/workflows and shown in the catalogue under "Mine".
+  const saveAsWorkflow = useCallback((): void => {
+    if (!run) return;
+    const name = run.workflow_id ? `${run.workflow_id} (saved)` : 'Saved run';
+    void apiFetch(`/api/runs/${encodeURIComponent(runId)}/save-as-workflow`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    })
+      .then(
+        (response) => response.json() as Promise<{ workflow?: { id: string }; error?: { message: string } }>,
+      )
+      .then((body) => {
+        if (body.error) throw new Error(body.error.message);
+        setSavedWorkflowNote(
+          message('workflows.runView.savedAsWorkflow').replace('{id}', body.workflow?.id ?? ''),
+        );
+      })
+      .catch((cause: unknown) =>
+        setSavedWorkflowNote(
+          cause instanceof Error ? cause.message : message('workflows.runView.saveFailed'),
+        ),
+      );
+  }, [run, runId]);
+
   const current = useMemo(
     () => run?.steps.find((step) => step.step_id === selected) ?? run?.steps[0],
     [run, selected],
@@ -626,7 +669,13 @@ export function WorkflowRunView({ runId, initial }: { runId: string; initial?: R
         onDuplicate={() => void duplicate()}
         onOpenFolder={openFolder}
         onExportManifest={exportManifest}
+        onSaveAsWorkflow={run.status === 'completed' ? saveAsWorkflow : undefined}
       />
+      {savedWorkflowNote ? (
+        <p className="run-saved-note" role="status" data-testid="run-saved-note">
+          {savedWorkflowNote}
+        </p>
+      ) : null}
       {run.status === 'awaiting_approval' ? (
         <ApprovalCard
           run={run}

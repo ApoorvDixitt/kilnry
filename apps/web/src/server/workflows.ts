@@ -48,12 +48,13 @@ import {
 } from '@kilnry/media';
 import { burnCaptions } from '@kilnry/media';
 import { splitRowSheet } from '@kilnry/media';
-import { mkdir, readFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { CanonicalRequestSchema, type CanonicalRequest, type RouteConstraints } from '@kilnry/core';
 import { analyzeTool, capabilityFor, type ToolServices } from '@kilnry/core';
 import { assets, assetTags, assetLineage, jobs, runSteps, runs, type DatabaseState } from '@kilnry/db';
 import {
   buildManifest,
+  buildSavedWorkflow,
   execute,
   expandRunState,
   packagesRootFrom,
@@ -135,6 +136,51 @@ export function loadCatalogue(dataDir: string): Map<string, CatalogueEntry> {
 
 export function getWorkflow(dataDir: string, id: string): CatalogueEntry | undefined {
   return loadCatalogue(dataDir).get(id);
+}
+
+export interface SaveRunResult {
+  id: string;
+  filename: string;
+  path: string;
+}
+
+// Save a completed run as a user workflow under <data>/workflows (F-WFL-10).
+// Reads the run's source workflow, pins each generate step's model to the one
+// the run used (from run_steps) and the run's inputs as the new defaults, then
+// writes the YAML the catalogue's user root picks up under "Mine".
+export async function saveRunAsWorkflow(
+  db: DatabaseState,
+  dataDir: string,
+  runId: string,
+  name: string,
+  author?: string,
+): Promise<SaveRunResult> {
+  const runRow = (await db.db.select().from(runs).where(eq(runs.id, runId)).limit(1))[0];
+  if (!runRow) throw new KilnryError('NOT_FOUND', `Run ${runId} was not found.`);
+  const entry = getWorkflow(dataDir, runRow.workflowId);
+  if (!entry) {
+    throw new KilnryError('NOT_FOUND', `The run's workflow ${runRow.workflowId} is no longer installed.`);
+  }
+  const stepRows = await db.db.select().from(runSteps).where(eq(runSteps.runId, runId));
+  const models: Record<string, string> = {};
+  for (const step of stepRows) {
+    // Pin by the step's definition id (instance ids carry a foreach suffix); the
+    // first model seen for a step id is the one that step ran on.
+    const defId = step.stepId ?? step.instanceId;
+    if (defId && step.modelId && !models[defId]) models[defId] = step.modelId;
+  }
+  const saved = buildSavedWorkflow({
+    source: entry.workflow,
+    name,
+    ...(author ? { author } : {}),
+    inputs: runRow.inputs,
+    models,
+  });
+  const dir = userCatalogueRoot(dataDir);
+  await mkdir(dir, { recursive: true });
+  const path = join(dir, saved.filename);
+  await writeFile(path, saved.yaml);
+  return { id: saved.id, filename: saved.filename, path };
 }
 
 /** The file() roots a workflow may read from: packages/** and its own folder. */
