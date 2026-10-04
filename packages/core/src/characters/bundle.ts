@@ -13,58 +13,100 @@
 // bundle carries a release and the importer confirms.
 
 import { createHash } from 'node:crypto';
-import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { and, eq } from 'drizzle-orm';
+import * as z from 'zod';
 import { assets, characters, trainedIdentities, type DatabaseState } from '@kilnry/db';
 import { KilnryError } from '../errors.js';
+import { ulid } from '../ids.js';
 import {
   addReferences,
   createCharacter,
+  forkVersion,
   loadVersion,
   lookupHandle,
   normaliseHandle,
-  type LoadedVersion,
+  setAppearance,
 } from './store.js';
-import { sidecarPath } from '../library/sidecar.js';
+import { assertConsentForExport } from './consent.js';
+import { resolveInRoot } from '../library/containment.js';
+import { SidecarSchema, sidecarPath, writeSidecar } from '../library/sidecar.js';
 
 // Licences under which a trained LoRA leaves the machine without an explicit
 // opt-in (TRD-14 §9). Everything else needs the user to tick "include my LoRA".
 const EXPORTABLE_LICENCES = new Set(['cc0', 'cc-by', 'commercial-release']);
 
-export interface CharacterBundleManifest {
-  schema_version: 1;
-  exported_at: string;
-  kilnry_version: string;
-  character: {
-    handle: string;
-    kind: LoadedVersion['kind'];
-    display_name: string;
-    is_real_person: boolean;
-    appearance: LoadedVersion['appearance'];
-    injection_defaults?: LoadedVersion['injection_defaults'];
-    references: Array<{ file: string; asset_id: string; role: string; view?: string; label?: string }>;
-  };
-  versions_included: number[];
-  consent: { is_real_person: boolean; consent_status: string; release_included: boolean };
-  license: string;
-  identity?: { provider: string; kind: string; file: string; sha256: string };
-  voices?: Array<{ provider: string; voice_id: string }>;
-}
+// A bundled reference is references/<name>.png; an identity is
+// identities/<provider>/lora.safetensors. Both are matched before any path is
+// joined onto the extract dir, so a crafted manifest cannot escape it (item 5).
+const REFERENCE_FILE_RE = /^references\/[^/]+\.png$/;
+const IDENTITY_FILE_RE = /^identities\/[^/]+\/lora\.safetensors$/;
+
+const ReferenceEntrySchema = z.object({
+  file: z.string().regex(REFERENCE_FILE_RE),
+  asset_id: z.string(),
+  role: z.string(),
+  view: z.string().optional(),
+  label: z.string().optional(),
+});
+
+export const CharacterBundleManifestSchema = z.object({
+  schema_version: z.literal(1),
+  exported_at: z.string(),
+  kilnry_version: z.string(),
+  character: z.object({
+    handle: z.string(),
+    kind: z.enum(['character', 'prop', 'environment', 'style']),
+    display_name: z.string(),
+    is_real_person: z.boolean(),
+    appearance: z.object({
+      descriptor: z.string(),
+      anchors: z.array(z.string()),
+      negative_traits: z.array(z.string()),
+      palette_hex: z.array(z.string()).optional(),
+      gendered_noun: z.enum(['figure', 'man', 'person', 'woman']).optional(),
+    }),
+    injection_defaults: z.record(z.string(), z.array(z.string())).optional(),
+    references: z.array(ReferenceEntrySchema),
+  }),
+  versions_included: z.array(z.number().int()),
+  consent: z.object({
+    is_real_person: z.boolean(),
+    consent_status: z.string(),
+    release_included: z.boolean(),
+  }),
+  license: z.string(),
+  identity: z
+    .object({
+      provider: z.string(),
+      kind: z.string(),
+      file: z.string().regex(IDENTITY_FILE_RE),
+      sha256: z.string(),
+    })
+    .optional(),
+  voices: z.array(z.object({ provider: z.string(), voice_id: z.string() })).optional(),
+});
+
+export type CharacterBundleManifest = z.infer<typeof CharacterBundleManifestSchema>;
 
 export interface CharacterBundleServices {
   db: DatabaseState;
   libraryRoot: string;
+  // Staging and extraction happen here (the data dir, NOT under the watched
+  // Library root), so the watcher never sees a half-staged reference or a
+  // non-media bundle file (item 2).
   bundlesRoot: string;
+  // The finished .zip is written here, under the Library's Exports folder, the
+  // way a Library export is (library-export.ts).
+  exportsRoot: string;
   kilnryVersion: string;
   now?: () => Date;
   // Zip a staged directory into <dir>.zip, or undefined when no archiver exists.
   zipDir: (dir: string) => Promise<string | undefined>;
-  // Unzip a bundle into a fresh directory and return that directory.
+  // Unzip a bundle into a fresh directory.
   unzipTo: (zipPath: string, destDir: string) => Promise<void>;
-  // Index a Library-relative path and return its asset id. Injected so the
-  // bundle module does not depend on the engine; the host passes a closure over
-  // indexAsset(db, libraryRoot, path, libraryId).
+  // Index a Library-relative path and return its asset id.
   indexAsset: (relativePath: string) => Promise<string>;
 }
 
@@ -106,8 +148,12 @@ export async function exportCharacterBundle(
   )[0];
   if (!head) throw new KilnryError('NOT_FOUND', `@${handle} is not a Character.`);
 
+  // A real person at consent none cannot be exported (PRD-07 §7/§14). Checked
+  // before any staging so nothing is written for a refused export.
+  await assertConsentForExport(services.db, found.id);
+
   const stageName = `character-${safeSegment(handle)}-v${version.version}.kilnry-character`;
-  const stageDir = join(services.bundlesRoot, stageName);
+  const stageDir = join(services.bundlesRoot, `${ulid()}-${stageName}`);
   await mkdir(join(stageDir, 'references'), { recursive: true });
 
   // References: copy each image and its sidecar into references/.
@@ -238,7 +284,15 @@ export async function exportCharacterBundle(
     notes.push('No archiver is available; the bundle was written as a folder.');
     return { bundle_path: stageDir, manifest, notes };
   }
-  return { bundle_path: zipped, manifest, notes };
+  // Move the finished zip into the Library's Exports folder, then remove the
+  // staging directory from the data dir so the watcher never sees it (item 2).
+  await mkdir(services.exportsRoot, { recursive: true });
+  const finalZip = join(services.exportsRoot, `${stageName}.zip`);
+  await rm(finalZip, { force: true });
+  await copyFile(zipped, finalZip);
+  await rm(zipped, { force: true });
+  await rm(stageDir, { recursive: true, force: true });
+  return { bundle_path: finalZip, manifest, notes };
 }
 
 export interface CharacterImportOptions {
@@ -263,108 +317,181 @@ export async function importCharacterBundle(
   options: CharacterImportOptions,
 ): Promise<CharacterImportResult> {
   const notes: string[] = [];
-  const extractDir = join(services.bundlesRoot, `import-${Date.now()}`);
+  // The client may name any path; refuse one that does not resolve inside the
+  // Library root or the data dir, then extract into the data dir (item 5/2).
+  let bundleAbs: string | undefined;
+  for (const base of [services.libraryRoot, services.bundlesRoot]) {
+    const resolved = await resolveInRoot(base, options.bundle_path, { mustExist: true }).catch(
+      () => undefined,
+    );
+    if (resolved) {
+      bundleAbs = resolved.abs;
+      break;
+    }
+  }
+  if (!bundleAbs) {
+    throw new KilnryError('INVALID_INPUT', 'The bundle path is outside the Library and data folders.');
+  }
+  const extractDir = join(services.bundlesRoot, `import-${ulid()}`);
   await mkdir(extractDir, { recursive: true });
-  await services.unzipTo(options.bundle_path, extractDir);
+  try {
+    await services.unzipTo(bundleAbs, extractDir);
 
-  const manifestRaw = await readFile(join(extractDir, 'character.json'), 'utf8').catch(() => '');
-  if (manifestRaw.trim() === '') {
-    throw new KilnryError('INVALID_INPUT', 'The bundle has no character.json.');
-  }
-  const manifest = JSON.parse(manifestRaw) as CharacterBundleManifest;
-  if (manifest.schema_version !== 1) {
-    throw new KilnryError('INVALID_INPUT', `Unsupported bundle schema_version ${manifest.schema_version}.`);
-  }
+    const manifestRaw = await readFile(join(extractDir, 'character.json'), 'utf8').catch(() => '');
+    if (manifestRaw.trim() === '') {
+      throw new KilnryError('INVALID_INPUT', 'The bundle has no character.json.');
+    }
+    const parsed = CharacterBundleManifestSchema.safeParse(JSON.parse(manifestRaw) as unknown);
+    if (!parsed.success) {
+      throw new KilnryError(
+        'INVALID_INPUT',
+        `The bundle's character.json is invalid: ${parsed.error.message}`,
+      );
+    }
+    const manifest = parsed.data;
 
-  // Resolve the target handle: a clash becomes a new version or @<handle>_2.
-  const requested = normaliseHandle(manifest.character.handle);
-  let handle = requested;
-  const existing = await lookupHandle(services.db, requested);
-  if (existing && options.on_conflict !== 'version') {
-    for (let suffix = 2; ; suffix += 1) {
-      const candidate = `${requested}_${suffix}`.slice(0, 32);
-      if (!(await lookupHandle(services.db, candidate))) {
-        handle = candidate;
-        break;
+    // Validate every bundled sidecar before trusting the bundle; name all the
+    // offending files in one error (PRD-07 §14 acceptance 3).
+    const bad: string[] = [];
+    const sidecars = new Map<string, z.infer<typeof SidecarSchema>>();
+    for (const ref of manifest.character.references) {
+      const sidecarAbs = sidecarPath(join(extractDir, ref.file));
+      const raw = await readFile(sidecarAbs, 'utf8').catch(() => '');
+      if (raw.trim() === '') continue; // no sidecar is allowed; a bad one is not
+      const check = SidecarSchema.safeParse(JSON.parse(raw) as unknown);
+      if (!check.success) bad.push(`${ref.file}.kilnry.json`);
+      else sidecars.set(ref.file, check.data);
+    }
+    if (bad.length > 0) {
+      throw new KilnryError('INVALID_INPUT', `These bundled sidecars are invalid: ${bad.join(', ')}.`);
+    }
+
+    // Verify any LoRA's sha256 before trusting the bundle.
+    if (manifest.identity) {
+      const digest = await sha256(join(extractDir, manifest.identity.file)).catch(() => '');
+      if (digest !== manifest.identity.sha256) {
+        throw new KilnryError('INVALID_INPUT', "The bundle's LoRA does not match its recorded sha256.");
       }
     }
-    notes.push(`@${requested} already exists; imported as @${handle}.`);
-  }
 
-  // Verify any LoRA's sha256 before trusting the bundle.
-  if (manifest.identity) {
-    const loraPath = join(extractDir, manifest.identity.file);
-    const digest = await sha256(loraPath).catch(() => '');
-    if (digest !== manifest.identity.sha256) {
-      throw new KilnryError('INVALID_INPUT', "The bundle's LoRA does not match its recorded sha256.");
+    // Resolve the target handle: a clash becomes a new version or @<handle>_2.
+    const requested = normaliseHandle(manifest.character.handle);
+    let handle = requested;
+    const existing = await lookupHandle(services.db, requested);
+    const asNewVersion = existing !== null && options.on_conflict === 'version';
+    if (existing && !asNewVersion) {
+      for (let suffix = 2; ; suffix += 1) {
+        const candidate = `${requested}_${suffix}`.slice(0, 32);
+        if (!(await lookupHandle(services.db, candidate))) {
+          handle = candidate;
+          break;
+        }
+      }
+      notes.push(`@${requested} already exists; imported as @${handle}.`);
     }
-  }
 
-  // Real-person consent is reset to none unless the bundle carries a release and
-  // the importer confirms (TRD-14 §9/§15).
-  const consentStatus =
-    manifest.character.is_real_person && !(manifest.consent.release_included && options.confirm_real_person)
-      ? 'none'
-      : manifest.consent.consent_status;
-  if (manifest.character.is_real_person && consentStatus === 'none') {
-    notes.push(
-      'This is a real person; consent was reset to none. Re-confirm consent before training or use.',
-    );
-  }
+    // Real-person consent is reset to none unless the bundle carries a release
+    // and the importer confirms (TRD-14 §9/§15).
+    const consentStatus =
+      manifest.character.is_real_person && !(manifest.consent.release_included && options.confirm_real_person)
+        ? 'none'
+        : manifest.consent.consent_status;
+    if (manifest.character.is_real_person && consentStatus === 'none') {
+      notes.push(
+        'This is a real person; consent was reset to none. Re-confirm consent before training or use.',
+      );
+    }
 
-  // Create the character (or reuse the existing one for a new version), then
-  // copy each reference into Characters/@<handle>/imported/, index it as a
-  // Library asset, and bind it to the version.
-  let characterId: string;
-  if (existing && options.on_conflict === 'version') {
-    characterId = existing.id;
-  } else {
-    const created = await createCharacter(services.db, {
-      handle,
-      kind: manifest.character.kind,
-      display_name: manifest.character.display_name,
-      is_real_person: manifest.character.is_real_person,
-      appearance: manifest.character.appearance,
-      ...(manifest.character.injection_defaults
-        ? { injection_defaults: manifest.character.injection_defaults }
+    // Create the character, or fork a new version of the existing one and write
+    // the manifest's appearance onto it (item 4: "import as new version").
+    const appearance: {
+      descriptor: string;
+      anchors: string[];
+      negative_traits: string[];
+      palette_hex?: string[];
+      gendered_noun?: 'figure' | 'man' | 'person' | 'woman';
+    } = {
+      descriptor: manifest.character.appearance.descriptor,
+      anchors: manifest.character.appearance.anchors,
+      negative_traits: manifest.character.appearance.negative_traits,
+      ...(manifest.character.appearance.palette_hex
+        ? { palette_hex: manifest.character.appearance.palette_hex }
         : {}),
-    });
-    characterId = created.id;
-  }
+      ...(manifest.character.appearance.gendered_noun
+        ? { gendered_noun: manifest.character.appearance.gendered_noun }
+        : {}),
+    };
+    let characterId: string;
+    if (asNewVersion && existing) {
+      characterId = existing.id;
+      await forkVersion(services.db, characterId);
+      await setAppearance(services.db, characterId, appearance);
+    } else {
+      const created = await createCharacter(services.db, {
+        handle,
+        kind: manifest.character.kind,
+        display_name: manifest.character.display_name,
+        is_real_person: manifest.character.is_real_person,
+        appearance,
+        ...(manifest.character.injection_defaults
+          ? { injection_defaults: manifest.character.injection_defaults }
+          : {}),
+      });
+      characterId = created.id;
+    }
 
-  const importRel = join('Characters', `@${handle}`, 'imported');
-  const importAbs = join(services.libraryRoot, importRel);
-  await mkdir(importAbs, { recursive: true });
-  const refInputs: Array<{ asset_id: string; role: string; view?: string; label?: string }> = [];
-  for (const ref of manifest.character.references) {
-    const srcImage = join(extractDir, ref.file);
-    const name = basename(ref.file);
-    const destAbs = join(importAbs, name);
-    await copyFile(srcImage, destAbs);
-    // Carry the sidecar if the bundle has one; otherwise indexAsset builds a
-    // minimal one. A fresh asset id is minted on import (the source id is only a
-    // provenance hint in the manifest).
-    await copyFile(sidecarPath(srcImage), sidecarPath(destAbs)).catch(() => undefined);
-    const indexed = await services.indexAsset(join(importRel, name));
-    refInputs.push({
-      asset_id: indexed,
-      role: ref.role,
-      ...(ref.view ? { view: ref.view } : {}),
-      ...(ref.label ? { label: ref.label } : {}),
-    });
-  }
-  if (refInputs.length > 0) await addReferences(services.db, characterId, refInputs);
-  if (consentStatus !== manifest.consent.consent_status) {
-    await services.db.db.update(characters).set({ consentStatus }).where(eq(characters.id, characterId));
-  }
-  const finalVersion = await loadVersion(services.db, characterId);
+    // Copy each reference under Characters/@<handle>/imported/ with a FRESH
+    // asset_id in its sidecar (item 1): keeping the exporter's id made the
+    // upsert re-point the exporter's own asset to the imported path. The
+    // exporter's id is kept as provenance in lineage.made_from.
+    const importRel = join('Characters', `@${handle}`, 'imported');
+    const importAbs = join(services.libraryRoot, importRel);
+    await mkdir(importAbs, { recursive: true });
+    const refInputs: Array<{ asset_id: string; role: string; view?: string; label?: string }> = [];
+    for (const ref of manifest.character.references) {
+      const name = basename(ref.file);
+      const destAbs = join(importAbs, name);
+      await copyFile(join(extractDir, ref.file), destAbs);
+      const bundled = sidecars.get(ref.file);
+      if (bundled) {
+        const made = bundled.lineage.made_from.includes(ref.asset_id)
+          ? bundled.lineage.made_from
+          : [...bundled.lineage.made_from, ref.asset_id];
+        await writeSidecar(
+          destAbs,
+          SidecarSchema.parse({
+            ...bundled,
+            asset_id: ulid(),
+            library_id: bundled.library_id,
+            source: 'import',
+            file: { ...bundled.file, name },
+            lineage: { ...bundled.lineage, made_from: made },
+          }),
+        );
+      }
+      const assetId = await services.indexAsset(join(importRel, name));
+      refInputs.push({
+        asset_id: assetId,
+        role: ref.role,
+        ...(ref.view ? { view: ref.view } : {}),
+        ...(ref.label ? { label: ref.label } : {}),
+      });
+    }
+    if (refInputs.length > 0) await addReferences(services.db, characterId, refInputs);
+    if (consentStatus !== manifest.consent.consent_status) {
+      await services.db.db.update(characters).set({ consentStatus }).where(eq(characters.id, characterId));
+    }
+    const finalVersion = await loadVersion(services.db, characterId);
 
-  return {
-    handle,
-    character_id: characterId,
-    version: finalVersion.version,
-    references_imported: refInputs.length,
-    consent_status: consentStatus,
-    notes,
-  };
+    return {
+      handle,
+      character_id: characterId,
+      version: finalVersion.version,
+      references_imported: refInputs.length,
+      consent_status: consentStatus,
+      notes,
+    };
+  } finally {
+    await rm(extractDir, { recursive: true, force: true });
+  }
 }

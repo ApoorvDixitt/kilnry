@@ -5,9 +5,10 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { apiFetch } from '../lib/api-client';
 import { message } from '../lib/messages';
 import {
   filterCards,
@@ -28,6 +29,30 @@ export function CharactersTab(): React.ReactNode {
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<CardSort>('used');
   const [error, setError] = useState<string>();
+  const importInput = useRef<HTMLInputElement>(null);
+  const [importNote, setImportNote] = useState<string>();
+
+  // Import a .kilnry-character.zip the user picks (F-CHR-14). The zip is uploaded
+  // as multipart; the server stores it under the data dir and imports it, so no
+  // client path is trusted. A handle clash is resolved to a new @handle_2.
+  const importBundle = useCallback((file: File) => {
+    setImportNote(message('characters.importing'));
+    const form = new FormData();
+    form.append('bundle', file);
+    form.append('on_conflict', 'rename');
+    void apiFetch('/api/characters/import', { method: 'POST', body: form })
+      .then(
+        (response) =>
+          response.json() as Promise<{ result?: { handle: string }; error?: { message: string } }>,
+      )
+      .then((body) => {
+        if (body.error) throw new Error(body.error.message);
+        setImportNote(message('characters.imported').replace('{handle}', body.result?.handle ?? ''));
+      })
+      .catch((cause: unknown) =>
+        setImportNote(cause instanceof Error ? cause.message : message('characters.importFailed')),
+      );
+  }, []);
 
   const load = useCallback(() => {
     setCards(null);
@@ -141,7 +166,34 @@ export function CharactersTab(): React.ReactNode {
             <span className="characters-help" title={message('characters.headerHelp')} aria-hidden>
               ⓘ
             </span>
+            {tab === 'elements' ? null : (
+              <button
+                className="btn"
+                type="button"
+                data-testid="character-import"
+                onClick={() => importInput.current?.click()}
+              >
+                {message('characters.importBundle')}
+              </button>
+            )}
+            <input
+              ref={importInput}
+              type="file"
+              accept=".zip"
+              hidden
+              aria-label={message('characters.importBundle')}
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (file) importBundle(file);
+                event.target.value = '';
+              }}
+            />
           </div>
+          {importNote ? (
+            <p className="characters-import-note" role="status">
+              {importNote}
+            </p>
+          ) : null}
 
           {visible === null ? (
             <div className="characters-grid" aria-busy>
@@ -169,11 +221,21 @@ export function CharactersTab(): React.ReactNode {
                   {tab === 'elements' ? message('characters.newElement') : message('characters.new')}
                 </Link>
                 {tab === 'elements' ? null : (
-                  <button className="btn" type="button" disabled title="M4">
+                  <button
+                    className="btn"
+                    type="button"
+                    data-testid="character-import"
+                    onClick={() => importInput.current?.click()}
+                  >
                     {message('characters.importBundle')}
                   </button>
                 )}
               </div>
+              {importNote ? (
+                <p className="characters-import-note" role="status">
+                  {importNote}
+                </p>
+              ) : null}
             </div>
           ) : visible.length === 0 ? (
             <div className="characters-empty">

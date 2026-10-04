@@ -6,6 +6,7 @@
 export * from './config/load.js';
 export * from './config/schema.js';
 export * from './errors.js';
+export * from './version.js';
 export * from './net/network-state.js';
 export * from './ids.js';
 export * from './events/hub.js';

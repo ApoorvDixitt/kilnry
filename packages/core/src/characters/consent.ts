@@ -88,3 +88,15 @@ export async function assertConsentForTraining(db: DatabaseState, characterId: s
     });
   }
 }
+
+// Refuse an export bundle for a real person whose consent is not recorded
+// (PRD-07 §7 matrix "Export bundle ✗" under none, §14 "Blocked when
+// consent.status = none for real people"). A non-real character always exports.
+export async function assertConsentForExport(db: DatabaseState, characterId: string): Promise<void> {
+  const consent = await getConsent(db, characterId);
+  if (!consentSatisfied(consent)) {
+    throw new KilnryError('CONFIRMATION_REQUIRED', 'Record permission first.', {
+      details: { reason: 'consent_required', character_id: characterId },
+    });
+  }
+}

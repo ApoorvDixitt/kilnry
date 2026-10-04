@@ -536,49 +536,46 @@ test('@m7 F-CHR-14 export a character to a bundle and import it back round-trips
   expect(assetId).not.toBe('');
   await characterWithReference(page, 'potter_m7', assetId);
 
-  const token = await csrf(page);
-  // Export through the route the UI button drives, then import with a handle
-  // clash so it lands as @potter_m7_2 (TRD-14 §15).
-  const result = await page.evaluate(
-    async ({ token }) => {
-      const exported = await fetch('/api/characters/potter_m7/export', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Kilnry-CSRF': token },
-        body: JSON.stringify({}),
-      }).then(
-        (r) =>
-          r.json() as Promise<{ bundle_path: string; manifest: { character: { references: unknown[] } } }>,
-      );
-      const imported = await fetch('/api/characters/import', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Kilnry-CSRF': token },
-        body: JSON.stringify({ bundle_path: exported.bundle_path, on_conflict: 'rename' }),
-      }).then((r) => r.json() as Promise<{ result: { handle: string; references_imported: number } }>);
-      return {
-        bundle_path: exported.bundle_path,
-        refs: exported.manifest.character.references.length,
-        imported: imported.result,
-      };
-    },
-    { token },
-  );
+  // Export through the UI (the clicked-control rule): open the dialog, confirm,
+  // and read the bundle path from the status note. The dialog's two toggles
+  // default off.
+  await page.goto('/characters/potter_m7');
+  await page.getByTestId('character-export').click();
+  const dialog = page.getByRole('dialog', { name: 'Export character bundle' });
+  await expect(dialog).toBeVisible();
+  await page.getByTestId('character-export-confirm').click();
+  const note = page.locator('.character-export-note');
+  await expect(note).toContainText('.zip', { timeout: 30_000 });
+  const noteText = (await note.textContent()) ?? '';
+  const bundlePath = noteText.match(/(\/\S+\.zip)/)?.[1] ?? '';
+  expect(bundlePath).not.toBe('');
+  expect(existsSync(bundlePath)).toBe(true);
 
-  // The bundle is a real zip on disk, and the import created @potter_m7_2 with
-  // its reference re-indexed under Characters/@potter_m7_2/imported/.
-  expect(result.bundle_path.endsWith('.zip')).toBe(true);
-  expect(existsSync(result.bundle_path)).toBe(true);
-  expect(result.refs).toBe(1);
-  expect(result.imported.handle).toBe('potter_m7_2');
-  expect(result.imported.references_imported).toBe(1);
+  // Import through the UI: the file picker on the Characters tab. A handle clash
+  // lands as @potter_m7_2 and its card appears.
+  await page.goto('/characters?tab=characters');
+  await page.getByTestId('character-import').click();
+  await page.locator('input[type="file"][accept=".zip"]').setInputFiles(bundlePath);
+  await expect(page.locator('.characters-import-note')).toContainText('@potter_m7_2', { timeout: 30_000 });
 
-  // The round-tripped character resolves and carries the same descriptor.
+  // The round-tripped character resolves with the same descriptor and one ref.
   const resolved = await page.evaluate(async () => {
     const r = await fetch('/api/characters/potter_m7_2');
-    return (await r.json()) as { item?: { display_name?: string; references?: unknown[] } };
+    return (await r.json()) as {
+      item?: { display_name?: string; references?: Array<{ asset_id?: string }> };
+    };
   });
   expect(resolved.item?.display_name).toBe('potter_m7');
   expect(resolved.item?.references ?? []).toHaveLength(1);
-  // The imported reference image is on disk in the character's imported folder.
-  const importedDir = join(libraryRoot, 'Characters', '@potter_m7_2', 'imported');
-  expect(existsSync(importedDir)).toBe(true);
+
+  // Item 1: the imported reference is a FRESH asset id, and the exporter's
+  // original asset was NOT re-pointed — its row still names the Create output.
+  const importedAssetId = resolved.item?.references?.[0]?.asset_id ?? '';
+  expect(importedAssetId).not.toBe('');
+  expect(importedAssetId).not.toBe(assetId);
+  const originalPath = await assetPath(page, assetId);
+  expect(originalPath.startsWith('Characters/@potter_m7_2/')).toBe(false);
+  const importedPath = await assetPath(page, importedAssetId);
+  expect(importedPath.startsWith('Characters/@potter_m7_2/imported/')).toBe(true);
+  expect(existsSync(join(libraryRoot, importedPath))).toBe(true);
 });

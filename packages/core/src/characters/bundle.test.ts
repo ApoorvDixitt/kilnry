@@ -13,10 +13,13 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { closeDatabaseState, createDatabase } from '@kilnry/db';
+import { eq } from 'drizzle-orm';
+import { assets, closeDatabaseState, createDatabase } from '@kilnry/db';
 import { prepareLibraryRoot } from '../library/root.js';
 import { indexAsset } from '../library/index.js';
-import { addReferences, createCharacter, loadVersion, lookupHandle } from './store.js';
+import { readSidecar } from '../library/sidecar.js';
+import { addReferences, createCharacter, listVersions, loadVersion, lookupHandle } from './store.js';
+import { setConsent } from './consent.js';
 import { exportCharacterBundle, importCharacterBundle, type CharacterBundleServices } from './bundle.js';
 
 const disposers: Array<() => Promise<void>> = [];
@@ -80,6 +83,7 @@ describe('character export/import bundle (F-CHR-14)', () => {
       db: state,
       libraryRoot: library,
       bundlesRoot,
+      exportsRoot: join(library, 'Exports'),
       kilnryVersion: '0.5.0-test',
       zipDir,
       unzipTo,
@@ -112,6 +116,75 @@ describe('character export/import bundle (F-CHR-14)', () => {
     expect(version.display_name).toBe('Maya');
     expect(version.appearance.descriptor).toBe('a calm ceramicist');
     expect(version.references).toHaveLength(1);
+
+    // Item 1: the import minted a fresh asset id; the original reference's row
+    // still points at inbox/anchor.png (it was NOT re-pointed to the imported
+    // path), and the imported reference is a different asset id.
+    const original = (await state.db.select().from(assets).where(eq(assets.id, assetId)))[0];
+    expect(original?.path).toBe('inbox/anchor.png');
+    const importedId = version.references[0]!.asset_id;
+    expect(importedId).not.toBe(assetId);
+    const importedRow = (await state.db.select().from(assets).where(eq(assets.id, importedId)))[0];
+    expect(importedRow?.path).toBe('Characters/@maya_2/imported/anchor_front_' + assetId + '.png');
+    // The exporter's id is kept as provenance in the imported sidecar's lineage.
+    const importedSidecar = await readSidecar(join(library, importedRow!.path));
+    expect(importedSidecar.ok && importedSidecar.value.lineage.made_from).toContain(assetId);
+  }, 30_000);
+
+  it('on_conflict version forks a new version and leaves the old version untouched', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'kilnry-char-version-'));
+    const dataDir = join(root, 'data');
+    const library = join(root, 'library');
+    const bundlesRoot = join(root, 'bundles');
+    mkdirSync(dataDir);
+    mkdirSync(bundlesRoot);
+    const prepared = prepareLibraryRoot(library, dataDir);
+    const state = createDatabase(dataDir, { memory: true });
+    disposers.push(async () => {
+      await closeDatabaseState(state);
+      rmSync(root, { recursive: true, force: true });
+    });
+    await state.ready;
+    const refAbs = join(library, 'inbox', 'anchor.png');
+    writeFileSync(
+      refAbs,
+      Buffer.from(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+        'base64',
+      ),
+    );
+    const assetId = (await indexAsset(state, library, refAbs, prepared.marker.library_id)).sidecar.asset_id;
+    const created = await createCharacter(state, {
+      handle: 'maya',
+      kind: 'character',
+      display_name: 'Maya',
+      appearance: { descriptor: 'v1 look', anchors: [], negative_traits: [] },
+    });
+    await addReferences(state, created.id, [{ asset_id: assetId, role: 'anchor', view: 'front' }]);
+    const services: CharacterBundleServices = {
+      db: state,
+      libraryRoot: library,
+      bundlesRoot,
+      exportsRoot: join(library, 'Exports'),
+      kilnryVersion: '0.5.0-test',
+      zipDir,
+      unzipTo,
+      indexAsset: async (rel) =>
+        (await indexAsset(state, library, join(library, rel), prepared.marker.library_id)).sidecar.asset_id,
+    };
+    const exported = await exportCharacterBundle(services, { handle: 'maya' });
+    const v1RefsBefore = (await loadVersion(state, created.id, 1)).references.length;
+
+    const imported = await importCharacterBundle(services, {
+      bundle_path: exported.bundle_path,
+      on_conflict: 'version',
+    });
+    expect(imported.handle).toBe('maya');
+    const versions = await listVersions(state, created.id);
+    expect(versions.length).toBe(2);
+    // The previous version's references are unchanged.
+    expect((await loadVersion(state, created.id, 1)).references.length).toBe(v1RefsBefore);
+    expect(imported.version).toBe(2);
   }, 30_000);
 
   it('resets consent to none when importing a real person without a confirmed release', async () => {
@@ -129,7 +202,7 @@ describe('character export/import bundle (F-CHR-14)', () => {
     });
     await state.ready;
 
-    await createCharacter(state, {
+    const created = await createCharacter(state, {
       handle: 'realperson',
       kind: 'character',
       display_name: 'Real Person',
@@ -140,12 +213,20 @@ describe('character export/import bundle (F-CHR-14)', () => {
       db: state,
       libraryRoot: library,
       bundlesRoot,
+      exportsRoot: join(library, 'Exports'),
       kilnryVersion: '0.5.0-test',
       zipDir,
       unzipTo,
       indexAsset: async (rel) =>
         (await indexAsset(state, library, join(library, rel), prepared.marker.library_id)).sidecar.asset_id,
     };
+    // Item 3: a real person at consent none cannot be exported.
+    await expect(exportCharacterBundle(services, { handle: 'realperson' })).rejects.toThrow(
+      /Record permission first/,
+    );
+    // With consent recorded, export is allowed; importing without a confirmed
+    // release resets the imported copy's consent to none.
+    await setConsent(state, created.id, { is_real_person: true, status: 'self' });
     const exported = await exportCharacterBundle(services, { handle: 'realperson' });
     const imported = await importCharacterBundle(services, {
       bundle_path: exported.bundle_path,

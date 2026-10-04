@@ -46,18 +46,22 @@ export function CharacterDetail({ handle }: { handle: string }): React.ReactNode
   const [cloneOpen, setCloneOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [exportNote, setExportNote] = useState<string>();
+  const [exportDialog, setExportDialog] = useState(false);
+  const [includeLora, setIncludeLora] = useState(false);
+  const [includeRelease, setIncludeRelease] = useState(false);
 
   // Export this character to a .kilnry-character.zip bundle (F-CHR-14). The
   // route stages references, a licence-safe local LoRA and the voice ids, zips
   // them, and returns the bundle path with any notes (a hosted Soul ID or a
-  // non-exportable LoRA left out).
+  // non-exportable LoRA left out). The two toggles default off (PRD-07 §14):
+  // trained weights and the consent release are only included when ticked.
   const exportBundle = useCallback(() => {
     setExporting(true);
     setExportNote(undefined);
     void apiFetch(`/api/characters/${encodeURIComponent(handle)}/export`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({}),
+      body: JSON.stringify({ include_lora: includeLora, include_release: includeRelease }),
     })
       .then((response) => response.json() as Promise<{ bundle_path?: string; notes?: string[] }>)
       .then((body) => {
@@ -68,8 +72,11 @@ export function CharacterDetail({ handle }: { handle: string }): React.ReactNode
         );
       })
       .catch(() => setExportNote(message('characters.detail.exportFailed')))
-      .finally(() => setExporting(false));
-  }, [handle]);
+      .finally(() => {
+        setExporting(false);
+        setExportDialog(false);
+      });
+  }, [handle, includeLora, includeRelease]);
 
   // Reload the character after a change (a clone, a bind, a set-current).
   const reloadCharacter = useCallback(() => {
@@ -249,13 +256,53 @@ export function CharacterDetail({ handle }: { handle: string }): React.ReactNode
             className="btn"
             type="button"
             disabled={exporting}
-            onClick={exportBundle}
+            onClick={() => setExportDialog(true)}
             data-testid="character-export"
           >
             {message('characters.detail.export')}
           </button>
         </div>
       </header>
+      {exportDialog ? (
+        <div
+          className="character-export-dialog"
+          role="dialog"
+          aria-modal="true"
+          aria-label={message('characters.detail.exportTitle')}
+        >
+          <p>{message('characters.detail.exportHint')}</p>
+          <label>
+            <input
+              type="checkbox"
+              checked={includeLora}
+              onChange={(event) => setIncludeLora(event.target.checked)}
+            />
+            {message('characters.detail.exportIncludeLora')}
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={includeRelease}
+              onChange={(event) => setIncludeRelease(event.target.checked)}
+            />
+            {message('characters.detail.exportIncludeRelease')}
+          </label>
+          <div className="character-export-dialog-actions">
+            <button className="btn" type="button" onClick={() => setExportDialog(false)}>
+              {message('characters.detail.exportCancel')}
+            </button>
+            <button
+              className="btn primary"
+              type="button"
+              disabled={exporting}
+              data-testid="character-export-confirm"
+              onClick={exportBundle}
+            >
+              {message('characters.detail.exportConfirm')}
+            </button>
+          </div>
+        </div>
+      ) : null}
       {exportNote ? (
         <p className="character-export-note" role="status">
           {exportNote}

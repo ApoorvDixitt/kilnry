@@ -10,10 +10,14 @@
 import { spawn } from 'node:child_process';
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { indexAsset, libraryMarker, loadConfig, type CharacterBundleServices } from '@kilnry/core';
+import {
+  appVersion,
+  indexAsset,
+  libraryMarker,
+  loadConfig,
+  type CharacterBundleServices,
+} from '@kilnry/core';
 import { runtimeServices } from './runtime';
-
-const KILNRY_VERSION = '0.5.0';
 
 function zipDir(dir: string): Promise<string | undefined> {
   return new Promise((resolve) => {
@@ -38,13 +42,17 @@ export async function characterBundleServices(): Promise<CharacterBundleServices
   const libraryRoot = config.library_root;
   if (!libraryRoot) throw new Error('The Library root is not configured.');
   const marker = await libraryMarker(libraryRoot);
-  const bundlesRoot = join(libraryRoot, 'Characters', '_bundles');
+  // Stage and extract under the data dir (not watched), write the finished zip
+  // to the Library's Exports folder (F-CHR-14 review items 2/7).
+  const bundlesRoot = join(config.data_dir, 'bundles');
+  const exportsRoot = join(libraryRoot, 'Exports');
   await mkdir(bundlesRoot, { recursive: true });
   return {
     db: services.database,
     libraryRoot,
     bundlesRoot,
-    kilnryVersion: KILNRY_VERSION,
+    exportsRoot,
+    kilnryVersion: appVersion(),
     zipDir,
     unzipTo,
     indexAsset: async (relativePath) => {
