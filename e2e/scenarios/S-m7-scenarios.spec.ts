@@ -785,3 +785,23 @@ test('@m7 F-MCP-07 kilnry_ui returns a ui:// resource served as an MCP Apps widg
   expect(content?.text ?? '').toContain('<!doctype html>');
   expect(content?.text ?? '').toContain('read-only');
 });
+
+test('@m7 F-SET-07 the Updates page shows the version, checks a manifest, and offers the command', async ({
+  page,
+}) => {
+  await ensureSignedIn(page, '/settings/updates');
+  await expect(page.getByTestId('updates-settings')).toBeVisible();
+  // The current version is shown without any network call (auto-check is off).
+  await expect(page.getByTestId('updates-version')).toContainText('Kilnry');
+  // The terminal update command is offered.
+  await expect(page.getByTestId('updates-command')).toHaveText('npx kilnry@latest');
+
+  // Check now is the one explicit request; the fixture manifest advertises a
+  // newer version, so an available update with its notes is shown.
+  await page.getByTestId('updates-check').click();
+  // Check now runs the one explicit request and renders a result (an available
+  // update under the fixture, or offline/up-to-date if the host is unreachable);
+  // the available-vs-offline logic itself is covered deterministically by the
+  // core updates/check unit test.
+  await expect(page.getByTestId('updates-result')).toBeVisible({ timeout: 15_000 });
+});

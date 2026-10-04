@@ -55,7 +55,12 @@ export function checkCommitSubject({ message, touchesProductCode }: SubjectCheck
   }
 
   const lowerSubject = subject.toLowerCase();
+  // The word "updates" is normally banned as vague, but F-SET-07 ships a feature
+  // literally called Updates, so a subject carrying (F-SET-07) may use it (D-50;
+  // the only exemption, scoped to that identifier).
+  const updatesExempt = /\(F-SET-07\)$/.test(subject);
   for (const word of BANNED_WORDS) {
+    if (word === 'updates' && updatesExempt) continue;
     if (new RegExp(`\\b${word}\\b`).test(lowerSubject)) {
       return `the subject must not use the vague word "${word}"; describe what actually changed`;
     }

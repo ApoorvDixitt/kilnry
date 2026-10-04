@@ -76,6 +76,21 @@ describe('checkCommitSubject', () => {
     }
   });
 
+  it('bans "updates" in general but allows it for an F-SET-07 subject', () => {
+    expect(
+      checkCommitSubject({
+        message: 'chore(settings): updates to the panel',
+        touchesProductCode: true,
+      }),
+    ).not.toBeNull();
+    expect(
+      checkCommitSubject({
+        message: 'feat(settings): the Updates page checks a release manifest (F-SET-07)',
+        touchesProductCode: true,
+      }),
+    ).toBeNull();
+  });
+
   it('rejects a "complete M3" subject', () => {
     expect(
       checkCommitSubject({ message: 'feat(create): complete M3 (F-CRE-06)', touchesProductCode: true }),

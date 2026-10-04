@@ -328,7 +328,25 @@
       "mcp": "MCP",
       "skills": "Skills",
       "presets": "Presets",
-      "characters": "Characters"
+      "characters": "Characters",
+      "updates": "Updates"
+    },
+    "updates": {
+      "title": "Updates",
+      "version": "Kilnry {version}",
+      "channel": "Release channel",
+      "channelStable": "Stable",
+      "channelBeta": "Beta",
+      "betaNote": "Beta builds may break things. Backups run before every update.",
+      "autoCheck": "Check for updates automatically (at most every 6 hours; nothing else is ever sent)",
+      "checkNow": "Check now",
+      "upToDate": "You're on the latest version.",
+      "offline": "Can't check for updates while offline.",
+      "available": "Kilnry {version} is available (released {date}). Read the notes below.",
+      "command": "Update command for the terminal:",
+      "copy": "Copy",
+      "copied": "Copied",
+      "backup": "A backup (database dump and sidecar zip) runs before every update."
     },
     "characters": {
       "title": "Characters",

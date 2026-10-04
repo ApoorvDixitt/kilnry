@@ -10,6 +10,7 @@ import {
   MessagesSquare,
   Palette,
   Plug,
+  RefreshCw,
   ServerCog,
   Settings2,
   Sparkles,
@@ -29,6 +30,7 @@ const sections = [
   { id: 'presets', icon: LayoutGrid },
   { id: 'characters', icon: UserRound },
   { id: 'appearance', icon: Palette },
+  { id: 'updates', icon: RefreshCw },
 ] as const;
 
 export function SettingsLayout({

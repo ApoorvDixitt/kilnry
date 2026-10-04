@@ -138,6 +138,17 @@ export function startTestMsw(): void {
   global.__kilnryFalSubmitCount = 0;
   const server = setupServer(
     ...consistencyFixtureHandlers,
+    // F-SET-07: the release manifest. The default channel resolves to
+    // releases/latest/download/manifest.json; return a newer version so the
+    // Updates page's "Check now" shows an available update. The auto-check-off
+    // acceptance (no request without the user asking) is proven by the absence
+    // of any call under onUnhandledRequest: 'error' when nothing clicks Check.
+    http.get('https://github.com/ApoorvDixitt/kilnry/releases/latest/download/manifest.json', () =>
+      HttpResponse.json({ version: '9.9.9', released_at: '2026-12-01', notes: '## 9.9.9\n- A newer build.' }),
+    ),
+    http.get('https://github.com/ApoorvDixitt/kilnry/releases/download/beta/manifest.json', () =>
+      HttpResponse.json({ version: '9.9.9', released_at: '2026-12-01', notes: '## 9.9.9\n- A beta build.' }),
+    ),
     http.get('https://openrouter.ai/api/v1/key', () =>
       HttpResponse.json({ data: { label: 'Kilnry test', limit_remaining: 10 } }),
     ),

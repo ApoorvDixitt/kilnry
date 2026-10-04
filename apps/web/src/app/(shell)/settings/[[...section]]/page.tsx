@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
-import { loadConfig } from '@kilnry/core';
+import { appVersion, loadConfig } from '@kilnry/core';
 import { AppearanceSettings } from '../../../../components/appearance-settings';
 import { BudgetSettings } from '../../../../components/budget-settings';
 import { CharactersSettings } from '../../../../components/characters-settings';
@@ -14,6 +14,7 @@ import { SecuritySettings } from '../../../../components/security-settings';
 import { SkillsSettings } from '../../../../components/skills-settings';
 import { PresetsSettings } from '../../../../components/presets-settings';
 import { SettingsLayout } from '../../../../components/settings-layout';
+import { UpdatesSettings } from '../../../../components/updates-settings';
 import { WorkspaceSettings } from '../../../../components/workspace-settings';
 
 export default async function SettingsPage({
@@ -33,6 +34,7 @@ export default async function SettingsPage({
     'presets',
     'characters',
     'appearance',
+    'updates',
   ].includes(requested)
     ? requested
     : 'providers';
@@ -62,6 +64,15 @@ export default async function SettingsPage({
       <PresetsSettings />
     ) : section === 'workspace' ? (
       <WorkspaceSettings libraryRoot={config.library_root ?? ''} />
+    ) : section === 'updates' ? (
+      <UpdatesSettings
+        initial={{
+          current: appVersion(),
+          channel: config.update_channel,
+          auto_check: config.update_check,
+          update_command: 'npx kilnry@latest',
+        }}
+      />
     ) : (
       <ProviderSettings />
     );
