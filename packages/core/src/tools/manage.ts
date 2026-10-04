@@ -679,7 +679,7 @@ export const publishTool: KilnryTool = {
 export const uiTool: KilnryTool = {
   name: 'kilnry_ui',
   description:
-    'Open a small Kilnry widget in a client that supports MCP Apps: a job-progress view, an asset picker, or a character picker. Returns the widget resource link and a plain-text fallback so a client without widget support still shows something useful. Read-only.',
+    'Open a small Kilnry widget in a client that supports MCP Apps: a job-progress view (with a per-job Cancel that calls kilnry_jobs), an asset picker that returns asset ids, or a character picker that returns @handles. Returns the widget resource link and a plain-text fallback so a client without widget support still shows something useful. Read-only.',
   inputSchema: {
     view: z.enum(['job_progress', 'asset_picker', 'character_picker']),
     job_ids: z.array(z.string()).optional(),
@@ -689,15 +689,38 @@ export const uiTool: KilnryTool = {
   outputSchema: {
     resource_uri: z.string(),
     fallback_text: z.string(),
+    view: z.string(),
+    job_ids: z.array(z.string()).optional(),
+    folder: z.string().optional(),
+    kind: z.string().optional(),
   },
   annotations: { readOnlyHint: true },
+  // MCP Apps tool-UI linkage (apps.mdx §Tool-UI Linkage): the host learns this
+  // tool renders through a UI resource from _meta.ui.resourceUri. The flat
+  // _meta["ui/resourceUri"] form is deprecated and will be removed before GA
+  // (apps.mdx:347), so only the nested form is declared. The {view} is resolved
+  // by the host from the resource template; the widget reads the view from its
+  // own URL and renders the tool result's structuredContent.
+  meta: {
+    ui: { resourceUri: 'ui://kilnry/job_progress', visibility: ['model', 'app'] },
+  },
   async execute(input): Promise<ToolResult> {
     const view = typeof input.view === 'string' ? input.view : 'job_progress';
+    const jobIds = Array.isArray(input.job_ids) ? (input.job_ids as string[]) : undefined;
+    const folder = typeof input.folder === 'string' ? input.folder : undefined;
+    const kind = typeof input.kind === 'string' ? input.kind : undefined;
+    // The structuredContent is complete without the widget (apps.mdx): it names
+    // the view and the selection the widget operates over, and the resource the
+    // host renders. The widget reads this and shows rows the user can act on.
     return {
       text: `Open the ${view.replace('_', ' ')} in a widget-capable client.`,
       structuredContent: {
         resource_uri: `ui://kilnry/${view}`,
         fallback_text: `Open the ${view.replace('_', ' ')} in the Kilnry window.`,
+        view,
+        ...(jobIds ? { job_ids: jobIds } : {}),
+        ...(folder ? { folder } : {}),
+        ...(kind ? { kind } : {}),
       },
     };
   },

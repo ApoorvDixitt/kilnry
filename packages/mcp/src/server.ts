@@ -24,10 +24,19 @@ export const TOOLS_LIST_TTL_MS = 300_000;
 export const MCP_INSTRUCTIONS = `Kilnry is a local AI media studio. Tools are grouped: discovery (kilnry_models, kilnry_estimate, kilnry_providers, kilnry_budget), creation (kilnry_generate, kilnry_transform, kilnry_ffmpeg, kilnry_analyze), library (kilnry_library, kilnry_library_manage, kilnry_import), reusable things (kilnry_characters, kilnry_characters_manage, kilnry_voices), templates (kilnry_presets, kilnry_workflows, kilnry_skills), and kilnry_jobs.
 Rules: (1) Every generation costs the user real money. Call kilnry_estimate or read the estimate in the tool result, state the price in one line, and pass confirm_cost_usd only after the user agreed, unless the workspace is in Run-automatically mode. (2) Reference people and things with @handle; kilnry_characters resolve_prompt shows exactly what will be sent. (3) For anything multi-step (ads, explainers, sheets, thumbnails) call kilnry_skills list, then load ONE skill and follow it. (4) Use asset ids and paths, never bytes. Import URLs with kilnry_import. (5) Be concise: no raw JSON or bare ids in chat; show file paths and previews. (6) Never retry a submitted spend after a timeout; check kilnry_jobs first. (7) Reply in the user's language.`;
 
-// The self-contained HTML for an MCP Apps widget (F-MCP-07). No external assets
-// so it renders in a sandboxed iframe; read-only, every action is host-gated. A
-// title and a short line per view, keyed off the window.openai/mcp bridge when
-// the host injects it, with a static fallback when it does not.
+// The self-contained HTML for an MCP Apps widget (F-MCP-07, PRD-12 §8). It uses
+// no external assets so it renders under the default CSP in a sandboxed iframe,
+// and it is an MCP client over postMessage JSON-RPC 2.0 (apps.mdx §Bidirectional
+// Communication). On load the View sends `ui/initialize`; the host answers and
+// then posts the tool result's structuredContent in a `ui/notifications/
+// render-data` message (apps.mdx lifecycle). The widget renders one of three
+// views from that data:
+//   • job_progress — a row per job with its cost and a Cancel button that calls
+//     kilnry_jobs { action: 'cancel', job_id } via tools/call (host-gated);
+//   • asset_picker — a grid that returns the chosen asset_id;
+//   • character_picker — cards that return the chosen @handle.
+// Text and structuredContent are complete without the widget, so a host without
+// MCP Apps still shows something useful.
 const UI_WIDGET_TITLES: Record<string, string> = {
   job_progress: 'Job progress',
   asset_picker: 'Pick an asset',
@@ -46,13 +55,131 @@ export function uiWidgetHtml(view: string): string {
   body { margin: 0; padding: 16px; }
   h1 { font-size: 15px; margin: 0 0 8px; }
   .kilnry-widget-note { opacity: 0.7; }
+  ul { list-style: none; margin: 0; padding: 0; }
+  .kilnry-row { display: flex; align-items: center; gap: 12px; padding: 6px 0; border-bottom: 1px solid rgba(128,128,128,0.25); }
+  .kilnry-row .name { flex: 1; }
+  .kilnry-row .cost { opacity: 0.7; }
+  button { font: inherit; cursor: pointer; }
+  .kilnry-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .kilnry-card { padding: 8px; border: 1px solid rgba(128,128,128,0.35); border-radius: 6px; text-align: left; }
 </style>
 </head>
 <body>
   <main class="kilnry-widget" data-view="${safeView}">
     <h1>${title}</h1>
-    <p class="kilnry-widget-note">This Kilnry widget is read-only; every action it offers is confirmed in the Kilnry window.</p>
+    <div id="kilnry-root" data-testid="kilnry-widget-root">
+      <p class="kilnry-widget-note">Loading…</p>
+    </div>
   </main>
+  <script>
+  (function () {
+    var view = ${JSON.stringify(safeView)};
+    var root = document.getElementById('kilnry-root');
+    var nextId = 2;
+
+    function send(method, params) {
+      window.parent.postMessage({ jsonrpc: '2.0', id: nextId++, method: method, params: params }, '*');
+    }
+    function notify(method, params) {
+      window.parent.postMessage({ jsonrpc: '2.0', method: method, params: params }, '*');
+    }
+
+    function escapeHtml(value) {
+      return String(value == null ? '' : value).replace(/[&<>"]/g, function (c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+      });
+    }
+
+    function renderJobs(data) {
+      var jobs = (data && data.jobs) || [];
+      if (!jobs.length) { root.innerHTML = '<p class="kilnry-widget-note">No active jobs.</p>'; return; }
+      var ul = document.createElement('ul');
+      jobs.forEach(function (job) {
+        var li = document.createElement('li');
+        li.className = 'kilnry-row';
+        li.setAttribute('data-testid', 'kilnry-job-row');
+        var cost = job.cost_usd != null ? ('$' + Number(job.cost_usd).toFixed(2)) : '';
+        li.innerHTML = '<span class="name">' + escapeHtml(job.label || job.id) + '</span>' +
+          '<span class="cost">' + escapeHtml(cost) + '</span>';
+        var cancel = document.createElement('button');
+        cancel.type = 'button';
+        cancel.textContent = 'Cancel';
+        cancel.setAttribute('data-testid', 'kilnry-job-cancel');
+        cancel.addEventListener('click', function () {
+          // Cancel is a host-gated tools/call to kilnry_jobs (apps.mdx: UI calls
+          // reuse MCP's tools/call over postMessage).
+          send('tools/call', { name: 'kilnry_jobs', arguments: { action: 'cancel', job_id: job.id } });
+        });
+        li.appendChild(cancel);
+        ul.appendChild(li);
+      });
+      root.innerHTML = '';
+      root.appendChild(ul);
+    }
+
+    function renderAssets(data) {
+      var assets = (data && data.assets) || [];
+      var grid = document.createElement('div');
+      grid.className = 'kilnry-grid';
+      assets.forEach(function (asset) {
+        var card = document.createElement('button');
+        card.type = 'button';
+        card.className = 'kilnry-card';
+        card.setAttribute('data-testid', 'kilnry-asset-card');
+        card.textContent = asset.label || asset.asset_id;
+        card.addEventListener('click', function () {
+          notify('ui/notifications/data-changed', { selection: { asset_id: asset.asset_id } });
+        });
+        grid.appendChild(card);
+      });
+      root.innerHTML = '';
+      root.appendChild(grid.children.length ? grid : document.createTextNode('No assets.'));
+    }
+
+    function renderCharacters(data) {
+      var characters = (data && data.characters) || [];
+      var grid = document.createElement('div');
+      grid.className = 'kilnry-grid';
+      characters.forEach(function (character) {
+        var handle = character.handle;
+        var card = document.createElement('button');
+        card.type = 'button';
+        card.className = 'kilnry-card';
+        card.setAttribute('data-testid', 'kilnry-character-card');
+        card.textContent = '@' + handle;
+        card.addEventListener('click', function () {
+          notify('ui/notifications/data-changed', { selection: { handle: '@' + handle } });
+        });
+        grid.appendChild(card);
+      });
+      root.innerHTML = '';
+      root.appendChild(grid.children.length ? grid : document.createTextNode('No characters.'));
+    }
+
+    function render(data) {
+      if (view === 'asset_picker') return renderAssets(data);
+      if (view === 'character_picker') return renderCharacters(data);
+      return renderJobs(data);
+    }
+
+    window.addEventListener('message', function (event) {
+      var msg = event.data || {};
+      // The host's render-data notification carries the tool result's data.
+      if (msg.method === 'ui/notifications/render-data' && msg.params) {
+        render(msg.params.data || msg.params);
+      }
+      // The ui/initialize response may also carry the data in hostContext.
+      if (msg.id === 1 && msg.result && msg.result.hostContext && msg.result.hostContext.data) {
+        render(msg.result.hostContext.data);
+      }
+    });
+
+    // MCP-like handshake: the View announces itself with ui/initialize, then
+    // signals it is ready (apps.mdx: ui/initialize → ui/notifications/initialized).
+    send('ui/initialize', { appCapabilities: {} });
+    notify('ui/notifications/initialized', {});
+  })();
+  </script>
 </body>
 </html>`;
 }
@@ -90,6 +217,7 @@ export function createKilnryMcpServer(options: {
         inputSchema: tool.inputSchema,
         outputSchema: tool.outputSchema,
         annotations: tool.annotations,
+        ...(tool.meta ? { _meta: tool.meta } : {}),
       },
       async (input: Record<string, unknown>) => {
         // A read-only token cannot run a mutating tool or a mutating action of a

@@ -104,9 +104,18 @@ describe('MCP server core (F-MCP-01)', () => {
     const html = uiWidgetHtml('job_progress');
     expect(html.startsWith('<!doctype html>')).toBe(true);
     expect(html).toContain('Job progress');
-    expect(html).toContain('read-only');
-    // No external assets so a sandboxed iframe can render it.
-    expect(html).not.toMatch(/src=|href=/);
+    // It is an MCP Apps client over postMessage: it sends ui/initialize and calls
+    // kilnry_jobs via tools/call for Cancel (apps.mdx §Bidirectional Communication).
+    expect(html).toContain("send('ui/initialize'");
+    expect(html).toContain("name: 'kilnry_jobs'");
+    expect(html).toContain("action: 'cancel'");
+    expect(html).toContain('kilnry-widget-root');
+    // Self-contained: no external script/style/image assets so a sandboxed
+    // iframe renders it under the default CSP (the only <script> is inline).
+    expect(html).not.toMatch(/src="https?:|href="https?:/);
+    // The picker views render their own controls.
+    expect(uiWidgetHtml('asset_picker')).toContain('kilnry-asset-card');
+    expect(uiWidgetHtml('character_picker')).toContain('kilnry-character-card');
     // An unknown or unsafe view falls back to the Kilnry title and is sanitised.
     expect(uiWidgetHtml('../../etc')).toContain('data-view="etc"');
   });
@@ -141,8 +150,14 @@ describe('MCP server core (F-MCP-01)', () => {
 
     const listResponse = await handleMcpRequest(post(2, 'tools/list', {}), options);
     const listBody = await parse(listResponse);
-    const tools = (listBody.result as { tools?: Array<{ name: string }> })?.tools ?? [];
+    const tools =
+      (listBody.result as { tools?: Array<{ name: string; _meta?: Record<string, unknown> }> })?.tools ?? [];
     expect(tools).toHaveLength(20);
     expect(tools.every((tool) => tool.name.startsWith('kilnry_'))).toBe(true);
+    // kilnry_ui declares its MCP Apps UI resource via _meta.ui.resourceUri so a
+    // host learns the tool renders through a widget (apps.mdx §Tool-UI Linkage).
+    const uiTool = tools.find((tool) => tool.name === 'kilnry_ui');
+    const uiMeta = uiTool?._meta as { ui?: { resourceUri?: string } } | undefined;
+    expect(uiMeta?.ui?.resourceUri).toBe('ui://kilnry/job_progress');
   });
 });

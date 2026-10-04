@@ -226,6 +226,9 @@ export interface KilnryTool {
   // actions do not change state, they are listed here so a read-only token may
   // still call those actions (TRD-10 §7). The action is read from input.action.
   readOnlyActions?: readonly string[];
+  // Optional MCP _meta carried onto tools/list. kilnry_ui uses it to declare its
+  // MCP Apps UI resource via _meta.ui.resourceUri (apps.mdx §Tool-UI Linkage).
+  meta?: Record<string, unknown>;
   execute: (input: Record<string, unknown>, services: ToolServices) => Promise<ToolResult>;
 }
 

@@ -783,8 +783,14 @@ async function mcpCall(
   });
   const text = await response.text();
   const line = text.includes('data:') ? (text.split('data:').at(-1) ?? text) : text;
-  const parsed = JSON.parse(line.trim()) as { result?: Record<string, unknown> };
-  return parsed.result ?? {};
+  try {
+    const parsed = JSON.parse(line.trim()) as { result?: Record<string, unknown> };
+    return parsed.result ?? {};
+  } catch {
+    // A cold /mcp route (Next compiles lazily) can answer with a non-JSON body
+    // before it is ready; return empty so a polling caller retries.
+    return {};
+  }
 }
 
 test('@m7 F-MCP-07 kilnry_ui returns a ui:// resource served as an MCP Apps widget', async ({
@@ -794,22 +800,83 @@ test('@m7 F-MCP-07 kilnry_ui returns a ui:// resource served as an MCP Apps widg
   await ensureSignedIn(page, '/settings/mcp');
   const bearer = await mintToken(page, 'm7-ui', 'read_only');
 
-  // kilnry_ui returns the widget's resource_uri and a text fallback.
-  const call = (await mcpCall(request, bearer, 'tools/call', {
-    name: 'kilnry_ui',
-    arguments: { view: 'job_progress' },
-  })) as { structuredContent?: { resource_uri?: string; fallback_text?: string } };
-  expect(call.structuredContent?.resource_uri).toBe('ui://kilnry/job_progress');
+  // kilnry_ui returns the widget's resource_uri and a text fallback (read_only).
+  // Next compiles /mcp lazily, so the first call to a just-started server can
+  // return before the route is ready; poll until it answers.
+  let call: { structuredContent?: { resource_uri?: string; fallback_text?: string } } = {};
+  await expect
+    .poll(
+      async () => {
+        call = (await mcpCall(request, bearer, 'tools/call', {
+          name: 'kilnry_ui',
+          arguments: { view: 'job_progress' },
+        })) as { structuredContent?: { resource_uri?: string; fallback_text?: string } };
+        return call.structuredContent?.resource_uri;
+      },
+      { timeout: 30_000, intervals: [500, 1000, 2000] },
+    )
+    .toBe('ui://kilnry/job_progress');
   expect(typeof call.structuredContent?.fallback_text).toBe('string');
 
-  // Reading that resource yields the sandboxed MCP Apps HTML.
+  // Reading that resource yields the sandboxed MCP Apps HTML served as
+  // text/html;profile=mcp-app (the mime the host keys off). tools/list carries
+  // _meta.ui.resourceUri on kilnry_ui — asserted over the full handshake in
+  // packages/mcp server.test.ts, where the transport preserves tool _meta.
   const read = (await mcpCall(request, bearer, 'resources/read', {
     uri: 'ui://kilnry/job_progress',
   })) as { contents?: Array<{ mimeType?: string; text?: string }> };
-  const content = read.contents?.[0];
-  expect(content?.mimeType).toBe('text/html;profile=mcp-app');
-  expect(content?.text ?? '').toContain('<!doctype html>');
-  expect(content?.text ?? '').toContain('read-only');
+  const widgetContent = read.contents?.[0];
+  expect(widgetContent?.mimeType).toBe('text/html;profile=mcp-app');
+  const widgetHtml = widgetContent?.text ?? '';
+  expect(widgetHtml).toContain('<!doctype html>');
+
+  // Load the widget as a top-level document from a routed URL so its inline
+  // script runs (scripts injected via innerHTML/srcdoc do not execute, and a
+  // cross-origin subframe is blocked under the e2e network policy). In a
+  // top-level view window.parent is the window itself, so the harness listens on
+  // the same window and answers the widget's handshake with a render-data
+  // notification carrying two jobs — the real View↔host message contract.
+  await page.route('http://127.0.0.1:3123/__widget', (route) =>
+    route.fulfill({ status: 200, contentType: 'text/html', body: widgetHtml }),
+  );
+  await page.goto('http://127.0.0.1:3123/__widget');
+  await page.evaluate(() => {
+    (window as unknown as { __kilnryPosted: unknown[] }).__kilnryPosted = [];
+    const renderData = {
+      jsonrpc: '2.0',
+      method: 'ui/notifications/render-data',
+      params: {
+        view: 'job_progress',
+        data: {
+          jobs: [
+            { id: 'job-a', label: 'Render A', cost_usd: 0.12 },
+            { id: 'job-b', label: 'Render B', cost_usd: 0.34 },
+          ],
+        },
+      },
+    };
+    window.addEventListener('message', (event) => {
+      (window as unknown as { __kilnryPosted: unknown[] }).__kilnryPosted.push(event.data);
+      const data = event.data as { method?: string };
+      if (data.method === 'ui/initialize' || data.method === 'ui/notifications/initialized') {
+        window.postMessage(renderData, '*');
+      }
+    });
+    // The widget's handshake fired on load, before this listener existed, so
+    // post the data directly too; the widget renders on the render-data message.
+    window.postMessage(renderData, '*');
+  });
+  const widget = page;
+  await expect(widget.getByTestId('kilnry-job-row')).toHaveCount(2, { timeout: 15_000 });
+  await expect(widget.getByTestId('kilnry-job-row').first()).toContainText('Render A');
+  await expect(widget.getByTestId('kilnry-job-row').first()).toContainText('$0.12');
+  // Each job row offers a Cancel control. Clicking it posts a tools/call for
+  // kilnry_jobs { action: 'cancel', job_id } to the host — the exact JSON-RPC
+  // the widget sends is asserted against the widget HTML in packages/mcp
+  // server.test.ts (name: 'kilnry_jobs', action: 'cancel'); here we prove the
+  // control renders per job and is actionable in a real browser.
+  await expect(widget.getByTestId('kilnry-job-cancel')).toHaveCount(2);
+  await widget.getByTestId('kilnry-job-cancel').first().click();
 });
 
 test('@m7 F-SET-07 the Updates page shows the version, checks a manifest, and offers the command', async ({
