@@ -671,3 +671,45 @@ test('@m7 F-VOI-03 design a voice: connect MiniMax, price shown, one ledger row,
   }, token);
   expect(bound).toBe(true);
 });
+
+test('@m7 F-WFL-08 Ad Multiplier is in the catalogue, gated on a video-edit provider, and plans', async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
+  await ensureSignedIn(page, '/workflows');
+
+  // In the catalogue, with no video-edit provider connected, kilnry-ad-multiplier
+  // lists video2video as an unmet requirement (the connect-X gate).
+  const listed = await page.evaluate(async () => {
+    const response = await fetch('/api/workflows');
+    const body = (await response.json()) as {
+      workflows: Array<{ id: string; unmet_requires: string[] }>;
+    };
+    return body.workflows.find((w) => w.id === 'kilnry-ad-multiplier') ?? null;
+  });
+  expect(listed).not.toBeNull();
+  expect(listed?.unmet_requires).toContain('video2video');
+
+  // Connect fal (its video-edit model satisfies video2video), then the workflow
+  // plans and the plan total equals the sum of the per-step estimates
+  // (PRD-10 §10 acceptance 2).
+  await ensureProvider(page, 'fal', FAL_KEY);
+  const token = await csrf(page);
+  const plan = await page.evaluate(async (token) => {
+    const response = await fetch('/api/workflows/kilnry-ad-multiplier/plan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Kilnry-CSRF': token },
+      body: JSON.stringify({
+        inputs: { source: 'https://media.test/ad.mp4', n: 2, resolution: '1080p' },
+      }),
+    });
+    if (!response.ok) return { ok: false, status: response.status, body: await response.text() };
+    const body = (await response.json()) as {
+      plan: { total_estimate_usd: number; steps: Array<{ estimate_usd?: number }> };
+    };
+    const summed = body.plan.steps.reduce((total, step) => total + (step.estimate_usd ?? 0), 0);
+    return { ok: true, total: body.plan.total_estimate_usd, summed };
+  }, token);
+  expect(plan.ok, `plan failed: ${plan.status ?? ''} ${plan.body ?? ''}`).toBe(true);
+  expect(Math.abs((plan.total ?? 0) - (plan.summed ?? 0))).toBeLessThanOrEqual(0.01);
+});

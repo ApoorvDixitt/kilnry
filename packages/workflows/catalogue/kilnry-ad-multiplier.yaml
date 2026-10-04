@@ -1,0 +1,198 @@
+# Kilnry — https://github.com/ApoorvDixitt/kilnry
+# Copyright (c) 2026 Apoorv Dixit. Licensed under the Sustainable Use License 1.0.
+# SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
+# See LICENSE.md in the repository root. You may not remove or obscure this notice.
+id: kilnry-ad-multiplier
+name: Ad Multiplier
+version: 1.0.0
+description: >
+  Take one short source ad (4–30 s) and produce N separately edited variants — different people,
+  wardrobe, locations or objects — while keeping the original motion, cut points, timing, captions and
+  audio. One generate call per output (never batched); output duration equals the source (W10, F-WFL-08,
+  PRD-10 §9). Replacement people are Characters with consent or generated adults.
+category: ads
+requires: [vlm, video2video, stt]
+inputs:
+  type: object
+  required: [source, n]
+  properties:
+    source:
+      {
+        type: string,
+        description: 'Source ad video (4–30 s), a Library asset or a URL',
+        x-kilnry: { widget: media, accept: [video], roles: [driving_video], allow_url: true },
+      }
+    n:
+      {
+        type: integer,
+        minimum: 2,
+        maximum: 10,
+        default: 3,
+        x-kilnry: { widget: chips, options: [2, 3, 5, 10] },
+      }
+    edit_list:
+      type: array
+      items: { type: string }
+      default: []
+      description: "One edit instruction per version, or empty for auto (the planner proposes N distinct edits)."
+      x-kilnry: { widget: tags }
+    references:
+      type: array
+      items: { type: string }
+      default: []
+      description: 'Characters or Elements for the replacements'
+      x-kilnry: { widget: media, accept: [image], roles: [reference], allow_element: true }
+    resolution:
+      {
+        type: string,
+        enum: [720p, 1080p],
+        default: 1080p,
+        x-kilnry: { widget: segment },
+      }
+    video_model:
+      {
+        type: string,
+        default: auto,
+        x-kilnry:
+          {
+            widget: select,
+            help: 'auto = cheapest video2video; higgsfield/genjutsu is the premium opt-in (D-44), flux-video-edit the draft tier',
+          },
+      }
+defaults:
+  realism: 'preserve the original motion, pacing and cut points exactly; never time-stretch; edit only the named subject'
+budget: { max_usd: 14, warn_usd: 7 }
+steps:
+  - id: analyze
+    kind: analyze
+    name: Shot list
+    task: describe
+    model: auto
+    refs: ['{{ inputs.source }}']
+    instructions: >
+      You are a video editor reading one short ad. Return JSON {duration_s:number, cuts:number,
+      subjects:string[], on_screen_text:string[]} describing the source: its total length, the number of
+      hard cuts, the people or objects that could be replaced, and any burned-in captions. Do not invent
+      content; report only what the frames show.
+    schema:
+      {
+        type: object,
+        required: [duration_s, cuts, subjects, on_screen_text],
+        properties:
+          {
+            duration_s: { type: number },
+            cuts: { type: integer },
+            subjects: { type: array, items: { type: string } },
+            on_screen_text: { type: array, items: { type: string } },
+          },
+      }
+    outputs:
+      {
+        duration_s: '{{ result.structured.duration_s }}',
+        subjects: '{{ result.structured.subjects }}',
+        on_screen_text: '{{ result.structured.on_screen_text }}',
+      }
+
+  - id: plan_edits
+    kind: analyze
+    name: Plan the edits
+    task: describe
+    model: auto
+    instructions: >
+      Propose exactly {{ inputs.n }} distinct edits for this ad, each a one-line instruction that changes a
+      person, wardrobe, location or object while keeping the motion, cut points, timing, captions and audio
+      unchanged. The source subjects are {{ steps.analyze.outputs.subjects | json }}. The user asked for:
+      {{ len(inputs.edit_list) > 0 ? (inputs.edit_list | json) : 'auto — you choose N varied, brand-safe edits' }}.
+      Return JSON {versions:[{edit:string, caption_changed:boolean}]} with {{ inputs.n }} entries. Never
+      describe a real public person. caption_changed is true only when the edit changes words shown on screen.
+    schema:
+      {
+        type: object,
+        required: [versions],
+        properties:
+          {
+            versions:
+              {
+                type: array,
+                items:
+                  {
+                    type: object,
+                    required: [edit, caption_changed],
+                    properties: { edit: { type: string }, caption_changed: { type: boolean } },
+                  },
+              },
+          },
+      }
+    outputs: { versions: '{{ result.structured.versions }}' }
+
+  - id: approve
+    kind: approval
+    mode: hard
+    skippable: false
+    title: 'Approve {{ inputs.n }} edits before rendering'
+    message: "Rendering {{ inputs.n }} variants costs ≈ {{ plan.remaining_estimate_usd | money }}, each the source's length. Deny to stop."
+    show: ["{{ steps.plan_edits.outputs.versions | map('edit') }}"]
+
+  - id: versions
+    kind: foreach
+    over: '{{ steps.plan_edits.outputs.versions }}'
+    as: version
+    index_as: k
+    concurrency: 2
+    steps:
+      - id: edit_video
+        kind: generate
+        name: 'Variant {{ k + 1 }}/{{ inputs.n }}'
+        capability: video2video
+        model: '{{ inputs.video_model }}'
+        constraints:
+          {
+            duration_s: '{{ steps.analyze.outputs.duration_s }}',
+            min_resolution: '{{ inputs.resolution }}',
+            refs_count: '{{ len(inputs.references) }}',
+          }
+        alternates:
+          [higgsfield/genjutsu, black-forest-labs/flux-video-edit, fal-ai/wan/v2.7/video-edit]
+        prompt: >
+          Edit this ad: {{ version.edit }}. Keep the camera motion, every cut point, the timing, the audio
+          and any on-screen captions exactly as the source. {{ defaults.realism }}.
+        params: { resolution: '{{ inputs.resolution }}' }
+        medias:
+          - { role: driving_video, ref: '{{ inputs.source }}' }
+          - { role: reference, ref: '{{ inputs.references }}', when: '{{ len(inputs.references) > 0 }}' }
+        retry: { max: 1, on: [MODERATION_REJECTED, PROVIDER_ERROR], reword: true }
+        outputs: { raw: '{{ result.assets[0] }}' }
+
+      - id: qa
+        kind: analyze
+        name: 'QA variant {{ k + 1 }}'
+        task: describe
+        model: auto
+        refs: ['{{ steps.edit_video.outputs.raw }}']
+        instructions: >
+          Sample frames across this edited variant. Fail if the pacing or cut points differ from a {{ steps.analyze.outputs.duration_s }} s
+          source, if a real public person appears, or if the edit introduced garbled text. Return {pass:boolean, issues:string[]}.
+        schema:
+          {
+            type: object,
+            required: [pass, issues],
+            properties: { pass: { type: boolean }, issues: { type: array, items: { type: string } } },
+          }
+        on_fail: continue
+        outputs: { pass: '{{ result.structured.pass }}', issues: '{{ result.structured.issues }}' }
+
+  - id: qa_gate
+    kind: approval
+    mode: soft
+    when: "{{ steps.versions.outputs | map('pass') | some(false) }}"
+    title: "QA flagged {{ steps.versions.outputs | map('pass') | count(false) }} variant(s)"
+    message: "{{ steps.versions.outputs | map('issues') | flatten | join(' · ') }}. Approve to keep them, or use Retry step on a flagged variant."
+    show: ['{{ steps.versions.assets }}']
+
+  - id: deliver
+    kind: export
+    files:
+      - ref: '{{ steps.versions.assets }}'
+        name: 'version_{{ index + 1 | pad(2) }}.mp4'
+        tags: [ad_multiplier]
+    manifest: true
