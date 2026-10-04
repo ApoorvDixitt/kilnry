@@ -380,7 +380,9 @@ interface RunView {
 }
 
 test.describe('M6 workflows acceptance', () => {
-  test('@m6 S-04 UGC ad · product-only pauses at the storyboard checkpoint (golden)', async ({ page }) => {
+  test('@m6 @m6-stills S-04 UGC ad · product-only pauses at the storyboard checkpoint (golden)', async ({
+    page,
+  }) => {
     test.setTimeout(600_000);
     // Given an onboarded install with fal and OpenRouter fixtures and a product
     // image at Client_A/serum.png.
@@ -514,7 +516,7 @@ test.describe('M6 workflows acceptance', () => {
   // spending step is a ledger row (asserted at unit level; here by the manifest's
   // completed spending steps).
 
-  test('@m6 kilnry-ugc-ad runs to its checkpoint and renders clips', async ({ page }) => {
+  test('@m6 @m6-video kilnry-ugc-ad runs to its checkpoint and renders clips', async ({ page }) => {
     test.setTimeout(600_000);
     await ensureProvider(page, 'fal', FAL_KEY);
     await ensureProvider(page, 'openrouter', OPENROUTER_KEY);
@@ -553,7 +555,7 @@ test.describe('M6 workflows acceptance', () => {
     expect(completedAssets(manifest, 'generate').some((a) => (a.asset_id ?? '') !== '')).toBe(true);
   });
 
-  test('@m6 kilnry-faceless-video runs in stills mode', async ({ page }) => {
+  test('@m6 @m6-faceless kilnry-faceless-video runs in stills mode', async ({ page }) => {
     // The heaviest acceptance run: stills mode generates the reference roster,
     // then on approval renders six narration voiceovers, six held still-clips,
     // concat, music bed, caption burn, thumbnail and export — about thirty real
@@ -594,7 +596,7 @@ test.describe('M6 workflows acceptance', () => {
     assertFinalVideoOnDisk(folder, 'final_captioned.mp4');
   });
 
-  test('@m6 kilnry-product-photoshoot renders variants', async ({ page }) => {
+  test('@m6 @m6-stills kilnry-product-photoshoot renders variants', async ({ page }) => {
     test.setTimeout(600_000);
     await ensureProvider(page, 'fal', FAL_KEY);
     await ensureProvider(page, 'openrouter', OPENROUTER_KEY);
@@ -616,7 +618,7 @@ test.describe('M6 workflows acceptance', () => {
     expect(files.some((name) => /\.png$/.test(name))).toBe(true);
   });
 
-  test('@m6 kilnry-thumbnail renders takes', async ({ page }) => {
+  test('@m6 @m6-stills kilnry-thumbnail renders takes', async ({ page }) => {
     test.setTimeout(600_000);
     await ensureProvider(page, 'fal', FAL_KEY);
     await ensureProvider(page, 'openrouter', OPENROUTER_KEY);
@@ -636,7 +638,7 @@ test.describe('M6 workflows acceptance', () => {
     expect(files.some((name) => /\.png$/.test(name))).toBe(true);
   });
 
-  test('@m6 kilnry-subtitles-burn transcribes and burns captions', async ({ page }) => {
+  test('@m6 @m6-video kilnry-subtitles-burn transcribes and burns captions', async ({ page }) => {
     test.setTimeout(600_000);
     await ensureProvider(page, 'fal', FAL_KEY);
     await ensureProvider(page, 'openrouter', OPENROUTER_KEY);
@@ -670,7 +672,9 @@ test.describe('M6 workflows acceptance', () => {
     assertFinalVideoOnDisk(folder, 'captioned.mp4');
   });
 
-  test('@m6 kilnry-ugc-ad actual cost is within 15 percent of its plan estimate', async ({ page }) => {
+  test('@m6 @m6-video kilnry-ugc-ad actual cost is within 15 percent of its plan estimate', async ({
+    page,
+  }) => {
     test.setTimeout(600_000);
     await ensureProvider(page, 'fal', FAL_KEY);
     await ensureProvider(page, 'openrouter', OPENROUTER_KEY);

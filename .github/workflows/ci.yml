@@ -120,18 +120,21 @@ jobs:
   # the lint, typecheck, unit, browser and build steps. Sharded, no shard comes
   # close to its own budget and a flake re-runs only its own scenarios. The m7
   # shard carries the M7 robustness scenarios (S-21 LAN access, S-22 recovery
-  # kit) and the per-feature P2 checks. Each shard runs the first-run smoke
+  # kit) and the per-feature P2 checks. The M6 render suite outgrew one runner:
+  # every workflow drives real ffmpeg end to end, the faceless stills run alone
+  # takes 13–17 minutes on CI, and the twelve scenarios together with one retry
+  # ran past the job cap (run 37182141267, 43.9 minutes). It is split three
+  # ways by a second tag on each title so no shard runs past about 20 minutes
+  # and a single retry cannot reach the cap: m6-faceless (the stills render on
+  # its own), m6-video (the ugc-ad and subtitle renders) and m6-stills-gate (the
+  # image workflows plus the @gate suites). The local gate "@smoke|@m6|@gate"
+  # still matches every one of them. Each shard runs the first-run smoke
   # scenario before its own, because a fresh server rewrites the setup token and
   # a later scenario would otherwise be unauthenticated. @visual and @matrix stay
   # out: the visual baselines are platform-specific and regenerated locally, and
   # the client matrix needs clients installed on the build machine.
   e2e:
     runs-on: ubuntu-24.04
-    # The m6-gate shard is now a twelve-scenario render suite: every workflow
-    # drives real ffmpeg end to end and the faceless stills run alone renders
-    # about thirty ops, so the shard takes 20–30 minutes. The old 25-minute cap
-    # cancelled it mid-run; give it headroom while the other shards still finish
-    # in a few minutes.
     timeout-minutes: 45
     strategy:
       fail-fast: false
@@ -141,8 +144,12 @@ jobs:
             grep: '@m3|@m4'
           - name: m5
             grep: '@m5'
-          - name: m6-gate
-            grep: '@m6|@gate'
+          - name: m6-faceless
+            grep: '@m6-faceless'
+          - name: m6-video
+            grep: '@m6-video'
+          - name: m6-stills-gate
+            grep: '@m6-stills|@gate'
           - name: m7
             grep: '@m7'
     name: e2e (${{ matrix.shard.name }})
@@ -196,7 +203,7 @@ jobs:
       - name: Acceptance shard ${{ matrix.shard.name }}
         run: pnpm e2e --grep "@smoke|${{ matrix.shard.grep }}"
       - name: Keep the shard's evidence
-        if: failure()
+        if: ${{ !success() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: e2e-${{ matrix.shard.name }}
