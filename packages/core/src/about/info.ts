@@ -3,18 +3,45 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
-// The About page's data (F-SET-11, PRD-16 §11): the running version and build
-// facts, the Sustainable Use License summary, and the third-party dependency
-// inventory generated from pnpm-lock.yaml. No telemetry, no accounts server
-// (D-10/D-14): everything here is read locally.
+// The About page's data (F-SET-11, PRD-16 §11): the running build facts, the
+// Sustainable Use License summary, the third-party licence inventory read from
+// the generated THIRD_PARTY_NOTICES.md, and a redacted diagnostics bundle. No
+// telemetry, no accounts server (D-10/D-14): everything here is read locally.
 
+import { createRequire } from 'node:module';
+import { spawnSync } from 'node:child_process';
 import { appVersion } from '../version.js';
+import { defaultDataDir } from '../config/load.js';
+
+const require = createRequire(import.meta.url);
+
+function packageVersion(specifier: string): string {
+  try {
+    return (require(`${specifier}/package.json`) as { version: string }).version;
+  } catch {
+    return 'unknown';
+  }
+}
+
+// FFmpeg is a separate process (TRD-02), so its version is read by spawning it
+// once with a short timeout; absent, the build line says so rather than lying.
+function ffmpegVersion(binary = process.env.KILNRY_FFMPEG ?? 'ffmpeg'): string {
+  const result = spawnSync(binary, ['-version'], { encoding: 'utf8', timeout: 4000 });
+  const match = /ffmpeg version\s+(\S+)/i.exec(result.stdout ?? '');
+  return match?.[1] ?? 'not found';
+}
 
 export interface AboutInfo {
   version: string;
-  node: string;
   platform: string;
   arch: string;
+  node: string;
+  next: string;
+  pglite: string;
+  ffmpeg: string;
+  data_dir: string;
+  // The one-line "Server build …" string the page renders verbatim.
+  build_line: string;
   license: string;
   license_url: string;
   no_telemetry: string;
@@ -25,13 +52,27 @@ export const LICENSE_SUMMARY =
   'Sustainable Use License 1.0 (fair-code). You may self-host and use Kilnry commercially for your own work. You may not sell Kilnry as a hosted service or rebrand it.';
 
 export function aboutInfo(): AboutInfo {
+  const version = appVersion();
+  const platform = process.platform;
+  const arch = process.arch;
+  const node = process.version.replace(/^v/, '');
+  const next = packageVersion('next');
+  const pglite = packageVersion('@electric-sql/pglite');
+  const ffmpeg = ffmpegVersion();
   return {
-    version: appVersion(),
-    node: process.version.replace(/^v/, ''),
-    platform: process.platform,
-    arch: process.arch,
+    version,
+    platform,
+    arch,
+    node,
+    next,
+    pglite,
+    ffmpeg,
+    data_dir: defaultDataDir(),
+    build_line: `Server build ${version} (${platform}-${arch}) · Node ${node} · Next ${next} · PGlite ${pglite} · ffmpeg ${ffmpeg}`,
     license: LICENSE_SUMMARY,
-    license_url: 'https://github.com/ApoorvDixitt/kilnry/blob/main/LICENSE.md',
+    // The licence opens from the bundled LICENSE.md, served locally — no egress
+    // to github.com (F-NFR-02).
+    license_url: '/api/about/license',
     no_telemetry: 'No paywalls, no telemetry, no accounts server.',
   };
 }
@@ -39,31 +80,28 @@ export function aboutInfo(): AboutInfo {
 export interface ThirdPartyPackage {
   name: string;
   version: string;
+  license: string;
 }
 
-// Parse the dependency inventory out of a pnpm-lock.yaml (lockfileVersion 9):
-// every entry under `packages:` is keyed `'name@version':`, where name may be a
-// scoped `@scope/pkg` and version may carry a peer-suffix in parentheses. We
-// read only names and versions — never integrity hashes or resolution URLs — so
-// the notice is a plain inventory a reader can audit (F-SET-11, THIRD_PARTY_NOTICES).
-export function parseLockfilePackages(lockfile: string): ThirdPartyPackage[] {
-  const lines = lockfile.split('\n');
-  const start = lines.findIndex((line) => line === 'packages:');
-  if (start === -1) return [];
-  const seen = new Map<string, string>();
-  for (let i = start + 1; i < lines.length; i += 1) {
-    const line = lines[i]!;
-    // The next top-level section (a non-indented key) ends the packages block.
-    if (/^\S/.test(line) && line.trim() !== '') break;
-    // A package entry is indented two spaces: `  'name@version':` or `  name@version:`.
-    const match = /^ {2}'?((?:@[^/]+\/)?[^@'\s][^@']*)@([^():'\s]+)(?:\([^)]*\))*'?:\s*$/.exec(line);
-    if (!match) continue;
-    const name = match[1]!;
-    const version = match[2]!;
-    // Keep the first version seen for a name; the inventory lists each once.
-    if (!seen.has(name)) seen.set(name, version);
+// Parse the generated THIRD_PARTY_NOTICES.md back into a list the page renders.
+// The file groups packages under `### <SPDX licence>` headings, each entry a
+// `- <name> <version>[, <version>…]` bullet. We read the first version so each
+// package appears once with its licence (F-SET-11 acceptance: a production
+// dependency is listed with its licence; a dev-only tool such as vitest is not,
+// because the generator used `pnpm licenses list --prod`).
+export function parseThirdPartyNotices(markdown: string): ThirdPartyPackage[] {
+  const packages: ThirdPartyPackage[] = [];
+  let license = '';
+  for (const line of markdown.split('\n')) {
+    const heading = /^### (.+)$/.exec(line);
+    if (heading) {
+      license = heading[1]!.trim();
+      continue;
+    }
+    const bullet = /^- (\S+) (\d[^,\s]*)/.exec(line);
+    if (bullet && license) {
+      packages.push({ name: bullet[1]!, version: bullet[2]!, license });
+    }
   }
-  return [...seen.entries()]
-    .map(([name, version]) => ({ name, version }))
-    .sort((a, b) => a.name.localeCompare(b.name));
+  return packages.sort((a, b) => a.name.localeCompare(b.name));
 }

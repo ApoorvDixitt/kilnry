@@ -4,48 +4,56 @@
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
 import { describe, expect, it } from 'vitest';
-import { aboutInfo, LICENSE_SUMMARY, parseLockfilePackages } from './info.js';
+import { aboutInfo, LICENSE_SUMMARY, parseThirdPartyNotices } from './info.js';
 
-const LOCKFILE = `lockfileVersion: '9.0'
+const NOTICES = `# Third-party notices
 
-importers:
-  .:
-    dependencies: {}
+## FFmpeg
 
-packages:
-  '@scope/pkg-a@1.2.3':
-    resolution: { integrity: sha512-abc== }
-  react@19.0.0:
-    resolution: { integrity: sha512-def== }
-  react@19.0.0(peer@1.0.0):
-    resolution: { integrity: sha512-ghi== }
-  'zod@4.1.0':
-    resolution: { integrity: sha512-jkl== }
+FFmpeg (GPL) is not an npm dependency.
 
-snapshots:
-  react@19.0.0: {}
+## npm dependencies (production)
+
+### Apache-2.0
+
+- drizzle-orm 0.45.2
+- sharp 0.35.0
+
+### MIT
+
+- react 19.0.0
+- zod 4.6.5, 4.1.0
 `;
 
 describe('about info (F-SET-11)', () => {
-  it('reports the running version and build facts', () => {
+  it('reports the running build facts and a verbatim build line', () => {
     const info = aboutInfo();
     expect(info.version).toMatch(/^\d+\.\d+\.\d+/);
     expect(info.node).toBe(process.version.replace(/^v/, ''));
     expect(info.license).toBe(LICENSE_SUMMARY);
+    expect(info.license_url).toBe('/api/about/license');
+    expect(info.build_line).toContain(`Server build ${info.version}`);
+    expect(info.build_line).toContain(`(${info.platform}-${info.arch})`);
+    expect(info.build_line).toContain(`Node ${info.node}`);
+    expect(info.build_line).toContain('Next ');
+    expect(info.build_line).toContain('PGlite ');
+    expect(info.build_line).toContain('ffmpeg ');
     expect(info.no_telemetry).toContain('no telemetry');
   });
 
-  it('parses a plain name/version inventory from the lockfile, deduped and sorted', () => {
-    const packages = parseLockfilePackages(LOCKFILE);
-    const names = packages.map((p) => p.name);
-    expect(names).toEqual(['@scope/pkg-a', 'react', 'zod']);
-    expect(packages.find((p) => p.name === 'react')?.version).toBe('19.0.0');
-    expect(packages.find((p) => p.name === '@scope/pkg-a')?.version).toBe('1.2.3');
-    // Only the packages block is read, never snapshots or integrity hashes.
-    expect(JSON.stringify(packages)).not.toContain('sha512');
+  it('parses production packages with their licences and lists each once', () => {
+    const notices = parseThirdPartyNotices(NOTICES);
+    const names = notices.map((n) => n.name);
+    expect(names).toEqual(['drizzle-orm', 'react', 'sharp', 'zod']);
+    expect(notices.find((n) => n.name === 'react')?.license).toBe('MIT');
+    expect(notices.find((n) => n.name === 'drizzle-orm')?.license).toBe('Apache-2.0');
+    // Only the first version is kept per package.
+    expect(notices.find((n) => n.name === 'zod')?.version).toBe('4.6.5');
+    // A dev-only tool is never in the generated file (generator uses --prod).
+    expect(names).not.toContain('vitest');
   });
 
-  it('returns an empty inventory for a lockfile with no packages block', () => {
-    expect(parseLockfilePackages('lockfileVersion: "9.0"\n')).toEqual([]);
+  it('returns an empty inventory when the notices file has no package headings', () => {
+    expect(parseThirdPartyNotices('# Third-party notices\n')).toEqual([]);
   });
 });

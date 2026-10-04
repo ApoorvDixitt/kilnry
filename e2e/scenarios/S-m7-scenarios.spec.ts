@@ -24,6 +24,7 @@
 // boot with the keyring entry missing would, then drives the Providers banner.
 
 import { existsSync, readFileSync } from 'node:fs';
+import { execSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 
@@ -809,37 +810,48 @@ test('@m7 F-SET-07 the Updates page shows the version, checks a manifest, and of
 test('@m7 F-SET-11 the About page shows the version, licence, and third-party notices', async ({ page }) => {
   await ensureSignedIn(page, '/settings/about');
   await expect(page.getByTestId('about-settings')).toBeVisible();
-  // The version matches the running build (PRD-16 §11 acceptance).
-  const version = await page.evaluate(async () => {
-    const r = await fetch('/api/about');
-    return ((await r.json()) as { info: { version: string } }).info.version;
-  });
-  await expect(page.getByTestId('about-version')).toContainText(version);
-  // The Sustainable Use License summary and Read licence are shown.
-  await expect(page.getByText('Sustainable Use License 1.0')).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Read licence' })).toBeVisible();
 
-  // Third-party notices are generated from the lockfile on request.
+  // (1) The version equals packages/core/package.json's (acceptance: version
+  // strings match the running build; proves appVersion resolves the real file).
+  const coreVersion = (
+    JSON.parse(readFileSync(join(root, 'packages', 'core', 'package.json'), 'utf8')) as {
+      version: string;
+    }
+  ).version;
+  await expect(page.getByTestId('about-version')).toContainText(coreVersion);
+  await expect(page.getByTestId('about-build')).toContainText(`Server build ${coreVersion}`);
+
+  // (2) Read licence opens the bundled LICENSE.md (no github egress).
+  await page.getByTestId('about-read-licence').click();
+  await expect(page.getByTestId('about-licence-dialog')).toContainText('Sustainable Use License');
+  await page.getByTestId('about-licence-dialog').getByRole('button', { name: 'Close' }).click();
+
+  // (3) Notices list a production dependency with its licence, and not a
+  // dev-only tool (vitest), because the file is generated with --prod.
   await page.getByTestId('about-notices-load').click();
   await expect(page.getByTestId('about-notices')).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByTestId('about-notices')).toContainText('pnpm');
+  await expect(page.getByTestId('about-notices')).toContainText(/react .* — MIT/);
+  await expect(page.getByTestId('about-notices')).not.toContainText('vitest');
 
-  // Exporting diagnostics returns a redacted snapshot with no keys and no prompts.
-  const diag = await page.evaluate(async () => {
-    const token = decodeURIComponent(
-      document.cookie
-        .split(';')
-        .map((part) => part.trim())
-        .find((part) => part.startsWith('kilnry_csrf='))
-        ?.slice('kilnry_csrf='.length) ?? '',
-    );
-    const r = await fetch('/api/about', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Kilnry-CSRF': token },
-      body: JSON.stringify({ action: 'diagnostics' }),
-    });
-    return JSON.stringify((await r.json()) as unknown);
+  // (4) Export diagnostics writes a dated zip under logs; the zip contains no
+  // stored key prefix and no generation prompt value (the acceptance scan).
+  await page.getByTestId('about-diagnostics').click();
+  await expect(page.getByTestId('about-diagnostics-confirm')).toContainText(
+    'The diagnostics zip contains no keys and no prompts',
+  );
+  await page.getByTestId('about-diagnostics-confirm-go').click();
+  await expect(page.getByTestId('about-diagnostics-path')).toBeVisible({ timeout: 20_000 });
+  const zipPath = (await page.getByTestId('about-diagnostics-path').textContent())?.match(
+    /(\S+diagnostics-\d{4}-\d{2}-\d{2}\.zip)/,
+  )?.[1];
+  expect(zipPath).toBeTruthy();
+  expect(existsSync(zipPath!)).toBe(true);
+  const dump = execSync(`unzip -p ${JSON.stringify(zipPath)}`, {
+    encoding: 'utf8',
+    maxBuffer: 32 * 1024 * 1024,
   });
-  expect(diag).toContain('"diagnostics"');
-  expect(diag).not.toMatch(/sk-or-v1-|sk_[a-z]|eyJ/);
+  expect(dump).not.toMatch(
+    /sk-or-v1-[0-9a-f]{32}|fal_[A-Za-z0-9_-]{16}|xi-[0-9a-f]{32}|AIza[0-9A-Za-z_-]{35}/,
+  );
+  expect(dump).not.toContain('"prompt":"');
 });

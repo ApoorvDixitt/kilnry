@@ -28,7 +28,8 @@
     "i18n:check": "tsx scripts/check-messages.ts",
     "release": "tsx scripts/release.ts",
     "deps:check": "pnpm outdated -r --long",
-    "prepare": "tsx scripts/install-hooks.ts"
+    "prepare": "tsx scripts/install-hooks.ts",
+    "gen:notices": "tsx scripts/gen-notices.ts"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.13.0",
