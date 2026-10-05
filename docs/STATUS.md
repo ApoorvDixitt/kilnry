@@ -139,7 +139,7 @@ Test counts by suite (uncached `turbo run test --force`): core 346, agent 92, pr
 
 ## M7 · P2 features · 2026-10-05
 
-Status: complete. Released as v0.5.0; the owner's closing review follows as v0.5.1; every commit has its own `ci` run green on all seven jobs. The review record is in `CHANGELOG.md` `[0.5.1]`.
+Status: complete. Released as v0.5.0, then the owner's closing review as v0.5.1; every commit has its own `ci` run green on all seven jobs. The review record is in `CHANGELOG.md` `[0.5.1]`.
 
 Shipped: F-CRE-15, F-CHR-12, F-CHR-14, F-VOI-03, F-WFL-08, F-WFL-10, F-MCP-07, F-SET-07, F-SET-11, plus S-21/S-22. Each has a driven `@m7` acceptance check under strict MSW: the Ad Multiplier is refused at intake for a 2 s source and renders two variants from a 5 s one; the widget's fake host speaks only the MCP Apps 2026-01-26 methods. The standalone production build is smoke-tested; the M6 engine debt and M6-deferred gaps landed first.
 

@@ -1,6 +1,6 @@
 {
   "name": "@kilnry/workflows",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Workflow planner and executor",
   "private": true,
   "type": "module",

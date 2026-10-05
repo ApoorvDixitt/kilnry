@@ -2,7 +2,7 @@
 
 All notable changes to Kilnry are documented here. The format follows Keep a Changelog, and versions follow Semantic Versioning.
 
-## [0.5.1]
+## [0.5.1] - 2026-10-05
 
 > Review record. The owner reviewed v0.5.0 against the PRDs and TRDs and listed
 > eight defects; each was fixed in its own commit with its own green run on all
