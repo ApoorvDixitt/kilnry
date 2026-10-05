@@ -126,7 +126,7 @@ export interface BundleExporter {
 export interface VoiceCloner {
   clone(input: {
     name: string;
-    provider: 'minimax' | 'elevenlabs' | 'fal';
+    provider: 'minimax' | 'elevenlabs' | 'kling' | 'fal';
     sample_url: string;
     sample_seconds: number;
     consent_confirmed: boolean;

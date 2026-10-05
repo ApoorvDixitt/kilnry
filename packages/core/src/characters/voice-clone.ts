@@ -115,9 +115,13 @@ export interface CloneInput {
   preview_asset_id?: string;
 }
 
+// The provider whose key pays for a clone option (a Kling voice is paid for by
+// fal's key); keyFor receives this, never the option itself.
+export type ClonePayingProvider = 'minimax' | 'elevenlabs' | 'fal';
+
 export interface CloneServices {
   db: DatabaseState;
-  keyFor: (provider: CloneProvider) => Promise<string | undefined>;
+  keyFor: (provider: ClonePayingProvider) => Promise<string | undefined>;
   fetch?: typeof fetch;
   now?: () => Date;
   // Test-only poll tuning so a timeout can be exercised without a 2-minute wait.
