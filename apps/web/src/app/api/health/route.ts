@@ -4,6 +4,7 @@
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
 import { NextResponse } from 'next/server';
+import { appVersion } from '@kilnry/core';
 import { runtimeStatus, runtimeWorkerStatus, startRuntime } from '../../../server/runtime';
 
 const startedAt = Date.now();
@@ -19,7 +20,10 @@ export async function GET(): Promise<Response> {
   if (status.stage !== 'ready') return NextResponse.json({ ok: false, stage: status.stage }, { status: 503 });
   return NextResponse.json({
     ok: true,
-    version: process.env.npm_package_version ?? '0.0.0',
+    // appVersion() reads @kilnry/core's package.json through createRequire; the
+    // production-build smoke asserts this equals that file, proving appVersion
+    // survives @kilnry/core being bundled via transpilePackages (F-CHR-14).
+    version: appVersion(),
     uptime_s: Math.floor((Date.now() - startedAt) / 1000),
     db: 'ok',
     worker: runtimeWorkerStatus(),

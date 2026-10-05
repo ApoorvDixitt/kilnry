@@ -10,7 +10,14 @@ const config: NextConfig = {
   output: 'standalone',
   outputFileTracingRoot: new URL('../..', import.meta.url).pathname,
   outputFileTracingIncludes: {
-    '/*': ['../../packages/db/migrations/**/*', '../../packages/ui/messages/**/*'],
+    '/*': [
+      '../../packages/db/migrations/**/*',
+      '../../packages/ui/messages/**/*',
+      // @kilnry/core loads prompt assets (e.g. the appearance descriptor) at
+      // runtime via createRequire; trace them so the standalone server, which
+      // bundles core through transpilePackages, can read them (Group 5 smoke).
+      '../../packages/core/dist/**/*.prompt.md',
+    ],
   },
   serverExternalPackages: [
     '@electric-sql/pglite',

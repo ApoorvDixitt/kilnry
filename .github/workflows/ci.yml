@@ -110,6 +110,11 @@ jobs:
           # runtime and the request proxy refuse to run with the test mock
           # service worker enabled (F-SET-08).
           KILNRY_RELEASE_BUILD: '1'
+      - name: Production build smoke (standalone appVersion)
+        # Start the built standalone server once and assert /api/health reports
+        # the @kilnry/core version, proving appVersion() resolves through the
+        # transpilePackages bundle (Group 5; every other run uses next dev).
+        run: pnpm smoke:prod
       - name: Audit production dependencies
         run: pnpm audit --prod
 
