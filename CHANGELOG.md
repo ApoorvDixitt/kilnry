@@ -2,6 +2,30 @@
 
 All notable changes to Kilnry are documented here. The format follows Keep a Changelog, and versions follow Semantic Versioning.
 
+## [0.5.1]
+
+> Review record. The owner reviewed v0.5.0 against the PRDs and TRDs and listed
+> eight defects; each was fixed in its own commit with its own green run on all
+> seven jobs (D-50b). Two pushes went red in the `ci` job and were fixed forward:
+> the Kling clone option's types (`7c0e2cf`, the web typecheck read a stale core
+> build — the local gate now rebuilds consumed packages before typecheck), and
+> the workflow catalogue validation (`fa3d5ea`, a package-index import loaded a
+> prompt asset that CI copies only at build time — the gate now runs the
+> validation in CI's order). Two new rules came out of the review: D-58 (a gap
+> found in another feature goes into STATUS the same milestone) and D-59 (an
+> intake refusal is a validation error, never an approval card).
+
+### Fixed
+
+- `@maya` in a prompt now reaches the provider as reference images, elements, a LoRA or a descriptor, and the output asset is linked to the Character: the job engine runs the one character resolver when it prices a request, stores the resolved request, and records the lineage on completion; the sidecar keeps the typed prompt beside the provider text. Before, every surface sent the literal handle (F-CHR-09).
+- A bound voice is used only by the provider that made it: a Kling voice fills Kling's voice slots, a text-to-speech model takes a voice of its own provider; in Auto the router switches to the voice's provider and says so, and a pinned model that cannot use the voice is refused rather than given a different voice (F-VOI-04).
+- The "Kling (via fal)" clone option now creates a Kling voice through fal's `kling-video/create-voice` at the $0.007 fal charges, with its 5–30 s bounds, instead of a $1.50 MiniMax voice shown as free; MiniMax-via-fal is its own clearly labelled option (F-CHR-08).
+- The MCP Apps widget speaks the MCP Apps specification (initialize, tool-input, tool-result, update-model-context, tools/call) instead of invented messages, so it renders in a real host and its pickers return selections; `kilnry_ui` carries the rows the widget renders (F-MCP-07).
+- The Ad Multiplier refuses a source outside 4–30 s at intake with a named reason shown under the field, never through an approval card; fal's Wan 2.7 video edit is seeded under its real endpoint and the step is priced on the probed source length, so a two-variant run completes end to end (F-WFL-08).
+- A voice clone or design holds its spend in the ledger inside the same locked transaction as the budget check, so two concurrent requests against a cap with room for one admit exactly one; a provider refusal releases the hold (F-PRV-04).
+- The third-party notices are checked against the lockfile in CI and the build fails when they drift.
+- C2PA labelling leaves V1: the export offers None or IPTC only, and no type or message promises a signature (F-LIB-14).
+
 ## [0.5.0] - 2026-10-05
 
 ### Added
