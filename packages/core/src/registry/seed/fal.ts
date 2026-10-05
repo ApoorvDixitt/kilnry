@@ -323,27 +323,53 @@ export const falSeed: ModelManifest[] = [
     },
     () => 'Wan 3.0',
   ),
-  ...mapped(
-    ['fal-ai/wan/v2.7/image-to-video', 'fal-ai/wan/v2.7/video-edit'],
-    {
-      capabilities: ['image2video', 'video2video'],
-      price_rule: {
-        kind: 'per_second_tiered',
-        tiers: { '720p': { no_audio: 0.1, audio: 0.1 }, '1080p': { no_audio: 0.15, audio: 0.15 } },
-      },
-      supports: videoSupports({
-        resolutions: ['720p', '1080p'],
-        durations: { min: 2, max: 15, step: 1 },
-        audio: true,
-        references: 4,
-        startEnd: true,
-        seed: true,
-        negative: true,
-      }),
-      media_roles: referenceRoles(4, ['image', 'video']),
+  // Wan 2.7 on fal is two endpoints with the same per-second price ($0.10 at
+  // 720p, $0.15 at 1080p): image-to-video (image_url, 2–15 s) and edit-video
+  // (video-to-video: prompt + video_url, output 2–10 s or the source's length,
+  // reference_image_url, audio_setting origin|auto). The old seed named a
+  // non-existent fal-ai/wan/v2.7/video-edit and tagged image-to-video as
+  // video2video, so Auto routed an edit to the wrong endpoint
+  // (fal.ai/models/fal-ai/wan/v2.7/edit-video, read 2026-10-05).
+  fal({
+    model_id: 'fal-ai/wan/v2.7/image-to-video',
+    display_name: 'Wan 2.7',
+    capabilities: ['image2video'],
+    price_rule: {
+      kind: 'per_second_tiered',
+      tiers: { '720p': { no_audio: 0.1, audio: 0.1 }, '1080p': { no_audio: 0.15, audio: 0.15 } },
     },
-    () => 'Wan 2.7',
-  ),
+    supports: videoSupports({
+      resolutions: ['720p', '1080p'],
+      durations: { min: 2, max: 15, step: 1 },
+      audio: true,
+      references: 4,
+      startEnd: true,
+      seed: true,
+      negative: true,
+    }),
+    media_roles: referenceRoles(4, ['image', 'video']),
+  }),
+  fal({
+    model_id: 'fal-ai/wan/v2.7/edit-video',
+    display_name: 'Wan 2.7 Edit',
+    capabilities: ['video2video'],
+    price_rule: {
+      kind: 'per_second_tiered',
+      tiers: { '720p': { no_audio: 0.1, audio: 0.1 }, '1080p': { no_audio: 0.15, audio: 0.15 } },
+    },
+    supports: videoSupports({
+      resolutions: ['720p', '1080p'],
+      durations: { min: 2, max: 10, step: 1 },
+      audio: true,
+      references: 1,
+      seed: true,
+    }),
+    media_roles: [
+      { role: 'driving_video', min: 1, max: 1, kinds: ['video'] },
+      { role: 'reference', max: 1, kinds: ['image'] },
+    ],
+    tags: ['video-edit'],
+  }),
   ...mapped(
     ['fal-ai/kling-video/lipsync/audio-to-video', 'fal-ai/kling-video/lipsync/text-to-video'],
     {

@@ -176,6 +176,9 @@ export function WorkflowIntakeDrawer({
   const [runId, setRunId] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
+  // A plan refusal that names one input (D-59, TRD-12 §2): shown inline under
+  // that field with the planner's own reason, not as a generic failure.
+  const [refusal, setRefusal] = useState<{ input: string; reason: string }>();
   const [skipApprovals, setSkipApprovals] = useState(false);
 
   useEffect(() => {
@@ -206,13 +209,24 @@ export function WorkflowIntakeDrawer({
   const requestPlan = useCallback(async (): Promise<void> => {
     setBusy(true);
     setError(undefined);
+    setRefusal(undefined);
     try {
       const response = await apiFetch(`/api/workflows/${encodeURIComponent(workflowId)}/plan`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ inputs: values }),
       });
-      if (!response.ok) throw new Error('plan failed');
+      if (!response.ok) {
+        const failed = (await response.json().catch(() => ({}))) as {
+          error?: { code?: string; message?: string; details?: { input?: string; reason?: string } };
+        };
+        const details = failed.error?.details;
+        if (failed.error?.code === 'INVALID_INPUT' && details?.input && details.reason) {
+          setRefusal({ input: details.input, reason: details.reason });
+          return;
+        }
+        throw new Error('plan failed');
+      }
       const body = (await response.json()) as { run_id: string; plan: PlanView };
       setRunId(body.run_id);
       setPlan(body.plan);
@@ -275,12 +289,21 @@ export function WorkflowIntakeDrawer({
           />
         </label>
         {fields.map((field) => (
-          <Field
-            key={field.name}
-            field={field}
-            value={values[field.name]}
-            onChange={(next) => setValues((current) => ({ ...current, [field.name]: next }))}
-          />
+          <div key={field.name} className="workflow-field-slot">
+            <Field
+              field={field}
+              value={values[field.name]}
+              onChange={(next) => {
+                setRefusal((current) => (current?.input === field.name ? undefined : current));
+                setValues((current) => ({ ...current, [field.name]: next }));
+              }}
+            />
+            {refusal?.input === field.name ? (
+              <p className="workflow-field-refusal" role="alert" data-testid={`wf-refusal-${field.name}`}>
+                {refusal.reason}
+              </p>
+            ) : null}
+          </div>
         ))}
       </form>
 

@@ -79,7 +79,7 @@ import {
   type WorkflowFile,
 } from '@kilnry/workflows';
 import type { JobEngine } from '@kilnry/core/jobs';
-import { applyInputDefaults } from '@kilnry/workflows';
+import { applyInputDefaults, checkInputConstraints } from '@kilnry/workflows';
 
 // ── catalogue ────────────────────────────────────────────────────────────────
 
@@ -372,9 +372,17 @@ export async function planWorkflow(
     }
   }
 
+  // Intake constraints the schema cannot express (D-59, TRD-12 §2): a media
+  // input's duration_s window is checked by probing the chosen Library asset —
+  // free — and refused with the input's named reason before any approval or
+  // spend. A URL or a value that is not an asset is not probed here.
+  await checkInputConstraints(entry.workflow, applyInputDefaults(entry.workflow, inputs), (ref) =>
+    probeAssetDuration(db, ref),
+  );
+
   const ctx = planContext(fileRootsFor(entry), resolveChar);
   // Price each spending leaf through the engine estimate for the real total.
-  const priced = await pricePlan(engine, entry.workflow, inputs, ctx);
+  const priced = await pricePlan(engine, entry.workflow, inputs, ctx, db);
   const runId = ulid();
   // Give the plan its own stable id, distinct from the run id, so the manifest
   // and the MCP run-by-plan path reference the plan rather than the run (F-WFL-09).
@@ -392,15 +400,75 @@ export async function planWorkflow(
   return { run_id: runId, plan: priced };
 }
 
+// The outputs of top-level `assemble probe` steps at plan time: each probe's
+// input that renders to a Library asset id is measured (free), and the step's
+// declared outputs are bound against { result: { duration_s } } so a later
+// template reads steps.<id>.outputs.duration_s. Anything else stays unbound.
+async function probeOutputsAtPlanTime(
+  db: DatabaseState | undefined,
+  workflow: WorkflowFile,
+  inputs: Record<string, unknown>,
+  vars: Record<string, unknown>,
+): Promise<Record<string, { outputs: Record<string, unknown> }>> {
+  const bound: Record<string, { outputs: Record<string, unknown> }> = {};
+  if (!db) return bound;
+  for (const step of workflow.steps) {
+    if (step.kind !== 'assemble' || step.op !== 'probe') continue;
+    const scope = {
+      inputs,
+      defaults: workflow.defaults,
+      vars,
+      steps: bound,
+      k: 0,
+      result: {},
+    } as unknown as Scope;
+    const rendered = renderStep(step, scope) as { inputs?: unknown[] };
+    const first = Array.isArray(rendered.inputs) ? rendered.inputs[0] : undefined;
+    if (typeof first !== 'string') continue;
+    const seconds = await probeAssetDuration(db, first);
+    if (seconds === undefined) continue;
+    const withResult = { ...scope, result: { duration_s: seconds, asset_id: first } } as unknown as Scope;
+    const outputs = renderStep({ ...step, inputs: [] } as Step, withResult) as {
+      outputs?: Record<string, unknown>;
+    };
+    bound[step.id] = { outputs: { duration_s: seconds, ...(outputs.outputs ?? {}) } };
+  }
+  return bound;
+}
+
+// The duration of a Library asset by id: the indexed value when the index has
+// it, else a fresh ffprobe of the file. Undefined for anything that is not an
+// asset id (a URL, an empty optional input), which the constraint check skips.
+async function probeAssetDuration(db: DatabaseState, ref: string): Promise<number | undefined> {
+  if (ref === '' || /^https?:\/\//.test(ref) || ref.startsWith('/')) return undefined;
+  const [row] = await db.db
+    .select({ path: assets.path, durationS: assets.durationS })
+    .from(assets)
+    .where(eq(assets.id, ref))
+    .limit(1);
+  if (!row) return undefined;
+  if (row.durationS !== null) return Number(row.durationS);
+  const root = loadConfig().library_root;
+  if (!root) return undefined;
+  const probe = await probeMedia((await resolveInRoot(root, row.path, { mustExist: true })).abs);
+  return probe.duration_s ?? undefined;
+}
+
 // Price the plan by routing/estimating each spending step through the engine.
 async function pricePlan(
   engine: JobEngine,
   workflow: WorkflowFile,
   inputs: Record<string, unknown>,
   ctx: PlanContext,
+  db?: DatabaseState,
 ): Promise<Plan> {
   // First pass with the synchronous planner to expand the graph and vars.
   const base = plan(workflow, inputs, ctx);
+  // A probe is free and reads a Library asset, so its outputs are known at plan
+  // time; a later step that sizes itself from them (the Ad Multiplier's variants
+  // run for the source's length) is priced on the real duration rather than the
+  // model's minimum (W10: output duration equals the source).
+  const probed = await probeOutputsAtPlanTime(db, workflow, base.inputs, base.vars);
   // Second pass: estimate each spending step through the engine for real prices.
   let total = 0;
   let eta = 0;
@@ -411,14 +479,15 @@ async function pricePlan(
       if (!wfStep) continue;
       // Price against a lenient scope: the estimate depends on the capability,
       // model, resolution and reference count, not on the prompt text, so bind
-      // empty stand-ins for the runtime-only namespaces (`steps`, the foreach
-      // index `k`) a leaf inside a loop references, so rendering them does not
-      // throw before the routing fields are read.
+      // the probe outputs and empty stand-ins for the other runtime-only
+      // namespaces (`steps`, the foreach index `k`) a leaf inside a loop
+      // references, so rendering them does not throw before the routing fields
+      // are read.
       const scope = {
         inputs: base.inputs,
         defaults: workflow.defaults,
         vars: base.vars,
-        steps: {},
+        steps: probed,
         k: 0,
         result: {},
       } as unknown as Scope;
@@ -605,10 +674,19 @@ function canonicalRequestForStep(step: Step, scope: Scope): CanonicalForStep {
   if (rendered.kind === 'transform') return canonicalForTransform(rendered);
   if (rendered.kind === 'analyze') return canonicalForAnalyze(rendered);
   const generate = rendered as Extract<Step, { kind: 'generate' }>;
+  // A media whose `when` rendered false is left out; a ref that rendered to a
+  // list (an optional references input) becomes one media per asset and an
+  // empty list becomes nothing — never a single empty-id reference that the
+  // router would count and the adapter could not find.
   const medias = Array.isArray(generate.medias)
     ? generate.medias
-        .filter((media) => media.ref !== null && media.ref !== undefined && media.ref !== '')
-        .map((media) => ({ role: media.role, asset_id: String(media.ref) }))
+        .filter((media) => media.when === undefined || Boolean(media.when))
+        .flatMap((media) => {
+          const refs = Array.isArray(media.ref) ? media.ref : [media.ref];
+          return refs
+            .filter((ref) => ref !== null && ref !== undefined && ref !== '')
+            .map((ref) => ({ role: media.role, asset_id: String(ref) }));
+        })
     : [];
   // A generate step's params mix canonical routing params (aspect ratio,
   // resolution, duration, seed, audio, language) with free provider params. Keep
@@ -654,12 +732,13 @@ function canonicalRequestForStep(step: Step, scope: Scope): CanonicalForStep {
   // the media kind it implies, rather than inferring from kind alone: a clip
   // step is reference2video with audio, not a plain image. The step's own
   // constraints (needs_audio, refs_count, duration, resolution) route it.
-  const KIND_FOR_CAPABILITY: Record<string, 'image' | 'video' | 'audio' | '3d'> = {
+  const KIND_FOR_CAPABILITY: Record<string, 'image' | 'video' | 'video_edit' | 'audio' | '3d'> = {
     text2image: 'image',
     image_edit: 'image',
     text2video: 'video',
     image2video: 'video',
     reference2video: 'video',
+    video2video: 'video_edit',
     text2audio: 'audio',
     text2speech: 'audio',
     text2threed: '3d',

@@ -23,12 +23,18 @@
 // KILNRY_TEST_MSW and in release builds) that drops the cached master key as a
 // boot with the keyring entry missing would, then drives the Providers banner.
 
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
-import { driveWorkflowRun } from './workflow-harness';
+import {
+  completedOfKind,
+  driveWorkflowRun,
+  library,
+  probeDuration,
+  seedLoopedVideo,
+} from './workflow-harness';
 
 const root = process.cwd();
 const dataDir = join(root, '.dev', 'e2e-data');
@@ -700,17 +706,16 @@ test('@m7 F-VOI-03 design a voice: connect MiniMax, price shown, one ledger row,
   await expect.poll(() => ledgerRowsByKind(page, 'voice_clone'), { timeout: 10_000 }).toBe(2);
 });
 
-test('@m7 F-WFL-08 Ad Multiplier is in the catalogue, gated on a video-edit provider, and plans', async ({
+test('@m7 F-WFL-08 Ad Multiplier refuses an out-of-range source at intake and renders two variants', async ({
   page,
 }) => {
-  test.setTimeout(180_000);
+  test.setTimeout(600_000);
+  await ensureProvider(page, 'fal', FAL_KEY);
+  await ensureProvider(page, 'openrouter', OPENROUTER_KEY);
   await ensureSignedIn(page, '/workflows');
 
-  // The catalogue lists kilnry-ad-multiplier and declares video2video among its
-  // requirements — the basis of the connect-X gate (a row whose requirement no
-  // connected provider offers is greyed; here earlier scenarios may already have
-  // connected fal, so assert the requirement is declared, then that connecting a
-  // video-edit provider lets it plan).
+  // The catalogue lists kilnry-ad-multiplier with video2video among its
+  // requirements, met by fal's Wan 2.7 Edit (the connect-X gate).
   const listed = await page.evaluate(async () => {
     const response = await fetch('/api/workflows');
     const body = (await response.json()) as {
@@ -718,39 +723,119 @@ test('@m7 F-WFL-08 Ad Multiplier is in the catalogue, gated on a video-edit prov
     };
     return body.workflows.find((w) => w.id === 'kilnry-ad-multiplier') ?? null;
   });
-  expect(listed).not.toBeNull();
   expect(listed?.requires).toContain('video2video');
+  expect(listed?.unmet_requires).not.toContain('video2video');
 
-  // Connect fal (its video-edit model satisfies video2video); the requirement is
-  // then met (not in unmet_requires) and the workflow plans with a total that
-  // equals the sum of the per-step estimates (PRD-10 §10 acceptance 2).
-  await ensureProvider(page, 'fal', FAL_KEY);
-  const met = await page.evaluate(async () => {
-    const response = await fetch('/api/workflows');
-    const body = (await response.json()) as {
-      workflows: Array<{ id: string; unmet_requires: string[] }>;
-    };
-    return body.workflows.find((w) => w.id === 'kilnry-ad-multiplier')?.unmet_requires ?? [];
-  });
-  expect(met).not.toContain('video2video');
+  // Two real sources in the Library: a 2 s clip outside the 4–30 s window and a
+  // 5 s clip inside it (both muxed with audio by ffmpeg, as a real ad would be).
+  const stamp = Date.now();
+  const shortName = `ad-short-${stamp}.mp4`;
+  const shortId = await seedLoopedVideo(page, 'inbox', shortName, 2);
+  const sourceName = `ad-source-${stamp}.mp4`;
+  const sourceId = await seedLoopedVideo(page, 'inbox', sourceName, 5);
+
+  // (1) Intake refusal (D-59, TRD-12 §2): the 2 s source fails the plan with the
+  // input's named reason, shown inline under the source field — not an approval
+  // card, and no run is created.
+  await page
+    .locator('.workflow-row[data-workflow-id="kilnry-ad-multiplier"]')
+    .getByRole('button', { name: 'Run' })
+    .first()
+    .click();
+  const drawer = page.locator('.workflow-drawer[data-workflow-id="kilnry-ad-multiplier"]');
+  await expect(drawer).toBeVisible();
+  await drawer.locator('#wf-input-source').fill(shortId);
+  await drawer.locator('#wf-input-n').fill('2');
+  const preview = drawer.getByRole('button', { name: /Preview the plan/i });
+  await expect(preview).toBeEnabled();
+  await preview.click();
+  // The reason names the input, its probed length (ffmpeg's loop lands a few
+  // frames over 2 s) and the window, exactly as the planner words it.
+  const shortSeconds = Math.round(probeDuration(join(library, 'inbox'), shortName) * 10) / 10;
+  await expect(drawer.getByTestId('wf-refusal-source')).toHaveText(
+    `source is ${shortSeconds} s; this workflow takes 4–30 s.`,
+    { timeout: 20_000 },
+  );
+  await expect(drawer.locator('.approval-card')).toHaveCount(0);
+  await expect(drawer.locator('.workflow-approve-button')).toHaveCount(0);
+
+  // (2) With the 5 s source the plan goes through. Its edit_video step routes
+  // to a video-to-video model — Auto's cheapest, FLUX Video Edit on OpenRouter
+  // at $0.03/s — priced on the probed source length (5 s), not a model minimum.
+  // Before this review the seed tagged fal-ai/wan/v2.7/image-to-video as
+  // video2video and named a non-existent fal-ai/wan/v2.7/video-edit, and an
+  // empty optional `references` list became one empty-id reference, so the edit
+  // routed wrong, failed, and fell through the alternates to Genjutsu, which
+  // wanted a Higgsfield key.
   const token = await csrf(page);
-  const plan = await page.evaluate(async (token) => {
-    const response = await fetch('/api/workflows/kilnry-ad-multiplier/plan', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Kilnry-CSRF': token },
-      body: JSON.stringify({
-        inputs: { source: 'https://media.test/ad.mp4', n: 2, resolution: '1080p' },
-      }),
-    });
-    if (!response.ok) return { ok: false, status: response.status, body: await response.text() };
-    const body = (await response.json()) as {
-      plan: { total_estimate_usd: number; steps: Array<{ estimate_usd?: number }> };
-    };
-    const summed = body.plan.steps.reduce((total, step) => total + (step.estimate_usd ?? 0), 0);
-    return { ok: true, total: body.plan.total_estimate_usd, summed };
-  }, token);
-  expect(plan.ok, `plan failed: ${plan.status ?? ''} ${plan.body ?? ''}`).toBe(true);
-  expect(Math.abs((plan.total ?? 0) - (plan.summed ?? 0))).toBeLessThanOrEqual(0.01);
+  const planned = await page.evaluate(
+    async ({ token, sourceId }) => {
+      const response = await fetch('/api/workflows/kilnry-ad-multiplier/plan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Kilnry-CSRF': token },
+        body: JSON.stringify({ inputs: { source: sourceId, n: 2, resolution: '1080p' } }),
+      });
+      if (!response.ok) return { ok: false as const, status: response.status, body: await response.text() };
+      const body = (await response.json()) as {
+        plan: {
+          total_estimate_usd: number;
+          steps: Array<{ step_id: string; estimate_usd?: number; model?: string; provider?: string }>;
+        };
+      };
+      const summed = body.plan.steps.reduce((total, step) => total + (step.estimate_usd ?? 0), 0);
+      const edit = body.plan.steps.find((step) => step.step_id === 'edit_video');
+      return { ok: true as const, total: body.plan.total_estimate_usd, summed, edit, steps: body.plan.steps };
+    },
+    { token, sourceId },
+  );
+  expect(planned.ok, `plan failed: ${planned.ok ? '' : `${planned.status} ${planned.body}`}`).toBe(true);
+  if (!planned.ok) return;
+  expect(Math.abs(planned.total - planned.summed)).toBeLessThanOrEqual(0.01);
+  expect(planned.steps.some((step) => step.step_id === 'duration_gate')).toBe(false);
+  expect(planned.edit).toMatchObject({ provider: 'openrouter', model: 'black-forest-labs/flux-video-edit' });
+  expect(planned.edit?.estimate_usd).toBeCloseTo(0.15, 6);
+
+  // (3) The driven render: approve → foreach (two variants) → qa → export.
+  rmSync(join(dataDir, 'msw-fal-last-submit.json'), { force: true });
+  const { folder, manifest } = await driveWorkflowRun(page, {
+    workflowId: 'kilnry-ad-multiplier',
+    folder: 'AdMult_A',
+    slugPrefix: 'Ad_Multiplier_',
+    inputs: { source: sourceId, n: 2, resolution: '1080p' },
+  });
+  // Exactly n variants: version_01.mp4 and version_02.mp4 land in the run folder
+  // and no third. Each is a real mp4 the probe can read.
+  expect(existsSync(join(folder, 'version_01.mp4'))).toBe(true);
+  expect(existsSync(join(folder, 'version_02.mp4'))).toBe(true);
+  expect(existsSync(join(folder, 'version_03.mp4'))).toBe(false);
+  for (const name of ['version_01.mp4', 'version_02.mp4'])
+    expect(probeDuration(folder, name)).toBeGreaterThan(0);
+  // W10: output duration equals the source. The mock provider returns a canned
+  // clip, so the check that can hold here is on what the provider was asked for:
+  // the last edit request carried the source's whole-second length as its
+  // duration, with the source as its video. (fal's Wan 2.7 Edit: `duration`,
+  // `video_url`.)
+  const sourceSeconds = probeDuration(join(library, 'inbox'), sourceName);
+  const sent = JSON.parse(readFileSync(join(dataDir, 'msw-fal-last-submit.json'), 'utf8')) as {
+    model: string;
+    body: { duration?: string | number; video_url?: string; prompt?: string };
+  };
+  expect(sent.model).toBe('fal-ai/wan/v2.7/edit-video');
+  expect(Number(sent.body.duration)).toBe(Math.round(sourceSeconds));
+  expect(sent.body.video_url).toMatch(/^https:\/\//);
+  expect(sent.body.prompt).toMatch(/^Edit this ad: /);
+  // One spend per variant: two completed generate steps, each with its own job
+  // and exactly one ledger row (F-WFL-08 acceptance: one generate call per output).
+  const generateSteps = (manifest.steps ?? []).filter(
+    (step) => step.kind === 'generate' && step.status === 'completed',
+  );
+  expect(generateSteps).toHaveLength(2);
+  expect(completedOfKind(manifest, 'generate')).toBe(2);
+  for (const step of generateSteps) {
+    expect(step.actual_usd).toBeGreaterThan(0);
+    expect(typeof step.job_id).toBe('string');
+    await expect.poll(() => ledgerRows(page, step.job_id!), { timeout: 20_000 }).toBe(1);
+  }
 });
 
 async function mintToken(page: Page, name: string, scope: 'full' | 'read_only'): Promise<string> {

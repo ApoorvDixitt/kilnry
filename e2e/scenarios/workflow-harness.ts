@@ -33,6 +33,7 @@ export const PNG = Buffer.from(
 export interface ManifestStep {
   step_id?: string;
   kind?: string;
+  job_id?: string;
   actual_usd?: number;
   status?: string;
   outputs?: { assets?: Array<{ asset_id?: string; path?: string }> };
@@ -48,7 +49,7 @@ export interface RunManifest {
 
 interface RunView {
   status: string;
-  steps: Array<{ step_id: string; status: string; error?: string | null }>;
+  steps: Array<{ step_id: string; status: string; error?: string | null; adjustments?: string[] }>;
 }
 
 export function findRunFolder(project: string, slugPrefix: string): string | undefined {
@@ -276,8 +277,21 @@ export async function driveWorkflowRun(
     if (run.status !== 'awaiting_approval') {
       const errors = run.steps
         .filter((step) => step.status === 'failed')
-        .map((step) => `${step.step_id}: ${step.error ?? 'failed'}`);
-      throw new Error(`The ${options.workflowId} run ended ${run.status}. ${errors.join('; ')}`);
+        .map(
+          (step) =>
+            `${step.step_id}: ${step.error ?? 'failed'}${
+              step.adjustments?.length ? ` [${step.adjustments.join(' | ')}]` : ''
+            }`,
+        );
+      const all = run.steps
+        .map(
+          (step) =>
+            `${step.step_id}=${step.status}${step.adjustments?.length ? `[${step.adjustments.join(' | ')}]` : ''}`,
+        )
+        .join('; ');
+      throw new Error(
+        `The ${options.workflowId} run ended ${run.status}. ${errors.join('; ')} || steps: ${all}`,
+      );
     }
     const waiting = run.steps.find((step) => step.status === 'waiting');
     expect(waiting, 'a run awaiting approval has a waiting step').toBeDefined();

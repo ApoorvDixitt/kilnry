@@ -179,9 +179,9 @@ function completion(content: string): Response {
 // foreach expects (rule 7.4 checks the count). Defaults to three.
 function requestedCount(prompt: string): number {
   const match =
-    /(?:exactly|write|into|split[^.]*into)\s+(\d+)\s+(?:blocks?|scenes?|segments?|framings?|edits?|variants?)/i.exec(
+    /(?:exactly|write|into|split[^.]*into)\s+(\d+)\s+(?:\w+\s+)?(?:blocks?|scenes?|segments?|framings?|edits?|variants?)/i.exec(
       prompt,
-    ) ?? /(\d+)\s+(?:blocks?|scenes?|segments?|framings?|edits?|variants?)/i.exec(prompt);
+    ) ?? /(\d+)\s+(?:\w+\s+)?(?:blocks?|scenes?|segments?|framings?|edits?|variants?)/i.exec(prompt);
   const n = match ? Number(match[1]) : 3;
   return Number.isFinite(n) && n > 0 && n <= 24 ? n : 3;
 }

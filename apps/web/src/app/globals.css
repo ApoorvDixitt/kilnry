@@ -6886,6 +6886,13 @@ html[data-motion='reduced'] *::after {
   font-size: 13px;
 }
 
+/* An intake refusal shown under the input it names (D-59). */
+.workflow-field-refusal {
+  margin: 4px 0 0;
+  color: var(--danger);
+  font-size: 13px;
+}
+
 /* Workflow run view (F-WFL-03). */
 .run-view {
   display: flex;
