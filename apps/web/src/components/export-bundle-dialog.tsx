@@ -85,9 +85,8 @@ export function ExportBundleDialog({
         <select value={state.provenance} onChange={(event) => set('provenance', event.target.value as never)}>
           <option value="none">{message('library.export.provNone')}</option>
           <option value="iptc">{message('library.export.provIptc')}</option>
-          {/* C2PA signing is hidden until the c2patool path ships (M8); nothing
-              signs today, so offering it would promise a signature that is never
-              written. The core 'c2pa'/'both' values remain for when it lands. */}
+          {/* C2PA labelling is V2 (D-58b): nothing signs in V1, so no option
+              promises a signature. */}
         </select>
       </label>
 

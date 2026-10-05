@@ -109,7 +109,7 @@ export interface BundleExporter {
     format?: 'zip' | 'folder' | undefined;
     include_sidecars?: boolean | undefined;
     metadata?: 'keep' | 'strip' | 'embed_if_missing' | undefined;
-    provenance?: 'none' | 'iptc' | 'c2pa' | 'both' | undefined;
+    provenance?: 'none' | 'iptc' | undefined;
     include_lineage?: boolean | undefined;
     manifest?: boolean | undefined;
     rename?: boolean | undefined;

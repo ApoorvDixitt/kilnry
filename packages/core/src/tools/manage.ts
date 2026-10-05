@@ -87,9 +87,7 @@ export const libraryManageTool: KilnryTool = {
           ...(typeof opts.metadata === 'string'
             ? { metadata: opts.metadata as 'keep' | 'strip' | 'embed_if_missing' }
             : {}),
-          ...(typeof opts.provenance === 'string'
-            ? { provenance: opts.provenance as 'none' | 'iptc' | 'c2pa' | 'both' }
-            : {}),
+          ...(typeof opts.provenance === 'string' ? { provenance: opts.provenance as 'none' | 'iptc' } : {}),
           ...(typeof opts.include_lineage === 'boolean' ? { include_lineage: opts.include_lineage } : {}),
           ...(typeof opts.manifest === 'boolean' ? { manifest: opts.manifest } : {}),
           ...(typeof opts.rename === 'boolean' ? { rename: opts.rename } : {}),

@@ -10,7 +10,7 @@ export interface ExportDialogState {
   format: 'zip' | 'folder';
   include_sidecars: boolean;
   metadata: 'keep' | 'strip' | 'embed_if_missing';
-  provenance: 'none' | 'iptc' | 'c2pa' | 'both';
+  provenance: 'none' | 'iptc';
   include_lineage: boolean;
   manifest: boolean;
   rename: boolean;
@@ -28,11 +28,6 @@ export function defaultExportState(): ExportDialogState {
     manifest: true,
     rename: false,
   };
-}
-
-// Whether the C2PA note should be shown (PRD-06 §15).
-export function showsC2paNote(provenance: ExportDialogState['provenance']): boolean {
-  return provenance === 'c2pa' || provenance === 'both';
 }
 
 // Build the request body for the export route from the chosen assets and state.

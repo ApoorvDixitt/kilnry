@@ -13,7 +13,7 @@ const Body = z.object({
   format: z.enum(['zip', 'folder']).optional(),
   include_sidecars: z.boolean().optional(),
   metadata: z.enum(['keep', 'strip', 'embed_if_missing']).optional(),
-  provenance: z.enum(['none', 'iptc', 'c2pa', 'both']).optional(),
+  provenance: z.enum(['none', 'iptc']).optional(),
   include_lineage: z.boolean().optional(),
   manifest: z.boolean().optional(),
   rename: z.boolean().optional(),

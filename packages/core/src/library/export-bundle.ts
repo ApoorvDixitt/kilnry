@@ -18,7 +18,9 @@ import { ulid } from '../ids.js';
 import { sidecarPath } from './sidecar.js';
 
 export type MetadataMode = 'keep' | 'strip' | 'embed_if_missing';
-export type ProvenanceLabel = 'none' | 'iptc' | 'c2pa' | 'both';
+// The labels an export can write (PRD-06 §15). C2PA labelling is V2 (D-58b):
+// nothing signs in V1, so no option promises a signature.
+export type ProvenanceLabel = 'none' | 'iptc';
 
 export interface ExportOptions {
   asset_ids: string[];
@@ -139,14 +141,8 @@ export async function exportBundle(services: ExportServices, options: ExportOpti
     } else if (options.metadata === 'embed_if_missing' && services.embedIfMissing) {
       await services.embedIfMissing(outPath, mime);
     }
-    if ((options.provenance === 'iptc' || options.provenance === 'both') && services.labelIptc) {
+    if (options.provenance === 'iptc' && services.labelIptc) {
       await services.labelIptc(outPath, mime);
-    }
-    if (options.provenance === 'c2pa' || options.provenance === 'both') {
-      // C2PA signing uses a machine-local key and the c2patool binary; when it is
-      // not wired the manifest still records the request so the follow-up is
-      // traceable rather than silently dropped.
-      notes.push('C2PA signing uses a key generated on this machine; viewers show it as unverified.');
     }
 
     if (options.include_sidecars) {
