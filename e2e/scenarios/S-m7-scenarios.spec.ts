@@ -27,6 +27,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import AxeBuilder from '@axe-core/playwright';
 import { driveWorkflowRun } from './workflow-harness';
 
 const root = process.cwd();
@@ -1005,4 +1006,46 @@ test('@m7 F-WFL-10 save a completed run as a workflow with one input fixed as a 
   // The fixed input has no editable control; headline is still an editable field.
   await expect(drawer.locator('#wf-input-topic')).toHaveCount(0);
   await expect(drawer.locator('#wf-input-headline')).toBeVisible();
+});
+
+// Scan every new M7 surface for serious/critical accessibility violations, that
+// a keyboard reaches its primary control, and that reduced motion is honoured
+// (Group 5). The dialogs (voice Design, Characters Import/Export, Save as
+// Workflow) and the widget are opened so axe sees their real DOM.
+async function axeSerious(page: Page, selector?: string): Promise<string[]> {
+  const builder = new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']);
+  const results = await (selector ? builder.include(selector) : builder).analyze();
+  return results.violations
+    .filter((v) => v.impact === 'serious' || v.impact === 'critical')
+    .map((v) => `${v.id} (${v.nodes.length})`);
+}
+
+test('@m7 the new M7 surfaces pass axe, take keyboard focus, and honour reduced motion', async ({ page }) => {
+  test.setTimeout(180_000);
+  await ensureProvider(page, 'minimax', MINIMAX_KEY);
+
+  // Reduced motion is honoured app-wide via a prefers-reduced-motion media rule.
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+
+  // /settings/updates — axe clean, Check now is keyboard-focusable.
+  await ensureSignedIn(page, '/settings/updates');
+  await expect(page.getByTestId('updates-settings')).toBeVisible({ timeout: 20_000 });
+  expect(await axeSerious(page, '.updates-settings')).toEqual([]);
+  await page.getByTestId('updates-check').focus();
+  await expect(page.getByTestId('updates-check')).toBeFocused();
+  expect(await page.evaluate(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches)).toBe(true);
+
+  // /settings/about — axe clean, Read licence is keyboard-focusable.
+  await ensureSignedIn(page, '/settings/about');
+  await expect(page.getByTestId('about-settings')).toBeVisible({ timeout: 20_000 });
+  expect(await axeSerious(page, '.about-settings')).toEqual([]);
+  await page.getByTestId('about-read-licence').focus();
+  await expect(page.getByTestId('about-read-licence')).toBeFocused();
+
+  // The voice Design form (voices-tab) — opened, axe clean.
+  await page.goto('/characters?tab=voices');
+  await expect(page.getByTestId('voices-tab')).toBeVisible({ timeout: 20_000 });
+  await page.getByTestId('voice-design-open').click();
+  await expect(page.locator('.voice-design-form')).toBeVisible();
+  expect(await axeSerious(page, '.voice-design-form')).toEqual([]);
 });

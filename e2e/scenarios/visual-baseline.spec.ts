@@ -53,6 +53,9 @@ test('@visual Create, Library, Characters, Chat and Presets match the baseline',
     { path: '/characters' },
     { path: '/chat' },
     { path: '/presets' },
+    // New M7 settings surfaces (Group 5): Updates and About, light and dark.
+    { path: '/settings/updates', heading: 'Updates' },
+    { path: '/settings/about', heading: 'About Kilnry' },
   ];
 
   for (const screen of screens) {
