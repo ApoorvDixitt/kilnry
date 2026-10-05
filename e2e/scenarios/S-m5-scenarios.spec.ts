@@ -602,6 +602,33 @@ test('@m5 S-16 voice clone with consent, bound to a Character, priced for speech
   // at the MiniMax clone price, with no job id (F-VOI-02, F-PRV-05).
   await expect.poll(() => ledgerRowsByKind(page, 'voice_clone'), { timeout: 10_000 }).toBe(1);
 
+  // A Kling voice for Kling 3.0 speech (PRD-08 §B2): the card shows fal's
+  // published $0.007, a 12 s sample is inside Kling's 5–30 s, and the stored voice
+  // belongs to kling so only Kling's voice_ids[] will ever receive it.
+  await page.getByRole('button', { name: 'Clone voice' }).click();
+  await drawer.locator('input[type="text"]').first().fill('Maya for Kling');
+  await drawer.locator('input[type="url"]').fill('https://media.test/maya-kling.wav');
+  await seconds.fill('12');
+  await drawer.locator('input[value="kling"]').check();
+  await expect(cloneButton).toHaveText('Clone · $0.007');
+  await drawer.locator('input[type="checkbox"]').check();
+  await cloneButton.click();
+  await expect
+    .poll(
+      async () =>
+        page.evaluate(async () => {
+          const response = await fetch('/api/voices?type=clone');
+          if (!response.ok) return null;
+          const body = (await response.json()) as {
+            voices?: Array<{ name?: string; provider?: string; voice_id?: string }>;
+          };
+          return body.voices?.find((voice) => voice.name === 'Maya for Kling') ?? null;
+        }),
+      { timeout: 20_000 },
+    )
+    .toMatchObject({ provider: 'kling', voice_id: '829877809978941442' });
+  await expect.poll(() => ledgerRowsByKind(page, 'voice_clone'), { timeout: 10_000 }).toBe(2);
+
   // A short line of speech is priced through the same estimator the Audio strip
   // uses: MiniMax turbo speech costs a fraction of a cent for this line.
   const ttsEstimate = await page.evaluate(async () => {

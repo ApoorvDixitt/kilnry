@@ -7,7 +7,9 @@
 // tested on their own (F-VOI-02): which providers to offer, how long a sample
 // must be, and whether the Clone button may be pressed.
 
-export type CloneProvider = 'minimax' | 'elevenlabs' | 'fal';
+// 'kling' is Kling's own voice creation reached through fal, the only voice kind
+// Kling 3.0 speech accepts; 'fal' is MiniMax's clone hosted on fal (PRD-08 §B2).
+export type CloneProvider = 'minimax' | 'elevenlabs' | 'kling' | 'fal';
 
 export interface CloneProviderOption {
   provider: CloneProvider;
@@ -52,15 +54,29 @@ export const CLONE_PROVIDERS: CloneProviderOption[] = [
     maxSeconds: 120,
   },
   {
+    // fal.ai/models/fal-ai/kling-video/create-voice: $0.007 per generation,
+    // 5–30 s of one clean voice (read 2026-10-05).
+    provider: 'kling',
+    labelKey: 'characters.clone.providerKling',
+    consentKey: 'characters.clone.consentFal',
+    summarised: true,
+    sourceKey: 'characters.clone.sourceKling',
+    costUsd: 0.007,
+    priceLabel: '$0.007',
+    minSeconds: 5,
+    maxSeconds: 30,
+  },
+  {
+    // fal.ai/models/fal-ai/minimax/voice-clone: $1.50 per clone, 10 s–3 min.
     provider: 'fal',
     labelKey: 'characters.clone.providerFal',
     consentKey: 'characters.clone.consentFal',
     summarised: true,
     sourceKey: 'characters.clone.sourceFal',
-    costUsd: 0,
-    priceLabel: '—',
-    minSeconds: 5,
-    maxSeconds: 30,
+    costUsd: 1.5,
+    priceLabel: '$1.50',
+    minSeconds: 10,
+    maxSeconds: 180,
   },
 ];
 
@@ -71,9 +87,10 @@ export function providerOption(provider: CloneProvider): CloneProviderOption {
   return CLONE_PROVIDERS.find((option) => option.provider === provider) ?? CLONE_PROVIDERS[0]!;
 }
 
-// Whether the sample is long enough overall (PRD-08 §B2: at least 10 seconds).
-export function sampleLongEnough(seconds: number): boolean {
-  return seconds >= MIN_SAMPLE_SECONDS;
+// Whether the sample is long enough for the chosen option (PRD-08 §B2: 10 s for
+// MiniMax and ElevenLabs, 5 s for Kling).
+export function sampleLongEnough(seconds: number, provider: CloneProvider = 'minimax'): boolean {
+  return seconds >= providerOption(provider).minSeconds;
 }
 
 // Whether the Clone button may be pressed: a sample long enough, a name, consent
@@ -84,11 +101,13 @@ export function canClone(input: {
   sampleUrl: string;
   consent: boolean;
   cloning: boolean;
+  provider?: CloneProvider;
 }): boolean {
   if (input.cloning) return false;
   if (input.name.trim() === '' || input.sampleUrl.trim() === '') return false;
   if (!input.consent) return false;
-  return sampleLongEnough(input.sampleSeconds);
+  const option = providerOption(input.provider ?? 'minimax');
+  return sampleLongEnough(input.sampleSeconds, option.provider) && input.sampleSeconds <= option.maxSeconds;
 }
 
 // The clone button label, e.g. "Clone · $1.50".

@@ -254,6 +254,12 @@ export function startTestMsw(): void {
       // Voice design and clone finish with { custom_voice_id, audio } — fal's
       // documented output for fal-ai/minimax/voice-{design,clone} (schema
       // MinimaxVoice{Design,Clone}Output). The preview audio lets the UI play it.
+      // Kling create-voice finishes with { voice_id } — fal's documented output
+      // (schema KlingVideoCreateVoiceOutput, fal.ai/models/fal-ai/kling-video/
+      // create-voice/api). Kling's ids are numeric strings.
+      if (/kling-video\/create-voice/i.test(path)) {
+        return HttpResponse.json({ voice_id: '829877809978941442' });
+      }
       if (/voice-design|voice-clone/i.test(path)) {
         return HttpResponse.json({
           custom_voice_id: 'fal_minimax_voice_1',

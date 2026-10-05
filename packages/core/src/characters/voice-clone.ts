@@ -23,7 +23,10 @@ import { lookupHandle } from './store.js';
 import { bindVoice, recordClonedVoice } from './voices.js';
 import { FalQueueTimeout, submitAndPollFalQueue } from './fal-queue.js';
 
-export type CloneProvider = 'minimax' | 'elevenlabs' | 'fal';
+// The clone options a user can pick (PRD-08 §B2). 'kling' is Kling's own voice
+// creation reached through fal (fal-ai/kling-video/create-voice) and is the only
+// kind of voice Kling 3.0 speech accepts; 'fal' is MiniMax's clone hosted on fal.
+export type CloneProvider = 'minimax' | 'elevenlabs' | 'kling' | 'fal';
 
 export interface CloneProviderCard {
   provider: CloneProvider;
@@ -33,8 +36,10 @@ export interface CloneProviderCard {
   max_seconds: number;
 }
 
-// The clone providers, their one-time price and their sample-length limits
-// (PRD-08 §B2). Kling is reached through fal's create-voice endpoint.
+// Each option's one-time price and sample-length limits, from the provider
+// pages (PRD-08 §B2). Kling create-voice: $0.007 per generation, 5–30 s
+// (fal.ai/models/fal-ai/kling-video/create-voice, read 2026-10-05). MiniMax via
+// fal: $1.50, 10 s–3 min (fal-ai/minimax/voice-clone).
 export const CLONE_PROVIDERS: Record<CloneProvider, CloneProviderCard> = {
   minimax: { provider: 'minimax', label: 'MiniMax', cost_usd: 1.5, min_seconds: 10, max_seconds: 300 },
   elevenlabs: {
@@ -44,30 +49,40 @@ export const CLONE_PROVIDERS: Record<CloneProvider, CloneProviderCard> = {
     min_seconds: 10,
     max_seconds: 120,
   },
-  fal: { provider: 'fal', label: 'Kling (via fal)', cost_usd: 0, min_seconds: 5, max_seconds: 30 },
+  kling: { provider: 'kling', label: 'Kling (via fal)', cost_usd: 0.007, min_seconds: 5, max_seconds: 30 },
+  fal: { provider: 'fal', label: 'MiniMax (via fal)', cost_usd: 1.5, min_seconds: 10, max_seconds: 180 },
 };
 
 export const MIN_SAMPLE_SECONDS = 10;
 export const MAX_SAMPLE_SECONDS = 180;
 
-// The registry model whose price rule prices each clone provider (TRD-07 §5):
-// MiniMax bills a flat $1.50 per clone, ElevenLabs instant voice cloning is free
-// on a plan, and the fal (Kling) path is priced from fal's clone endpoint.
-const CLONE_PRICING: Record<CloneProvider, string> = {
-  minimax: 'voice_clone',
-  elevenlabs: 'ivc',
-  fal: 'fal-ai/minimax/voice-clone',
+// The registry row whose price rule prices each clone option (TRD-07 §5), and
+// the provider whose key pays for it and whose ledger row it writes.
+const CLONE_PRICING: Record<
+  CloneProvider,
+  { registry_provider: 'minimax' | 'elevenlabs' | 'fal'; model_id: string }
+> = {
+  minimax: { registry_provider: 'minimax', model_id: 'voice_clone' },
+  elevenlabs: { registry_provider: 'elevenlabs', model_id: 'ivc' },
+  kling: { registry_provider: 'fal', model_id: 'fal-ai/kling-video/create-voice' },
+  fal: { registry_provider: 'fal', model_id: 'fal-ai/minimax/voice-clone' },
 };
+
+// The provider the created voice belongs to: the one whose models can use it
+// (TRD-14 §2 audio row). A Kling-created voice is 'kling' whichever host made it.
+export function clonedVoiceProvider(provider: CloneProvider): string {
+  return provider;
+}
 
 // Price a clone from the registry so the confirmed figure is the figure the
 // registry holds (F-VOI-02, F-PRV-05).
 export async function priceClone(db: DatabaseState, provider: CloneProvider): Promise<Estimate> {
-  const modelId = CLONE_PRICING[provider];
+  const { registry_provider: registryProvider, model_id: modelId } = CLONE_PRICING[provider];
   const registry = await loadRegistry(db);
   const model = registry.models.find(
-    (candidate) => candidate.provider === provider && candidate.model_id === modelId,
+    (candidate) => candidate.provider === registryProvider && candidate.model_id === modelId,
   );
-  const snapshot = model ? registry.snapshots.get(`${provider}:${modelId}`) : undefined;
+  const snapshot = model ? registry.snapshots.get(`${registryProvider}:${modelId}`) : undefined;
   if (!model || !snapshot) {
     throw new KilnryError(
       'NO_PROVIDER',
@@ -116,9 +131,10 @@ export interface CloneResult {
   bound_to?: string;
 }
 
-// Whether the sample is long enough to clone (PRD-08 §B2 acceptance 1).
-export function sampleLongEnough(seconds: number): boolean {
-  return seconds >= MIN_SAMPLE_SECONDS;
+// Whether the sample is long enough to clone (PRD-08 §B2 acceptance 1). Each
+// option has its own bounds; Kling takes 5–30 s where the others need 10 s.
+export function sampleLongEnough(seconds: number, provider: CloneProvider = 'minimax'): boolean {
+  return seconds >= CLONE_PROVIDERS[provider].min_seconds;
 }
 
 // Clone a voice with a provider and, optionally, bind it to a Character version.
@@ -132,12 +148,20 @@ export async function cloneVoice(services: CloneServices, input: CloneInput): Pr
       details: { reason: 'consent_required' },
     });
   }
-  if (!sampleLongEnough(input.sample_seconds)) {
+  const card = CLONE_PROVIDERS[input.provider];
+  if (!sampleLongEnough(input.sample_seconds, input.provider)) {
     throw new KilnryError(
       'INVALID_INPUT',
-      `The sample is too short. Providers need at least ${MIN_SAMPLE_SECONDS} seconds of clean speech.`,
+      `The sample is too short. ${card.label} needs at least ${card.min_seconds} seconds of clean speech.`,
     );
   }
+  if (input.sample_seconds > card.max_seconds) {
+    throw new KilnryError(
+      'INVALID_INPUT',
+      `The sample is too long. ${card.label} takes at most ${card.max_seconds} seconds.`,
+    );
+  }
+  const paying = CLONE_PRICING[input.provider].registry_provider;
 
   // Binding to a real-person Character asserts the Character's own consent gate.
   let bindTarget: { characterId: string; version: number } | undefined;
@@ -148,8 +172,8 @@ export async function cloneVoice(services: CloneServices, input: CloneInput): Pr
     bindTarget = { characterId: head.id, version: head.current_version };
   }
 
-  const key = await services.keyFor(input.provider);
-  if (!key) throw new KilnryError('NO_PROVIDER', `${input.provider} has no connected key.`);
+  const key = await services.keyFor(paying);
+  if (!key) throw new KilnryError('NO_PROVIDER', `${paying} has no connected key.`);
 
   // Price the clone from the registry, refuse it unless the confirmed figure
   // matches the priced one, and reserve the estimate against the budget caps
@@ -160,7 +184,7 @@ export async function cloneVoice(services: CloneServices, input: CloneInput): Pr
   assertCostConfirmation(cloneEstimate, input.confirmed_cost_usd);
   await reserveBudget(services.db.db, {
     estimate_usd: cloneEstimate.estimate_usd,
-    provider: input.provider,
+    provider: paying,
     folder: 'inbox',
     now: now(),
   });
@@ -182,8 +206,8 @@ export async function cloneVoice(services: CloneServices, input: CloneInput): Pr
     if (error instanceof FalQueueTimeout) {
       await services.db.db.insert(spendLedger).values({
         id: ulid(),
-        providerId: input.provider,
-        modelId: CLONE_PRICING[input.provider],
+        providerId: paying,
+        modelId: CLONE_PRICING[input.provider].model_id,
         folder: 'inbox',
         kind: 'voice_clone',
         estimateUsd: cloneEstimate.estimate_usd.toFixed(6),
@@ -203,7 +227,7 @@ export async function cloneVoice(services: CloneServices, input: CloneInput): Pr
   const voiceUlid = ulid();
   await recordClonedVoice(services.db, {
     id: voiceUlid,
-    provider: input.provider,
+    provider: clonedVoiceProvider(input.provider),
     voice_id: voiceId,
     name: input.name,
     consent_confirmed_at: now(),
@@ -216,8 +240,8 @@ export async function cloneVoice(services: CloneServices, input: CloneInput): Pr
   // is keyed by the voice's own id so a clone is charged at most once.
   await services.db.db.insert(spendLedger).values({
     id: voiceUlid,
-    providerId: input.provider,
-    modelId: CLONE_PRICING[input.provider],
+    providerId: paying,
+    modelId: CLONE_PRICING[input.provider].model_id,
     folder: 'inbox',
     kind: 'voice_clone',
     estimateUsd: cloneEstimate.estimate_usd.toFixed(6),
@@ -232,6 +256,7 @@ export async function cloneVoice(services: CloneServices, input: CloneInput): Pr
     target: input.name,
     meta: {
       provider: input.provider,
+      paid_by: paying,
       estimate_usd: cloneEstimate.estimate_usd,
       actual_usd: chargedUsd,
       ...(cloned.requestId ? { fal_request_id: cloned.requestId } : {}),
@@ -299,11 +324,31 @@ async function cloneWithProvider(
     if (!added.voice_id) throw new KilnryError('PROVIDER_ERROR', 'ElevenLabs did not return a voice id.');
     return { voiceId: added.voice_id };
   }
-  // fal: fal-ai/minimax/voice-clone is a QUEUE endpoint. Submit { audio_url } →
-  // poll status → GET response, whose output is { custom_voice_id, audio }
-  // (schema: MinimaxVoiceCloneOutput at fal.ai/models/fal-ai/minimax/voice-clone/
-  // api; required custom_voice_id). The old kling-video/create-voice call read a
-  // voice_id straight off the submit, which fal never returns.
+  if (provider === 'kling') {
+    // Kling's own voice creation on fal, a QUEUE endpoint: submit { voice_url }
+    // (5–30 s, one clean voice) → poll status → GET response { voice_id }
+    // (schema KlingVideoCreateVoiceInput/Output, fal.ai/models/fal-ai/kling-video/
+    // create-voice/api, read 2026-10-05). The id is what Kling 3.0's voice_ids[]
+    // takes (PRD-08 §B2 "For Kling video speech only").
+    const { output, request_id } = await submitAndPollFalQueue(
+      fetchImpl,
+      'fal-ai/kling-video/create-voice',
+      key,
+      { voice_url: input.sampleUrl },
+      falPoll ?? {},
+    );
+    const voiceId = typeof output.voice_id === 'string' ? output.voice_id : undefined;
+    if (!voiceId)
+      throw new KilnryError('PROVIDER_ERROR', 'fal Kling create-voice returned no voice_id.', {
+        provider: 'fal',
+        retryable: true,
+      });
+    return { voiceId, requestId: request_id };
+  }
+  // fal (MiniMax): fal-ai/minimax/voice-clone is a QUEUE endpoint. Submit
+  // { audio_url } → poll status → GET response, whose output is
+  // { custom_voice_id, audio } (schema MinimaxVoiceCloneOutput at
+  // fal.ai/models/fal-ai/minimax/voice-clone/api; required custom_voice_id).
   const { output, request_id } = await submitAndPollFalQueue(
     fetchImpl,
     'fal-ai/minimax/voice-clone',

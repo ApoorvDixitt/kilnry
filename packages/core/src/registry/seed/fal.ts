@@ -618,6 +618,18 @@ export const falSeed: ModelManifest[] = [
     retention_days: null,
     eta_s: 4,
   }),
+  // Kling's own voice creation: the only voice kind Kling 3.0's voice_ids[]
+  // accepts (PRD-08 §B2). $0.007 per generation, 5–30 s sample, output
+  // { voice_id } (fal.ai/models/fal-ai/kling-video/create-voice, 2026-10-05).
+  fal({
+    model_id: 'fal-ai/kling-video/create-voice',
+    display_name: 'Kling Create Voice',
+    capabilities: ['voice_clone'],
+    price_rule: { kind: 'flat_per_unit', unit: 'clone', amount: 0.007, extras: [] },
+    supports: { resolutions: [], references_max: 0, voice_ids: true, aspect_ratios: ['auto'] },
+    media_roles: [{ role: 'audio', min: 1, max: 1, kinds: ['audio'] }],
+    eta_s: 30,
+  }),
   fal({
     model_id: 'fal-ai/minimax/voice-clone',
     display_name: 'MiniMax Voice Clone',

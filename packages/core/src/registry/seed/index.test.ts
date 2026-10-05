@@ -96,7 +96,7 @@ describe('canonical registry seed', () => {
   it('contains unique, complete fal and OpenRouter manifests', () => {
     const keys = registrySeed.map((model) => `${model.provider}:${model.model_id}`);
     expect(new Set(keys).size).toBe(keys.length);
-    expect(registrySeed.filter((model) => model.provider === 'fal')).toHaveLength(72);
+    expect(registrySeed.filter((model) => model.provider === 'fal')).toHaveLength(73);
     expect(registrySeed.filter((model) => model.provider === 'openrouter')).toHaveLength(36);
     for (const model of registrySeed) {
       expect(() => ModelManifestSchema.parse(model)).not.toThrow();

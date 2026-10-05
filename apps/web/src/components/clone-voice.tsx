@@ -42,7 +42,7 @@ export function CloneVoiceDrawer({
   const [error, setError] = useState<string>();
 
   const option = providerOption(provider);
-  const enabled = canClone({ name, sampleSeconds, sampleUrl, consent, cloning });
+  const enabled = canClone({ name, sampleSeconds, sampleUrl, consent, cloning, provider });
 
   function clone(): void {
     if (!enabled) return;
@@ -112,9 +112,18 @@ export function CloneVoiceDrawer({
           onChange={(event) => setSampleSeconds(Number(event.target.value))}
         />
       </label>
-      {sampleUrl.trim() !== '' && sampleSeconds > 0 && sampleSeconds < 10 ? (
+      {sampleUrl.trim() !== '' && sampleSeconds > 0 && sampleSeconds < option.minSeconds ? (
         <p className="clone-voice-warn" role="alert">
-          {message('characters.clone.tooShort')}
+          {message('characters.clone.tooShort')
+            .replace('{provider}', message(option.labelKey))
+            .replace('{seconds}', String(option.minSeconds))}
+        </p>
+      ) : null}
+      {sampleUrl.trim() !== '' && sampleSeconds > option.maxSeconds ? (
+        <p className="clone-voice-warn" role="alert">
+          {message('characters.clone.tooLong')
+            .replace('{provider}', message(option.labelKey))
+            .replace('{seconds}', String(option.maxSeconds))}
         </p>
       ) : null}
 

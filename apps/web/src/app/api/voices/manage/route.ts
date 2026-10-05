@@ -22,7 +22,7 @@ const Body = z.object({
   handle: z.string().optional(),
   // Cloning.
   name: z.string().min(1).max(60).optional(),
-  provider: z.enum(['minimax', 'elevenlabs', 'fal']).optional(),
+  provider: z.enum(['minimax', 'elevenlabs', 'kling', 'fal']).optional(),
   sample_url: z.string().optional(),
   sample_seconds: z.number().optional(),
   consent: z.boolean().optional(),

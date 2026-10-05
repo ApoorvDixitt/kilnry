@@ -215,5 +215,109 @@ describe('voice cloning (F-VOI-02) and binding (F-CHR-08)', () => {
     const ledger = await state.db.select().from(spendLedger);
     expect(ledger).toHaveLength(1);
     expect(ledger[0]?.currencyNote).toBe('voice clone');
+    expect(ledger[0]?.actualUsd).toBe('1.500000');
+    expect(ledger[0]?.modelId).toBe('fal-ai/minimax/voice-clone');
+  });
+
+  // Kling's own voice creation on fal (fal-ai/kling-video/create-voice): a queue
+  // endpoint whose output is { voice_id } (schema KlingVideoCreateVoiceOutput).
+  // The mock mirrors the documented protocol: the submit returns only the queue
+  // handles, the response carries the id.
+  function klingQueueFetch(seen: Array<{ url: string; body: unknown }>): typeof fetch {
+    return (async (url: string, init?: { body?: string }) => {
+      const u = String(url);
+      if (u.endsWith('/fal-ai/kling-video/create-voice') && !u.includes('/requests/')) {
+        seen.push({ url: u, body: init?.body ? JSON.parse(init.body) : undefined });
+        return new Response(
+          JSON.stringify({
+            request_id: 'req-k',
+            status_url: 'https://queue.fal.run/fal-ai/kling-video/create-voice/requests/req-k/status',
+            response_url: 'https://queue.fal.run/fal-ai/kling-video/create-voice/requests/req-k',
+          }),
+          { status: 200 },
+        );
+      }
+      if (u.includes('/status'))
+        return new Response(JSON.stringify({ status: 'COMPLETED' }), { status: 200 });
+      return new Response(JSON.stringify({ voice_id: '829877809978941442' }), { status: 200 });
+    }) as unknown as typeof fetch;
+  }
+
+  it('creates a Kling voice through fal, records it as a kling voice and charges $0.007', async () => {
+    const state = await db();
+    const seen: Array<{ url: string; body: unknown }> = [];
+    const keys: string[] = [];
+    const svc: CloneServices = {
+      ...services(state, klingQueueFetch(seen)),
+      keyFor: (provider) => {
+        keys.push(provider);
+        return Promise.resolve('fal-key');
+      },
+    };
+    const result = await cloneVoice(svc, {
+      name: 'Maya for Kling',
+      provider: 'kling',
+      sample_url: 'https://media.test/maya.wav',
+      sample_seconds: 12,
+      consent_confirmed: true,
+      confirmed_cost_usd: 0.007,
+    });
+    // fal's key pays; the request is the documented { voice_url }.
+    expect(keys).toEqual(['fal']);
+    expect(seen).toEqual([
+      {
+        url: 'https://queue.fal.run/fal-ai/kling-video/create-voice',
+        body: { voice_url: 'https://media.test/maya.wav' },
+      },
+    ]);
+    expect(result.provider).toBe('kling');
+    expect(result.voice_id).toBe('829877809978941442');
+    // The stored voice belongs to Kling, so the resolver sends it only to Kling's
+    // voice_ids[] (TRD-14 §2).
+    const stored = await state.db.select().from(voices);
+    expect(stored).toHaveLength(1);
+    expect(stored[0]).toMatchObject({ providerId: 'kling', voiceId: '829877809978941442', isClone: true });
+    const ledger = await state.db.select().from(spendLedger);
+    expect(ledger).toHaveLength(1);
+    expect(ledger[0]).toMatchObject({
+      providerId: 'fal',
+      modelId: 'fal-ai/kling-video/create-voice',
+      actualUsd: '0.007000',
+      currencyNote: 'voice clone',
+    });
+  });
+
+  it('refuses a Kling sample outside 5–30 s and a MiniMax one under 10 s', async () => {
+    const state = await db();
+    const base = {
+      name: 'x',
+      sample_url: 'https://media.test/maya.wav',
+      consent_confirmed: true,
+    };
+    await expect(
+      cloneVoice(services(state, klingQueueFetch([])), {
+        ...base,
+        provider: 'kling',
+        sample_seconds: 4,
+        confirmed_cost_usd: 0.007,
+      }),
+    ).rejects.toMatchObject({
+      code: 'INVALID_INPUT',
+      message: 'The sample is too short. Kling (via fal) needs at least 5 seconds of clean speech.',
+    });
+    await expect(
+      cloneVoice(services(state, klingQueueFetch([])), {
+        ...base,
+        provider: 'kling',
+        sample_seconds: 31,
+        confirmed_cost_usd: 0.007,
+      }),
+    ).rejects.toMatchObject({
+      code: 'INVALID_INPUT',
+      message: 'The sample is too long. Kling (via fal) takes at most 30 seconds.',
+    });
+    expect(sampleLongEnough(6, 'kling')).toBe(true);
+    expect(sampleLongEnough(6, 'minimax')).toBe(false);
+    expect(sampleLongEnough(6, 'fal')).toBe(false);
   });
 });
