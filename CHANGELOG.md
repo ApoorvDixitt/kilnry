@@ -2,7 +2,7 @@
 
 All notable changes to Kilnry are documented here. The format follows Keep a Changelog, and versions follow Semantic Versioning.
 
-## [Unreleased]
+## [0.5.0] - 2026-10-05
 
 ### Added
 
