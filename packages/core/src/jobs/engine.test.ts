@@ -24,6 +24,7 @@ import {
 import { readEmbeddedMetadata } from '@kilnry/media';
 import { KilnryError } from '../errors.js';
 import { addReferences, createCharacter, setAppearance } from '../characters/store.js';
+import { bindPresetVoice } from '../characters/voices.js';
 import { ProviderKeyStore } from '../security/key-store.js';
 import { CanonicalRequestSchema, type CanonicalRequest } from '../types.js';
 import type { PollStatus, ProviderAdapter, ProviderResult, SubmitHandle } from '../providers/adapter.js';
@@ -140,7 +141,9 @@ function fakeAdapter(overrides: Partial<FakeState> = {}): { adapter: ProviderAda
 async function harness(
   adapter: ProviderAdapter,
   withKey = true,
-  engineOptions: Partial<Pick<JobEngineOptions, 'pollScheduleMs' | 'pollTimeoutMs' | 'runDriver'>> = {},
+  engineOptions: Partial<Pick<JobEngineOptions, 'pollScheduleMs' | 'pollTimeoutMs' | 'runDriver'>> & {
+    extraAdapters?: ProviderAdapter[];
+  } = {},
 ): Promise<{
   engine: JobEngine;
   state: ReturnType<typeof createDatabase>;
@@ -164,11 +167,17 @@ async function harness(
   });
   await keyStore.initialize();
   if (withKey) await keyStore.save('fal', ['fixture', 'credential'].join('-'));
+  for (const extra of engineOptions.extraAdapters ?? []) {
+    await keyStore.save(extra.id, ['fixture', 'credential'].join('-'));
+  }
   const stages: string[] = [];
   const engine = new JobEngine({
     state,
     keyStore,
-    adapters: { fal: adapter },
+    adapters: {
+      fal: adapter,
+      ...Object.fromEntries((engineOptions.extraAdapters ?? []).map((extra) => [extra.id, extra])),
+    },
     dataDir,
     libraryRoot: library,
     libraryId: prepared.marker.library_id,
@@ -880,5 +889,63 @@ describe('F-CHR-09 the engine resolves @mentions', () => {
     expect(priced.request.prompt).toBe('a small kiln arch on warm paper');
     expect(priced.request.original_prompt).toBeUndefined();
     expect(priced.request.injections).toEqual([]);
+  });
+});
+
+// A bound voice is used only by the provider that made it (PRD-08 B4, TRD-14 §2):
+// Auto switches the TTS model to the voice's provider and says so; a pinned model
+// blocks. Never a different-sounding voice without a word.
+describe('F-VOI-04 the engine honours the voice provider', () => {
+  async function mayaWithVoice(state: Awaited<ReturnType<typeof harness>>['state'], provider: string) {
+    const head = await createCharacter(state, { handle: 'maya', kind: 'character', display_name: 'Maya' });
+    await bindPresetVoice(state, head.id, 1, { provider, voice_id: `${provider}-voice-1`, name: 'Riya' });
+    return head;
+  }
+  const tts = CanonicalRequestSchema.parse({
+    kind: 'audio',
+    capability: 'tts',
+    prompt: '@maya: "Welcome back to the channel."',
+    params: {},
+    medias: [],
+    injections: [],
+    count: 1,
+    target_folder: 'inbox',
+    source: 'ui',
+  });
+
+  it('blocks a pinned TTS model that cannot use the bound voice (INVALID_INPUT)', async () => {
+    const fake = fakeAdapter();
+    const { engine, state } = await harness(fake.adapter);
+    await mayaWithVoice(state, 'minimax');
+    await expect(
+      engine.estimate(tts, { pinned_model: 'fal-ai/kokoro/american-english' }),
+    ).rejects.toMatchObject({
+      code: 'INVALID_INPUT',
+      message:
+        "@maya cannot be used with Kokoro American English: its voice is minimax's. Pick a minimax model or Auto.",
+    });
+  });
+
+  it('in Auto re-routes to the voice provider and records the adjustment', async () => {
+    const fake = fakeAdapter();
+    const eleven = {
+      ...fakeAdapter().adapter,
+      id: 'elevenlabs' as const,
+      display_name: 'ElevenLabs fixture',
+    };
+    const { engine, state } = await harness(fake.adapter, true, { extraAdapters: [eleven] });
+    // With fal and ElevenLabs connected, Auto's cheapest TTS route is on
+    // ElevenLabs; Maya's voice was made on fal, so the router must come back to a
+    // fal speech model and say so.
+    await mayaWithVoice(state, 'fal');
+    const control = await engine.estimate({ ...tts, prompt: 'Welcome back to the channel.' });
+    expect(control.estimate.route.provider).toBe('elevenlabs');
+    const priced = await engine.estimate(tts);
+    expect(priced.estimate.route.provider).toBe('fal');
+    expect(priced.estimate.adjustments).toContain('Routed to Kokoro American English for @maya');
+    expect(priced.request.injections).toEqual([
+      { handle: 'maya', version: 1, strategy: 'voice_id', inputs: [] },
+    ]);
+    expect(priced.request.params.extra?.voice_id).toBe('fal-voice-1');
   });
 });

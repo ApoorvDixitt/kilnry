@@ -56,6 +56,9 @@ export interface ResolvedRequest extends Omit<CanonicalRequest, 'injections'> {
   provider_fragment: Record<string, unknown>;
   warnings: string[];
   original_prompt: string;
+  // A bound voice the chosen TTS model cannot use because it belongs to another
+  // provider. The router re-routes in Auto or blocks a pinned model (PRD-08 B4).
+  voice_mismatch?: { handle: string; provider: string; voice_id: string };
 }
 
 // The output of one emitter: what it contributes to the payload and the prompt.

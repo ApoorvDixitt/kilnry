@@ -12,6 +12,7 @@ import {
   emitImageReferences,
   emitText,
   emitVoice,
+  hasKlingVoiceSlots,
   isImageEditor,
   isOrderedRefRole,
   loraFor,
@@ -200,31 +201,48 @@ export function resolvePrompt(
     }
   }
 
-  // Voice pass: bound voice of the FIRST character on voice-capable models.
+  // Voice pass: bound voice of the FIRST character on voice-capable models. A
+  // voice id is only ever sent to the provider that made it (TRD-14 §2 audio
+  // row): Kling's voice_ids[] take a Kling-created voice, a TTS model takes a
+  // voice of its own provider. Anything else is reported, never emitted
+  // (PRD-08 B4 "never silently substituted").
   const explicitVoice = req.params.voice;
   const voiceOwner = targets.find(
     (t) => t.version.voice && (model.supports.voice_ids || model.capabilities.includes('tts')),
   );
-  if (voiceOwner && !explicitVoice) {
-    const v = emitVoice(voiceOwner.version, model);
-    deepMerge(fragment, v.fragment);
-    if (model.supports.voice_ids) {
-      const inj = injections.find((i) => i.id === voiceOwner.version.id && i.strategy === 'elements');
-      const elementLabel = inj?.slot_index ? `@Element${inj.slot_index}` : `@Element1`;
-      prompt = wrapKlingSpeech(prompt, elementLabel);
+  let voiceMismatch: ResolvedRequest['voice_mismatch'];
+  const voiceAlreadyEmitted =
+    voiceOwner !== undefined &&
+    injections.some((i) => i.id === voiceOwner.version.id && i.strategy === 'voice_id');
+  if (voiceOwner && !explicitVoice && !voiceAlreadyEmitted) {
+    const bound = voiceOwner.version.voice!;
+    const handle = voiceOwner.version.handle;
+    if (hasKlingVoiceSlots(model) && bound.provider !== 'kling') {
+      warnings.push(`@${handle}'s voice is ${bound.provider}; Kling speech needs a Kling-created voice`);
+    } else if (!hasKlingVoiceSlots(model) && bound.provider !== model.provider) {
+      voiceMismatch = { handle, provider: bound.provider, voice_id: bound.voice_id };
+      warnings.push(`@${handle}'s voice is ${bound.provider}; ${model.display_name} is ${model.provider}`);
+    } else {
+      const v = emitVoice(voiceOwner.version, model);
+      deepMerge(fragment, v.fragment);
+      if (hasKlingVoiceSlots(model)) {
+        const inj = injections.find((i) => i.id === voiceOwner.version.id && i.strategy === 'elements');
+        const elementLabel = inj?.slot_index ? `@Element${inj.slot_index}` : `@Element1`;
+        prompt = wrapKlingSpeech(prompt, elementLabel);
+      }
+      injections.push({
+        handle,
+        id: voiceOwner.version.id,
+        version: voiceOwner.version.version,
+        kind: voiceOwner.version.kind,
+        strategy: 'voice_id',
+        inputs: [],
+        ...(v.voice ? { voice: v.voice } : {}),
+        is_real_person: voiceOwner.version.is_real_person,
+        ...(voiceOwner.version.consent_status ? { consent_status: voiceOwner.version.consent_status } : {}),
+        notes: [],
+      });
     }
-    injections.push({
-      handle: voiceOwner.version.handle,
-      id: voiceOwner.version.id,
-      version: voiceOwner.version.version,
-      kind: voiceOwner.version.kind,
-      strategy: 'voice_id',
-      inputs: [],
-      ...(v.voice ? { voice: v.voice } : {}),
-      is_real_person: voiceOwner.version.is_real_person,
-      ...(voiceOwner.version.consent_status ? { consent_status: voiceOwner.version.consent_status } : {}),
-      notes: [],
-    });
   }
 
   // Video identity clause: "Keep the woman's face identical to images a–b."
@@ -289,6 +307,7 @@ export function resolvePrompt(
     provider_fragment: fragment,
     warnings,
     original_prompt: req.prompt,
+    ...(voiceMismatch ? { voice_mismatch: voiceMismatch } : {}),
   };
 }
 
@@ -320,7 +339,7 @@ function available(
         orderedReferences(version, req.prompt).length > 0
       );
     case 'voice_id':
-      return Boolean(version.voice) && (model.supports.voice_ids || model.capabilities.includes('tts'));
+      return voiceUsable(version, model);
     case 'text':
       return true;
     default:
@@ -455,6 +474,15 @@ function mediaUrl(
   if (media.url) return media.url;
   if (media.asset_id) return ctx.assetUrl(media.asset_id);
   return '';
+}
+
+// A bound voice is usable only by the provider that made it: Kling's voice_ids[]
+// take a kling voice; a TTS model takes a voice of its own provider (TRD-14 §2).
+export function voiceUsable(version: LoadedVersion, model: ModelManifest): boolean {
+  const voice = version.voice;
+  if (!voice) return false;
+  if (hasKlingVoiceSlots(model)) return voice.provider === 'kling';
+  return model.capabilities.includes('tts') && voice.provider === model.provider;
 }
 
 // Deep-merge an emitter fragment into the accumulating provider fragment,

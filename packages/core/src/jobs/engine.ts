@@ -434,8 +434,46 @@ export class JobEngine {
     let working = request;
     let fragment: Record<string, unknown> = {};
     let resolverWarnings: string[] = [];
+    let chosen = selected;
+    let chosenManifest = manifest;
     if (manifest && mentionsPossible(request)) {
-      const resolved = await resolveForEngine(this.#options.state, request, manifest);
+      let resolved = await resolveForEngine(this.#options.state, request, manifest);
+      // A bound voice on another provider (PRD-08 B4): Auto switches the TTS model
+      // to the voice's provider and says so; a pinned model blocks. Never a
+      // different-sounding voice without a word.
+      if (resolved.voice_mismatch) {
+        const mismatch = resolved.voice_mismatch;
+        const voiceProvider = ProviderIdSchema.safeParse(mismatch.provider);
+        if (constraints.pinned_model || !voiceProvider.success) {
+          throw new KilnryError(
+            'INVALID_INPUT',
+            `@${mismatch.handle} cannot be used with ${manifest.display_name}: its voice is ${mismatch.provider}'s. Pick a ${mismatch.provider} model or Auto.`,
+            {
+              details: {
+                handle: mismatch.handle,
+                voice_provider: mismatch.provider,
+                model: manifest.model_id,
+              },
+            },
+          );
+        }
+        chosen = route(
+          request,
+          { ...inferred, provider: voiceProvider.data },
+          {
+            models: registry.models,
+            snapshots: registry.snapshots,
+            providers: providersState,
+          },
+        );
+        chosenManifest = registry.models.find(
+          (model) => model.provider === chosen.provider && model.model_id === chosen.model_id,
+        );
+        if (!chosenManifest)
+          throw new KilnryError('NO_PROVIDER', `Model ${chosen.model_id} is not in the registry.`);
+        resolved = await resolveForEngine(this.#options.state, request, chosenManifest);
+        resolved.warnings.push(`Routed to ${chosenManifest.display_name} for @${mismatch.handle}`);
+      }
       working = resolved.request;
       fragment = resolved.fragment;
       resolverWarnings = resolved.warnings;
@@ -446,30 +484,30 @@ export class JobEngine {
         ...working.params,
         extra: {
           ...mergeFragment({ ...(working.params.extra ?? {}) }, fragment),
-          model: selected.model_id,
-          route_why: selected.why,
+          model: chosen.model_id,
+          route_why: chosen.why,
         },
       },
     });
-    let value = selected.estimate;
-    if (manifest && working !== request) {
+    let value = chosen.estimate;
+    if (chosenManifest && working !== request) {
       // Re-price the resolved request so the estimate reflects what is sent
       // (PRD-07 §6: Kling elements roughly double the per-second price).
-      const snapshot = registry.snapshots.get(`${selected.provider}:${selected.model_id}`);
+      const snapshot = registry.snapshots.get(`${chosen.provider}:${chosen.model_id}`);
       if (snapshot) {
         const priced = estimateRequest({
-          model: manifest,
+          model: chosenManifest,
           snapshot,
           request: routedRequest,
           now: this.#options.now(),
         });
-        value = { ...priced, route: selected.estimate.route };
+        value = { ...priced, route: chosen.estimate.route };
       }
       value = { ...value, adjustments: [...value.adjustments, ...resolverWarnings] };
     }
-    const adapter = this.#options.adapters[selected.provider];
+    const adapter = this.#options.adapters[chosen.provider];
     if (adapter?.supports_authoritative_estimate && adapter.authoritativeEstimate) {
-      const key = await this.#options.keyStore.get(selected.provider);
+      const key = await this.#options.keyStore.get(chosen.provider);
       if (key) {
         try {
           const authoritative = await adapter.authoritativeEstimate(
@@ -481,8 +519,8 @@ export class JobEngine {
         } catch (error) {
           value = { ...value, adjustments: [...value.adjustments, 'provider_estimate_unavailable'] };
           this.#options.log('warn', 'provider_estimate_unavailable', {
-            provider: selected.provider,
-            model: selected.model_id,
+            provider: chosen.provider,
+            model: chosen.model_id,
             error: redact(error),
           });
         }

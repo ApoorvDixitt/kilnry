@@ -348,12 +348,18 @@ function emitStartFrame(
 }
 
 // ── voice_id ─────────────────────────────────────────────────────────────────
+// `supports.voice_ids` is true for Kling's voice_ids[] slots and for TTS models'
+// voice_id alike (TRD-07 §2); the capability tells them apart.
+export function hasKlingVoiceSlots(model: ModelManifest): boolean {
+  return model.supports.voice_ids && !model.capabilities.includes('tts');
+}
+
 function emitVoice(version: LoadedVersion, model: ModelManifest): EmitResult {
   const voice = version.voice;
   if (!voice) {
     return { inputs: [], fragment: {}, replacement: '', refsUsed: 0, notes: [], warnings: [] };
   }
-  if (model.supports.voice_ids) {
+  if (hasKlingVoiceSlots(model)) {
     return {
       inputs: [],
       fragment: { voice_ids: [voice.voice_id] },

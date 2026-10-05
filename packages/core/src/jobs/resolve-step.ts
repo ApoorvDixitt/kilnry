@@ -42,6 +42,7 @@ export interface ResolvedForEngine {
   request: CanonicalRequest;
   fragment: Record<string, unknown>;
   warnings: string[];
+  voice_mismatch?: { handle: string; provider: string; voice_id: string };
 }
 
 /**
@@ -75,6 +76,7 @@ export async function resolveForEngine(
     },
     fragment: resolved.provider_fragment,
     warnings: resolved.warnings,
+    ...(resolved.voice_mismatch ? { voice_mismatch: resolved.voice_mismatch } : {}),
   };
 }
 

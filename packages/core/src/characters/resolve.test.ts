@@ -63,7 +63,7 @@ function mayaVersion(version: number, references: LoadedVersion['references']): 
     appearance: mayaAppearance,
     references,
     frozen: version === 1,
-    voice: { provider: 'fal-kling', voice_id: 'kv_8f2c…' },
+    voice: { provider: 'kling', voice_id: 'kv_8f2c…' },
   };
 }
 
@@ -260,7 +260,7 @@ describe('resolvePrompt §7 worked examples', () => {
     expect(r.injections[2]).toMatchObject({
       handle: 'maya',
       strategy: 'voice_id',
-      voice: { provider: 'fal-kling', voice_id: 'kv_8f2c…' },
+      voice: { provider: 'kling', voice_id: 'kv_8f2c…' },
     });
     expect(r.warnings).toEqual([]);
   });
@@ -501,5 +501,76 @@ describe('F-CHR-13 people warnings', () => {
       ctx,
     );
     expect(r.warnings).toContain('3 distinct people in one shot; consistency degrades past two (F-CHR-13).');
+  });
+});
+
+// TRD-14 §2 audio row: a voice id goes only to the provider that made it — Kling's
+// voice_ids[] take a kling voice, a TTS model takes a voice of its own provider.
+// Everything else is reported for the router, never emitted (PRD-08 B4).
+describe('voice pass honours the voice provider (F-VOI-04, F-CHR-08)', () => {
+  const elevenTts = manifest({
+    model_id: 'eleven_v3',
+    provider: 'elevenlabs',
+    capabilities: ['tts'],
+    supports: { resolutions: [], references_max: 0, aspect_ratios: [] },
+  });
+
+  function ctxWithVoice(voice: { provider: string; voice_id: string }): ResolverCtx {
+    const base = makeCtx();
+    return {
+      ...base,
+      loadVersion: (id, version) => ({ ...base.loadVersion(id, version), voice }),
+    };
+  }
+
+  it('a kling voice on Kling emits voice_ids and the speech marker', () => {
+    const r = resolvePrompt(
+      req({ kind: 'video', capability: 'image2video', prompt: '@maya says: "Hi."' }),
+      klingV3Pro,
+      ctxWithVoice({ provider: 'kling', voice_id: 'kv_1' }),
+    );
+    expect(r.provider_fragment.voice_ids).toEqual(['kv_1']);
+    expect(r.prompt).toContain('<<<voice_1>>>');
+    expect(r.injections.some((i) => i.strategy === 'voice_id')).toBe(true);
+    expect(r.voice_mismatch).toBeUndefined();
+  });
+
+  it('a minimax voice on Kling emits no voice id and says why', () => {
+    const r = resolvePrompt(
+      req({ kind: 'video', capability: 'image2video', prompt: '@maya says: "Hi."' }),
+      klingV3Pro,
+      ctxWithVoice({ provider: 'minimax', voice_id: 'mm_1' }),
+    );
+    expect(r.provider_fragment).not.toHaveProperty('voice_ids');
+    expect(r.prompt).not.toContain('<<<voice_1>>>');
+    expect(r.injections.some((i) => i.strategy === 'voice_id')).toBe(false);
+    expect(r.warnings).toContain("@maya's voice is minimax; Kling speech needs a Kling-created voice");
+    expect(r.voice_mismatch).toBeUndefined();
+  });
+
+  it('a minimax voice on an ElevenLabs TTS model is a mismatch for the router, not a voice_id', () => {
+    const r = resolvePrompt(
+      req({ kind: 'audio', capability: 'tts', prompt: '@maya: "Welcome back."' }),
+      elevenTts,
+      ctxWithVoice({ provider: 'minimax', voice_id: 'mm_1' }),
+    );
+    expect(r.provider_fragment).not.toHaveProperty('voice_id');
+    expect(r.injections.some((i) => i.strategy === 'voice_id')).toBe(false);
+    expect(r.voice_mismatch).toEqual({ handle: 'maya', provider: 'minimax', voice_id: 'mm_1' });
+    expect(r.warnings).toContain("@maya's voice is minimax; eleven_v3 is elevenlabs");
+  });
+
+  it('an ElevenLabs voice on an ElevenLabs TTS model emits voice_id', () => {
+    const r = resolvePrompt(
+      req({ kind: 'audio', capability: 'tts', prompt: '@maya: "Welcome back."' }),
+      elevenTts,
+      ctxWithVoice({ provider: 'elevenlabs', voice_id: 'kx7' }),
+    );
+    expect(r.provider_fragment.voice_id).toBe('kx7');
+    expect(r.injections.find((i) => i.strategy === 'voice_id')?.voice).toEqual({
+      provider: 'elevenlabs',
+      voice_id: 'kx7',
+    });
+    expect(r.voice_mismatch).toBeUndefined();
   });
 });
