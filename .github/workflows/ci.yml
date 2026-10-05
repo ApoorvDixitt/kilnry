@@ -93,6 +93,10 @@ jobs:
         run: pnpm lint
       - name: Typecheck
         run: pnpm typecheck
+      # The committed third-party notices must equal what the lockfile generates,
+      # so a dependency change cannot ship stale notices (F-SET-11).
+      - name: Third-party notices are current
+        run: pnpm check:notices
       # Runs after the typecheck because that is what builds the launcher the
       # command lives in; the launcher's binary loads its compiled entry point.
       - name: Validate the shipped workflow catalogue

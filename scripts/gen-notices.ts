@@ -15,7 +15,7 @@
 // separate process and never links (TRD-02 §2 line 81), so it is noted by hand.
 
 import { spawnSync } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 interface LicenseEntry {
@@ -69,8 +69,38 @@ function render(byLicense: Map<string, LicenseEntry[]>): string {
   return `${lines.join('\n')}`.replace(/\n+$/, '\n');
 }
 
+// A line-level diff of two texts, enough to name what drifted (no library).
+function diffLines(expected: string, actual: string): string[] {
+  const want = expected.split('\n');
+  const have = actual.split('\n');
+  const wantSet = new Set(want);
+  const haveSet = new Set(have);
+  const out: string[] = [];
+  for (const line of want) if (!haveSet.has(line)) out.push(`- ${line}`);
+  for (const line of have) if (!wantSet.has(line)) out.push(`+ ${line}`);
+  return out;
+}
+
 const output = join(process.cwd(), 'THIRD_PARTY_NOTICES.md');
 const markdown = render(readProdLicenses());
 const footer = '\n<!-- Kilnry © 2026 Apoorv Dixit · Sustainable Use License 1.0 · See LICENSE.md. -->\n';
-writeFileSync(output, markdown + footer, 'utf8');
+const generated = markdown + footer;
+
+// `--check` (CI): the committed file must equal what the lockfile generates, so
+// a dependency change cannot leave the notices stale. Exit 1 with the diff.
+if (process.argv.includes('--check')) {
+  const committed = existsSync(output) ? readFileSync(output, 'utf8') : '';
+  if (committed === generated) {
+    process.stdout.write('THIRD_PARTY_NOTICES.md matches pnpm licenses list --prod --json.\n');
+    process.exit(0);
+  }
+  const diff = diffLines(generated, committed);
+  process.stderr.write(
+    `THIRD_PARTY_NOTICES.md is out of date (${diff.length} line(s) differ). Run \`pnpm gen:notices\` and commit the result.\n` +
+      `${diff.slice(0, 60).join('\n')}${diff.length > 60 ? `\n… ${diff.length - 60} more` : ''}\n`,
+  );
+  process.exit(1);
+}
+
+writeFileSync(output, generated, 'utf8');
 process.stdout.write(`Wrote ${output} from pnpm licenses list --prod --json.\n`);

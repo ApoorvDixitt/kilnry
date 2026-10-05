@@ -30,6 +30,7 @@
     "deps:check": "pnpm outdated -r --long",
     "prepare": "tsx scripts/install-hooks.ts",
     "gen:notices": "tsx scripts/gen-notices.ts",
+    "check:notices": "tsx scripts/gen-notices.ts --check",
     "smoke:prod": "tsx scripts/prod-smoke.ts"
   },
   "devDependencies": {
