@@ -10,6 +10,8 @@ import { PgBoss, fromPglite, type Job } from 'pg-boss';
 import type { DatabaseState } from '@kilnry/db';
 import { jobs, providers, spendLedger, auditEvents, characters, characterVersions, runs } from '@kilnry/db';
 import { resolveMediaInputs } from './media-inputs.js';
+import { bindFragmentAssets, mentionsPossible, mergeFragment, resolveForEngine } from './resolve-step.js';
+import { recordAssetCharacters } from '../characters/store.js';
 import { indexAsset } from '../library/index.js';
 import { createDerivatives } from '@kilnry/media';
 import { assertCostConfirmation, reserveBudget } from '../budget/enforcer.js';
@@ -23,7 +25,7 @@ import { redact, redactString } from '../security/redact.js';
 import { loadRegistry, providerRouteStates, seedRegistry } from '../registry/store.js';
 import { refreshProviderPrices } from '../providers/service.js';
 import { route, type RouteConstraints } from '../registry/router.js';
-import { withAuthoritativeEstimate } from '../registry/estimator.js';
+import { estimate as estimateRequest, withAuthoritativeEstimate } from '../registry/estimator.js';
 import type {
   AdapterContext,
   AdapterRegistry,
@@ -422,18 +424,49 @@ export class JobEngine {
       snapshots: registry.snapshots,
       providers: providersState,
     });
+    // One resolver for every surface (TRD-14 §1): @mentions become provider
+    // inputs here, once, against the routed model. The resolver's own ladder
+    // handles a model whose reference budget is smaller than the mentions need;
+    // there is no re-route (F-CHR-09).
+    const manifest = registry.models.find(
+      (model) => model.provider === selected.provider && model.model_id === selected.model_id,
+    );
+    let working = request;
+    let fragment: Record<string, unknown> = {};
+    let resolverWarnings: string[] = [];
+    if (manifest && mentionsPossible(request)) {
+      const resolved = await resolveForEngine(this.#options.state, request, manifest);
+      working = resolved.request;
+      fragment = resolved.fragment;
+      resolverWarnings = resolved.warnings;
+    }
     const routedRequest = CanonicalRequestSchema.parse({
-      ...request,
+      ...working,
       params: {
-        ...request.params,
+        ...working.params,
         extra: {
-          ...(request.params.extra ?? {}),
+          ...mergeFragment({ ...(working.params.extra ?? {}) }, fragment),
           model: selected.model_id,
           route_why: selected.why,
         },
       },
     });
     let value = selected.estimate;
+    if (manifest && working !== request) {
+      // Re-price the resolved request so the estimate reflects what is sent
+      // (PRD-07 §6: Kling elements roughly double the per-second price).
+      const snapshot = registry.snapshots.get(`${selected.provider}:${selected.model_id}`);
+      if (snapshot) {
+        const priced = estimateRequest({
+          model: manifest,
+          snapshot,
+          request: routedRequest,
+          now: this.#options.now(),
+        });
+        value = { ...priced, route: selected.estimate.route };
+      }
+      value = { ...value, adjustments: [...value.adjustments, ...resolverWarnings] };
+    }
     const adapter = this.#options.adapters[selected.provider];
     if (adapter?.supports_authoritative_estimate && adapter.authoritativeEstimate) {
       const key = await this.#options.keyStore.get(selected.provider);
@@ -956,7 +989,9 @@ export class JobEngine {
         adapter,
         context,
       });
-      handle = await this.#submitWithSafeRetries(adapter, submittable, context);
+      // The resolver already ran in estimate(); here its fragment's placeholder
+      // asset URLs become the uploaded URLs (F-CHR-09). No second resolution.
+      handle = await this.#submitWithSafeRetries(adapter, bindFragmentAssets(submittable), context);
       const persisted = {
         provider: handle.provider,
         model_id: handle.model_id,
@@ -1141,6 +1176,23 @@ export class JobEngine {
       actualUsd,
       result.billing?.source ?? (actualUsd === 0 ? 'free' : 'formula:post'),
     );
+    // Lineage (TRD-14 §6): one asset_characters row per injected Character on
+    // every output, the usage counter bumped, the used version frozen.
+    if (request.injections.length > 0 && finalized.length > 0) {
+      const handles = [...new Set(request.injections.map((i) => i.handle.toLowerCase()))];
+      const heads = await this.#options.state.db
+        .select({ id: characters.id, handle: characters.handle })
+        .from(characters)
+        .where(inArray(characters.handle, handles));
+      const idByHandle = new Map(heads.map((head) => [head.handle, head.id]));
+      const links = request.injections.flatMap((injection) => {
+        const characterId = idByHandle.get(injection.handle.toLowerCase());
+        return characterId
+          ? [{ character_id: characterId, version: injection.version, strategy: injection.strategy }]
+          : [];
+      });
+      for (const asset of finalized) await recordAssetCharacters(this.#options.state, asset.asset_id, links);
+    }
     await this.#options.state.db.transaction(async (transaction) => {
       await transaction
         .update(jobs)

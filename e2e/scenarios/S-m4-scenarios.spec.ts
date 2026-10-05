@@ -3,7 +3,10 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
+import { readFileSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import { PNG, seedLibraryFile } from './workflow-harness';
 
 // The M4 acceptance scenarios from PRD-21, tagged @m4 and numbered by topic. They
 // run after AS-01 (S-01) has done the first-run flow so the local account and
@@ -16,7 +19,7 @@ import { expect, test, type APIRequestContext, type Page } from '@playwright/tes
 const EMAIL = 'owner@example.test';
 const PASSWORD = 'Kilnry-local-test-42!';
 const FAL_KEY = ['00000000-0000-4000-8000-000000000000', ':', '0'.repeat(32)].join('');
-const OPENROUTER_KEY = ['sk-or-v1-', '0'.repeat(64)].join('');
+const dataDir = join(process.cwd(), '.dev', 'e2e-data');
 
 async function ensureSignedIn(page: Page, path: string): Promise<void> {
   await page.goto(path);
@@ -125,9 +128,15 @@ async function mcpCall(
 test('@m4 S-03 @character in a video prompt resolves to references, not the literal handle', async ({
   page,
 }) => {
-  await ensureProvider(page, 'openrouter', OPENROUTER_KEY);
+  test.setTimeout(180_000);
+  await ensureProvider(page, 'fal', FAL_KEY);
   await createCharacter(page, { handle: 'maya', kind: 'character', display_name: 'Maya' });
   await createCharacter(page, { handle: 'chai_glass', kind: 'prop', display_name: 'Chai glass' });
+  // Maya gets one anchor reference from the Library so the engine has an image
+  // to send (setup through the manage API; the generate itself is driven).
+  await ensureSignedIn(page, '/characters');
+  const anchorId = await seedLibraryFile(page, 'inbox', `maya-anchor-${Date.now()}.png`, PNG);
+  await addReference(page, 'maya', anchorId);
 
   await ensureSignedIn(page, '/create');
   const prompt = page.getByRole('textbox', { name: 'Describe what you want to make…' });
@@ -135,13 +144,69 @@ test('@m4 S-03 @character in a video prompt resolves to references, not the lite
   await prompt.fill('@');
   await prompt.pressSequentially('may');
   await expect(page.locator('.mention-popover')).toBeVisible({ timeout: 15_000 });
-  // The composer keeps the literal @handle in the prompt; the engine resolves it
-  // on generate (the byte-exact resolution is covered by the resolver unit
-  // tests). A single person shows no three-or-more-people warning (F-CHR-13).
-  await prompt.fill('@maya lifts @chai_glass to the camera and smiles');
+  // The composer keeps the literal @handle; the engine resolves it on generate.
+  // A single person shows no three-or-more-people warning (F-CHR-13).
+  await page.getByRole('tab', { name: 'Video' }).click();
+  await pickModel(page, /Kling 3\.0 pro text-to-video/);
+  await prompt.fill('Slow dolly-in on @maya at a chai stall');
   await expect(prompt).toHaveValue(/@maya/);
   await expect(page.locator('.composer-warning')).toHaveCount(0);
+  // The composer's preview names the strategy, and the price is the resolved
+  // one: Kling pro at the elements rate, 0.112 × 2 per second (PRD-07 §6), for
+  // the engine's 3 s default when the composer sends no duration.
+  await expect(page.getByText('@maya → elements')).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator('.cost-strip .cost-strip-figure-text')).toContainText('$0.672', {
+    timeout: 15_000,
+  });
+  const submitFile = join(dataDir, 'msw-fal-last-submit.json');
+  rmSync(submitFile, { force: true });
+  await page.getByRole('button', { name: 'Generate' }).click();
+  await expect(page.getByText(/^Saved · \$/)).toBeVisible({ timeout: 90_000 });
+
+  // What fal received (TRD-14 §7 example 1 shape): the anchor uploaded to fal
+  // storage as the element's frontal image, the prompt rewritten to @Element1,
+  // and no literal @maya anywhere in the payload.
+  const sent = JSON.parse(readFileSync(submitFile, 'utf8')) as {
+    model: string;
+    body: { prompt: string; elements?: Array<{ frontal_image_url: string; reference_image_urls: string[] }> };
+  };
+  expect(sent.model).toBe('fal-ai/kling-video/v3/pro/text-to-video');
+  expect(sent.body.prompt).toBe('Slow dolly-in on @Element1 at a chai stall');
+  expect(sent.body.elements).toEqual([
+    { frontal_image_url: 'https://v3.fal.media/files/test/kilnry-input', reference_image_urls: [] },
+  ]);
+  expect(JSON.stringify(sent.body)).not.toContain('@maya');
+
+  // Lineage reaches the Character's Usage tab (F-CHR-11 reads asset_characters).
+  await page.goto('/characters/maya');
+  await page.getByRole('tab', { name: /^Usage/ }).click();
+  await expect(page.locator('.character-usage-cell')).toHaveCount(1, { timeout: 15_000 });
 });
+
+async function addReference(page: Page, handle: string, assetId: string): Promise<void> {
+  const token = await csrf(page);
+  const status = await page.evaluate(
+    async ({ token, handle, assetId }) =>
+      (
+        await fetch('/api/characters/manage', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Kilnry-CSRF': token },
+          body: JSON.stringify({
+            action: 'add_references',
+            handle,
+            references: [{ asset_id: assetId, role: 'anchor', view: 'front' }],
+          }),
+        })
+      ).status,
+    { token, handle, assetId },
+  );
+  expect(status).toBe(200);
+}
+
+async function pickModel(page: Page, name: string | RegExp): Promise<void> {
+  await page.locator('.model-chip').click();
+  await page.getByRole('option', { name }).first().click();
+}
 
 test('@m4 S-05 MCP estimate, confirm, and a batch of twelve through the endpoint', async ({
   page,

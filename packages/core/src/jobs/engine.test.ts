@@ -4,12 +4,13 @@
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
 import { createHash, randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { eq } from 'drizzle-orm';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  assetCharacters,
   assets,
   auditEvents,
   budgets,
@@ -22,7 +23,7 @@ import {
 } from '@kilnry/db';
 import { readEmbeddedMetadata } from '@kilnry/media';
 import { KilnryError } from '../errors.js';
-import { addReferences, createCharacter } from '../characters/store.js';
+import { addReferences, createCharacter, setAppearance } from '../characters/store.js';
 import { ProviderKeyStore } from '../security/key-store.js';
 import { CanonicalRequestSchema, type CanonicalRequest } from '../types.js';
 import type { PollStatus, ProviderAdapter, ProviderResult, SubmitHandle } from '../providers/adapter.js';
@@ -718,5 +719,166 @@ describe('pg-boss job engine', () => {
     expect(
       await state.db.select().from(spendLedger).where(eq(spendLedger.jobId, created.job_id)),
     ).toHaveLength(1);
+  });
+});
+
+// The engine runs the one character resolver for every host (F-CHR-09, TRD-14 §1):
+// a request carrying `@maya` is rewritten and its references become provider
+// inputs here, not in any composer.
+describe('F-CHR-09 the engine resolves @mentions', () => {
+  const MAYA = {
+    descriptor:
+      'A woman in her early thirties, medium-brown skin, dark chin-length bob with a blunt fringe, small scar on the left side of the chin, gold hoop earrings, navy linen kurta.',
+    anchors: ['blunt fringe bob', 'chin scar', 'gold hoops', 'navy kurta'],
+    negative_traits: ['glasses', 'beard'],
+    gendered_noun: 'woman' as const,
+  };
+
+  async function seedMaya(state: Awaited<ReturnType<typeof harness>>['state'], library: string) {
+    const anchorId = '01JAK7ANCH0000000000000000';
+    mkdirSync(join(library, 'inbox'), { recursive: true });
+    writeFileSync(join(library, 'inbox', 'maya-anchor.png'), tinyPng);
+    await state.db.insert(assets).values({
+      id: anchorId,
+      path: join('inbox', 'maya-anchor.png'),
+      folderPath: 'inbox',
+      kind: 'image',
+      mime: 'image/png',
+      bytes: tinyPng.byteLength,
+      sha256: 'a'.repeat(64),
+      source: 'imported',
+      createdAt: new Date('2026-09-22T00:00:00.000Z'),
+    });
+    const head = await createCharacter(state, { handle: 'maya', kind: 'character', display_name: 'Maya' });
+    await setAppearance(state, head.id, MAYA);
+    await addReferences(state, head.id, [{ asset_id: anchorId, role: 'anchor', view: 'front' }]);
+    return { head, anchorId };
+  }
+
+  it('turns @maya into one Kling element, prices it, and records lineage on the output', async () => {
+    const submitted: CanonicalRequest[] = [];
+    const fake = fakeAdapter({
+      result: {
+        outputs: [{ kind: 'image', bytes: tinyPng, mime: 'image/png' }],
+        billing: { actual_usd: 0.5, source: 'fixture' },
+      },
+    });
+    const inner = fake.adapter.submit.bind(fake.adapter);
+    fake.adapter.submit = (request, context) => {
+      submitted.push(request);
+      return inner(request, context);
+    };
+    const { engine, state, library } = await harness(fake.adapter);
+    const { head, anchorId } = await seedMaya(state, library);
+
+    const request = CanonicalRequestSchema.parse({
+      kind: 'video',
+      capability: 'text2video',
+      prompt: 'Slow dolly-in on @maya at a chai stall',
+      params: { duration_s: 5, resolution: '1080p' },
+      medias: [],
+      injections: [],
+      count: 1,
+      target_folder: 'inbox',
+      source: 'ui',
+    });
+    const constraints = { pinned_model: 'fal-ai/kling-video/v3/pro/text-to-video' };
+    const plain = await engine.estimate(
+      { ...request, prompt: 'Slow dolly-in on a woman at a chai stall' },
+      constraints,
+    );
+    const priced = await engine.estimate(request, constraints);
+
+    // The stored request is the resolved one: rewritten prompt, one element
+    // injection, the anchor as a reference media, and the element fragment in
+    // params.extra with a placeholder the worker binds at submit.
+    expect(priced.request.prompt).toBe('Slow dolly-in on @Element1 at a chai stall');
+    expect(priced.request.original_prompt).toBe('Slow dolly-in on @maya at a chai stall');
+    expect(priced.request.negative_prompt).toBe('glasses, beard');
+    expect(priced.request.injections).toEqual([
+      { handle: 'maya', version: 1, strategy: 'elements', inputs: [anchorId] },
+    ]);
+    expect(priced.request.medias).toEqual([{ role: 'reference', asset_id: anchorId }]);
+    expect(priced.request.params.extra?.elements).toEqual([
+      { frontal_image_url: `kilnry-asset://${anchorId}`, reference_image_urls: [] },
+    ]);
+    // PRD-07 §6: elements roughly double Kling's per-second price.
+    expect(priced.estimate.estimate_usd).toBeCloseTo(plain.estimate.estimate_usd * 2, 6);
+    expect(priced.estimate.adjustments).toContain('elements roughly double Kling per-second price on I2V');
+
+    const created = await engine.createJob({
+      request,
+      constraints,
+      confirmed_cost_usd: priced.estimate.estimate_usd,
+      confirmed_by: 'user',
+    });
+    const row = (await state.db.select().from(jobs).where(eq(jobs.id, created.job_id)))[0]!;
+    expect((row.request as CanonicalRequest).prompt).toBe('Slow dolly-in on @Element1 at a chai stall');
+    expect(row.characters).toEqual([
+      { handle: 'maya', version: 1, strategy: 'elements', inputs: [anchorId] },
+    ]);
+
+    const terminal = await engine.waitForJob(created.job_id, 5000);
+    expect(terminal).toMatchObject({ status: 'completed' });
+    // The provider saw the uploaded anchor inside elements[], not a placeholder,
+    // and not a second time as image_urls.
+    expect(submitted).toHaveLength(1);
+    const sent = submitted[0]!;
+    const elements = sent.params.extra?.elements as Array<{ frontal_image_url: string }>;
+    expect(elements[0]!.frontal_image_url).toMatch(/^data:image\/png;base64,/);
+    expect(sent.medias).toEqual([]);
+    expect(sent.prompt).toBe('Slow dolly-in on @Element1 at a chai stall');
+
+    // Lineage: an asset_characters row per output, and both prompts in the sidecar.
+    const outputs = (await state.db.select().from(assets)).filter((asset) => asset.id !== anchorId);
+    expect(outputs).toHaveLength(1);
+    const links = await state.db
+      .select()
+      .from(assetCharacters)
+      .where(eq(assetCharacters.assetId, outputs[0]!.id));
+    expect(links).toEqual([
+      expect.objectContaining({ characterId: head.id, version: 1, strategy: 'elements' }),
+    ]);
+    const sidecar = await readSidecar(join(library, outputs[0]!.path));
+    expect(sidecar.ok && sidecar.value.generation?.prompt).toBe('Slow dolly-in on @maya at a chai stall');
+    expect(sidecar.ok && sidecar.value.generation?.resolved_prompt).toBe(
+      'Slow dolly-in on @Element1 at a chai stall',
+    );
+  });
+
+  it('appends the descriptor on a model with no reference slot (TRD-14 §7 example 6 form)', async () => {
+    const fake = fakeAdapter();
+    const { engine, state, library } = await harness(fake.adapter);
+    await seedMaya(state, library);
+    const request = CanonicalRequestSchema.parse({
+      kind: 'image',
+      capability: 'text2image',
+      prompt: '@maya, fashion editorial, seamless grey, harsh flash',
+      params: { width: 1000, height: 1000 },
+      medias: [],
+      injections: [],
+      count: 1,
+      target_folder: 'inbox',
+      source: 'ui',
+    });
+    // FLUX LoRA has no reference slot and no trained LoRA for Maya, so the
+    // descriptor and the Keep/Avoid clauses are the identity (byte-exact with
+    // the resolver fixture's text form).
+    const priced = await engine.estimate(request, { pinned_model: 'fal-ai/flux-lora' });
+    expect(priced.request.prompt).toBe(
+      'A woman in her early thirties, medium-brown skin, dark chin-length bob with a blunt fringe, small scar on the left side of the chin, gold hoop earrings, navy linen kurta. Keep: blunt fringe bob, chin scar, gold hoops, navy kurta. Fashion editorial, seamless grey, harsh flash. Avoid: glasses, beard.',
+    );
+    expect(priced.request.injections).toEqual([{ handle: 'maya', version: 1, strategy: 'text', inputs: [] }]);
+    expect(priced.request.medias).toEqual([]);
+    expect(priced.request.params.extra).not.toHaveProperty('elements');
+  });
+
+  it('leaves a prompt with no mention untouched and does not consult the resolver', async () => {
+    const fake = fakeAdapter();
+    const { engine } = await harness(fake.adapter);
+    const priced = await engine.estimate(imageRequest());
+    expect(priced.request.prompt).toBe('a small kiln arch on warm paper');
+    expect(priced.request.original_prompt).toBeUndefined();
+    expect(priced.request.injections).toEqual([]);
   });
 });

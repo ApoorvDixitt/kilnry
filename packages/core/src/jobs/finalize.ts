@@ -95,7 +95,9 @@ function sidecarFor(
       : 'ui',
     kind: kindForMime(mime),
     generation: {
-      prompt: input.request.prompt,
+      // The user's typed prompt (with @handles) and the provider text the engine
+      // resolved it to are both kept (TRD-14 §1, TRD-05).
+      prompt: input.request.original_prompt ?? input.request.prompt,
       resolved_prompt: input.request.prompt,
       negative_prompt: input.request.negative_prompt ?? null,
       provider: input.job.providerId,

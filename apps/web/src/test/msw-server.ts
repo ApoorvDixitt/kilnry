@@ -198,6 +198,16 @@ export function startTestMsw(): void {
         .clone()
         .json()
         .catch(() => ({}))) as { prompt?: string };
+      // What the provider was actually sent, so an acceptance check can assert
+      // that a resolved Character reached fal as an element or an image_url
+      // rather than as the literal @handle (S-03, F-CHR-09).
+      if (dataDir) {
+        const url = new URL(request.url);
+        writeFileSync(
+          join(dataDir, 'msw-fal-last-submit.json'),
+          JSON.stringify({ model: url.pathname.replace(/^\//, ''), body }),
+        );
+      }
       if (typeof body.prompt === 'string' && body.prompt.includes('TRIGGER')) {
         return HttpResponse.json(
           {

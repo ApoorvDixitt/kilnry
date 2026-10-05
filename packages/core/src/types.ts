@@ -109,6 +109,9 @@ export const CanonicalRequestSchema = z.object({
   kind: KindSchema,
   capability: CapabilitySchema,
   prompt: z.string().min(1).max(20_000),
+  // The prompt as the user typed it (with @handles) once the engine has rewritten
+  // `prompt` for the provider; sidecars keep both (TRD-14 §1, TRD-05).
+  original_prompt: z.string().min(1).max(20_000).optional(),
   negative_prompt: z.string().max(10_000).optional(),
   params: CanonicalParamsSchema.default({}),
   medias: z
