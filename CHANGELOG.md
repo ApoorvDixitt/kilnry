@@ -4,6 +4,27 @@ All notable changes to Kilnry are documented here. The format follows Keep a Cha
 
 ## [Unreleased]
 
+### Added
+
+- Image-to-3D on Create: a connected fal key prices a mesh, renders a GLB tile with its sidecar, and writes one ledger row (F-CRE-15).
+- A character consistency check downloads its scorer, badges outputs it rates, and hides the badge when turned off (F-CHR-12).
+- Export a character to a `.kilnry-character.zip` bundle and import it back, round-tripping the character, its references and (for a local LoRA) its weights on disk (F-CHR-14).
+- Design a reusable synthetic voice from a text description through MiniMax or fal for $3, with the price shown before submit, one ledger row, and the voice bindable like a clone (F-VOI-03).
+- The Ad Multiplier workflow turns one short ad into N separately edited variants, one render per variant, keeping the source pacing (F-WFL-08).
+- Save a completed run as a reusable workflow: each input gets a "make this a field" toggle (off fixes the value as a read-only chip), the run's models are pinned, and it appears in the catalogue under Mine (F-WFL-10).
+- An MCP Apps widget (`kilnry_ui`) renders a job-progress, asset-picker or character-picker view in a widget-capable host, declared through `_meta.ui.resourceUri`; job progress offers a Cancel that calls `kilnry_jobs` (F-MCP-07).
+- The Updates settings page shows the running version, the release channel, and a Check-now that reads a release manifest only when asked; it never updates in place (F-SET-07).
+- The About settings page shows the build (version, platform, Node, Next, PGlite, ffmpeg), opens the bundled licence, lists the production dependencies with their licences generated from the lockfile, and exports a diagnostics zip that carries no keys and no prompts (F-SET-11).
+
+### Fixed
+
+- fal voice design and clone go through fal's request queue (submit, poll, read the response) and read `custom_voice_id`, instead of reading a voice id off the submit that fal never returns; a poll timeout records the spend at the estimate so it is never invisible (F-VOI-03).
+- The Updates check reaches a release host through `KILNRY_RELEASES_BASE` and shows the available version, release date and notes, so the check can genuinely fail or succeed rather than always rendering a result (F-SET-07).
+- The Ad Multiplier reads the source duration from a free probe rather than a vision model's guess, refuses a source outside 4–30 s before any paid step, and re-burns captions only when an edit changed them (F-WFL-08).
+- The character import route deletes the uploaded bundle zip after import instead of leaving it under the data directory forever (F-CHR-14).
+- The standalone production build traces `@kilnry/core`'s prompt assets, so `appVersion()` resolves through the bundle and the server starts (F-CHR-14).
+- The C2PA export option is hidden until signing ships; export offers only None and IPTC, so no choice promises a signature that is never written (F-LIB-14).
+
 ## [0.4.1] - 2026-09-29
 
 > Review record (moved here from `docs/STATUS.md` M6 to keep that section under

@@ -137,4 +137,16 @@ Deferred to M7 (unit 0, now shipped there): the re-run child run with `parent_ru
 
 Test counts by suite (uncached `turbo run test --force`): core 346, agent 92, providers 60, presets 253, skills 6, media 17, launcher 8, mcp 7, db 1, web node 133, workflows 58; `test:browser` 221.
 
+## M7 · P2 features · 2026-10-05
+
+Status: complete. Released as v0.5.0; the tagged `ci` run is green on all seven jobs (ci, and the e2e shards m3-m4, m5, m6-faceless, m6-video, m6-stills-gate, m7).
+
+Shipped: F-CRE-15 (image-to-3D), F-CHR-12 (consistency check), F-CHR-14 (character bundle export/import), F-VOI-03 (voice design), F-WFL-08 (Ad Multiplier), F-WFL-10 (save a run as a workflow), F-MCP-07 (MCP Apps widget), F-SET-07 (Updates), F-SET-11 (About), plus S-21/S-22. Each has a driven `@m7` acceptance check under strict MSW; the About diagnostics are proven to carry no key and no prompt, and the production build is smoke-tested on the standalone server so `appVersion()` resolves through the `transpilePackages` bundle. The M6 engine debt (per-path index mutex, bounded `mux_audio`) and the M6-deferred gaps (re-run child runs, run-view SSE, the overflow menu, F40's network-state offline trigger) landed first.
+
+Decisions (default; adjustable): the Ad Multiplier refuses a source outside 4–30 s with a hard, unskippable gate because the workflow DSL has no assert op; Save-as-Workflow fixes a toggled-off input as a schema `const` rendered as a read-only chip, and suffixes the slug on a name clash; a fal voice design/clone poll timeout records the spend at the estimate with an "ambiguous: fal request <id>" note; the designed-voice preview is stored as a Library asset; the F-MCP-07 Cancel→`kilnry_jobs` JSON-RPC is asserted against the widget HTML in the mcp unit test rather than by capturing the browser postMessage (three host topologies were unstable); the runs worker drives one run at a time (`localConcurrency` 1).
+
+Partials and carry-ins, by owning milestone (M8): the Updates page checks and advises but never updates in place — in-app Update, backup and rollback are the launcher's job; C2PA export signing is hidden until `c2patool` ships (an owner decision: implement in M8 or drop from V1); `kilnry reset-password` and render-performance work (D-55) are M8. Deferred within M7: the Ad Multiplier full two-variant driven render (its mocked video2video routes to the Higgsfield opt-in, which the harness could not connect); F-WFL-08's catalogue, gate and plan check plus the W10 YAML correctness cover it. Not in V1: social publishing (D-53). Every acceptance run uses `next dev`; `@visual` (now including the Updates and About routes) and `@matrix` stay out of CI.
+
+Test counts (uncached, isolated): core 391, agent 92, providers 64, presets 253, skills 6, media 46, launcher 8, mcp 8, db 2, web node 152, workflows 72; `test:browser` 236.
+
 <!-- Kilnry © 2026 Apoorv Dixit · Sustainable Use License 1.0 · See LICENSE.md. -->
