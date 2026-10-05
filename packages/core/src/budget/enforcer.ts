@@ -160,6 +160,84 @@ export async function reserveBudget(
   );
 }
 
+// The one advisory lock every budget check-and-reserve takes (the job engine's
+// createJob and the holds below), so two concurrent reservations serialise and
+// a cap with room for one admits exactly one (F-PRV-04).
+export const BUDGET_LOCK_ID = 1_264_843_079;
+
+export interface SpendHold {
+  ledger_id: string;
+  estimate_usd: number;
+}
+
+/**
+ * Reserve a spend that does not go through the job queue (a voice clone or
+ * design): inside one transaction, under the budget lock, check the caps and
+ * write a spend-ledger row at the estimate with currencyNote 'pending', so the
+ * money is held before the provider call and a concurrent request sees it
+ * (PRD-14 "reserve"; F-PRV-04). ledgerTotal sums actual_usd, so a pending row
+ * counts at once. Settle it to the real charge on success, release it when the
+ * provider reports no charge, and leave it in place on an ambiguous outcome.
+ */
+export async function holdSpend(
+  state: DatabaseState,
+  input: {
+    ledger_id: string;
+    estimate_usd: number;
+    provider: ProviderId;
+    model_id: string;
+    kind: string;
+    folder: string;
+    now?: Date;
+    override_budget?: boolean;
+  },
+): Promise<SpendHold> {
+  const now = input.now ?? new Date();
+  await state.db.transaction(async (transaction) => {
+    await transaction.execute(sql`select pg_advisory_xact_lock(${BUDGET_LOCK_ID})`);
+    await reserveBudget(transaction, {
+      estimate_usd: input.estimate_usd,
+      provider: input.provider,
+      folder: input.folder,
+      now,
+      ...(input.override_budget === undefined ? {} : { override_budget: input.override_budget }),
+    });
+    await transaction.insert(spendLedger).values({
+      id: input.ledger_id,
+      providerId: input.provider,
+      modelId: input.model_id,
+      folder: input.folder,
+      kind: input.kind,
+      estimateUsd: input.estimate_usd.toFixed(6),
+      actualUsd: input.estimate_usd.toFixed(6),
+      currencyNote: 'pending',
+      occurredAt: now,
+    });
+  });
+  return { ledger_id: input.ledger_id, estimate_usd: input.estimate_usd };
+}
+
+/** The provider charged: the held row becomes the real ledger entry. */
+export async function settleHold(
+  state: DatabaseState,
+  hold: SpendHold,
+  settlement: { actual_usd: number; note: string; occurred_at?: Date },
+): Promise<void> {
+  await state.db
+    .update(spendLedger)
+    .set({
+      actualUsd: settlement.actual_usd.toFixed(6),
+      currencyNote: settlement.note,
+      ...(settlement.occurred_at ? { occurredAt: settlement.occurred_at } : {}),
+    })
+    .where(eq(spendLedger.id, hold.ledger_id));
+}
+
+/** The provider reported no charge: the hold is released. */
+export async function releaseHold(state: DatabaseState, hold: SpendHold): Promise<void> {
+  await state.db.delete(spendLedger).where(eq(spendLedger.id, hold.ledger_id));
+}
+
 export async function ledgerTotalForJob(state: DatabaseState, jobId: string): Promise<number> {
   const rows = await state.db
     .select({ total: sql<string>`coalesce(sum(${spendLedger.actualUsd}), 0)` })

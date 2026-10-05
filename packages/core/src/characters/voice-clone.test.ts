@@ -7,7 +7,14 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { closeDatabaseState, createDatabase, characterVoices, spendLedger, voices } from '@kilnry/db';
+import {
+  budgets,
+  closeDatabaseState,
+  createDatabase,
+  characterVoices,
+  spendLedger,
+  voices,
+} from '@kilnry/db';
 import { eq } from 'drizzle-orm';
 import { createCharacter } from './store.js';
 import { setConsent } from './consent.js';
@@ -319,5 +326,103 @@ describe('voice cloning (F-VOI-02) and binding (F-CHR-08)', () => {
     expect(sampleLongEnough(6, 'kling')).toBe(true);
     expect(sampleLongEnough(6, 'minimax')).toBe(false);
     expect(sampleLongEnough(6, 'fal')).toBe(false);
+  });
+});
+
+// F-PRV-04 / PRD-14 "reserve": a clone holds its spend before the provider call,
+// inside the same locked transaction as the cap check, so two concurrent clones
+// against a cap with room for one admit exactly one.
+describe('voice clone budget hold (F-PRV-04)', () => {
+  // A MiniMax fetch whose clone call waits until released, so two clones are
+  // in flight at once and the second's cap check sees the first's hold.
+  function gatedMinimaxFetch(): { fetch: typeof fetch; release: () => void; cloneCalls: number } {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const state = { cloneCalls: 0 };
+    const impl = (async (url: string) => {
+      if (String(url).endsWith('/files/upload')) {
+        return new Response(JSON.stringify({ file: { file_id: 'file-1' } }), { status: 200 });
+      }
+      if (String(url).endsWith('/voice_clone')) {
+        state.cloneCalls += 1;
+        await gate;
+        return new Response(JSON.stringify({ base_resp: { status_code: 0 } }), { status: 200 });
+      }
+      return new Response('{}', { status: 200 });
+    }) as unknown as typeof fetch;
+    return {
+      fetch: impl,
+      release: () => release(),
+      get cloneCalls() {
+        return state.cloneCalls;
+      },
+    };
+  }
+
+  it('two concurrent clones against a cap with room for one: one succeeds, one is BUDGET_EXCEEDED', async () => {
+    const state = await db();
+    // Room for one $1.50 clone, not two.
+    await state.db.insert(budgets).values({ scope: 'daily', capUsd: '2.000000', behavior: 'block' });
+    const gated = gatedMinimaxFetch();
+    const input = {
+      provider: 'minimax' as const,
+      sample_url: 'https://media.test/sample.mp3',
+      sample_seconds: 30,
+      consent_confirmed: true,
+      confirmed_cost_usd: 1.5,
+    };
+    const settle = (promise: Promise<unknown>) =>
+      promise.then(
+        (value) => ({ status: 'fulfilled' as const, value }),
+        (reason: unknown) => ({ status: 'rejected' as const, reason }),
+      );
+    const first = settle(cloneVoice(services(state, gated.fetch), { ...input, name: 'First' }));
+    const second = settle(cloneVoice(services(state, gated.fetch), { ...input, name: 'Second' }));
+    // The provider answers only after one clone holds the money and reaches it;
+    // by then the other has been checked against the cap with that hold in place.
+    await expect
+      .poll(async () => (await state.db.select().from(spendLedger)).length, { timeout: 10_000 })
+      .toBe(1);
+    await expect.poll(() => gated.cloneCalls, { timeout: 10_000 }).toBe(1);
+    const early = await Promise.race([first, second]);
+    expect(early.status).toBe('rejected');
+    gated.release();
+    const outcomes = await Promise.all([first, second]);
+    const ok = outcomes.filter((o) => o.status === 'fulfilled');
+    const refused = outcomes.filter((o) => o.status === 'rejected');
+    expect(ok).toHaveLength(1);
+    expect(refused).toHaveLength(1);
+    expect((refused[0] as { reason: unknown }).reason).toMatchObject({ code: 'BUDGET_EXCEEDED' });
+    // The refused clone never reached the provider; the admitted one did once.
+    expect(gated.cloneCalls).toBe(1);
+    // Exactly one ledger row, settled from 'pending' to 'voice clone' at $1.50.
+    const ledger = await state.db.select().from(spendLedger);
+    expect(ledger).toHaveLength(1);
+    expect(ledger[0]).toMatchObject({ currencyNote: 'voice clone', actualUsd: '1.500000' });
+  });
+
+  it('releases the hold when the provider refuses before charging', async () => {
+    const state = await db();
+    const refusing = (async (url: string) => {
+      if (String(url).endsWith('/files/upload')) {
+        return new Response(JSON.stringify({ file: { file_id: 'file-1' } }), { status: 200 });
+      }
+      // MiniMax's documented moderation refusal, status_code 1026.
+      return new Response(JSON.stringify({ base_resp: { status_code: 1026 } }), { status: 200 });
+    }) as unknown as typeof fetch;
+    await expect(
+      cloneVoice(services(state, refusing), {
+        name: 'Refused',
+        provider: 'minimax',
+        sample_url: 'https://media.test/sample.mp3',
+        sample_seconds: 30,
+        consent_confirmed: true,
+        confirmed_cost_usd: 1.5,
+      }),
+    ).rejects.toMatchObject({ code: 'MODERATION_REJECTED' });
+    expect(await state.db.select().from(spendLedger)).toHaveLength(0);
+    expect(await state.db.select().from(voices)).toHaveLength(0);
   });
 });

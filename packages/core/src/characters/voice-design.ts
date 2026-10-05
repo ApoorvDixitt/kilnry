@@ -11,10 +11,10 @@
 // voices row with clone_kind 'design', bindable like a clone.
 
 import type { DatabaseState } from '@kilnry/db';
-import { auditEvents, spendLedger } from '@kilnry/db';
+import { auditEvents } from '@kilnry/db';
 import { KilnryError } from '../errors.js';
 import { ulid } from '../ids.js';
-import { assertCostConfirmation, reserveBudget } from '../budget/enforcer.js';
+import { assertCostConfirmation, holdSpend, releaseHold, settleHold } from '../budget/enforcer.js';
 import { estimate as priceEstimate } from '../registry/estimator.js';
 import { loadRegistry } from '../registry/store.js';
 import type { CanonicalRequest, Estimate } from '../types.js';
@@ -132,16 +132,23 @@ export async function designVoice(services: DesignServices, input: DesignInput):
   const key = await services.keyFor(input.provider);
   if (!key) throw new KilnryError('NO_PROVIDER', `${input.provider} has no connected key.`);
 
-  // Price → confirm → reserve before any provider request (F-VOI-03, F-PRV-05).
+  // Price → confirm → hold before any provider request (F-VOI-03, F-PRV-04,
+  // PRD-14 "reserve"): the cap check and a pending ledger row at the estimate are
+  // one locked transaction, keyed by the voice's own id so a design is charged at
+  // most once.
   const designEstimate = await priceDesign(services.db, input.provider);
   assertCostConfirmation(designEstimate, input.confirmed_cost_usd);
-  await reserveBudget(services.db.db, {
+  const chargedUsd = designEstimate.authoritative_usd ?? designEstimate.estimate_usd;
+  const voiceUlid = ulid();
+  const hold = await holdSpend(services.db, {
+    ledger_id: voiceUlid,
     estimate_usd: designEstimate.estimate_usd,
     provider: input.provider,
+    model_id: DESIGN_PRICING[input.provider],
+    kind: 'voice_clone',
     folder: 'inbox',
     now: now(),
   });
-  const chargedUsd = designEstimate.authoritative_usd ?? designEstimate.estimate_usd;
 
   // Fold the language and gender hints (PRD-08 §B3) into the description the
   // provider reads; both MiniMax and fal design a voice from a single prompt.
@@ -163,26 +170,21 @@ export async function designVoice(services: DesignServices, input: DesignInput):
       services.falPoll,
     );
   } catch (error) {
-    // A fal queue timeout: fal has accepted and will bill, so record the spend
-    // at the estimate with the request id rather than leaving it invisible, and
-    // surface a TIMEOUT the caller can show (default; adjustable).
+    // A fal queue timeout: fal has accepted and will bill, so the hold stays as
+    // the charge at the estimate with the request id rather than vanishing, and
+    // a TIMEOUT the caller can show names the request (default; adjustable).
     if (error instanceof FalQueueTimeout) {
-      await services.db.db.insert(spendLedger).values({
-        id: ulid(),
-        providerId: input.provider,
-        modelId: DESIGN_PRICING[input.provider],
-        folder: 'inbox',
-        kind: 'voice_clone',
-        estimateUsd: designEstimate.estimate_usd.toFixed(6),
-        actualUsd: chargedUsd.toFixed(6),
-        currencyNote: `ambiguous: fal request ${error.request_id}`,
-        occurredAt: now(),
+      await settleHold(services.db, hold, {
+        actual_usd: chargedUsd,
+        note: `ambiguous: fal request ${error.request_id}`,
       });
       throw new KilnryError('TIMEOUT', `fal voice design did not finish (request ${error.request_id}).`, {
         provider: 'fal',
         retryable: true,
       });
     }
+    // The provider refused or failed before charging: release the hold.
+    await releaseHold(services.db, hold);
     throw error;
   }
   const voiceId = designed.voiceId;
@@ -195,7 +197,6 @@ export async function designVoice(services: DesignServices, input: DesignInput):
         .catch(() => undefined)
     : undefined;
 
-  const voiceUlid = ulid();
   await recordDesignedVoice(services.db, {
     id: voiceUlid,
     provider: input.provider,
@@ -206,20 +207,10 @@ export async function designVoice(services: DesignServices, input: DesignInput):
     ...(input.language ? { language: input.language } : {}),
     ...(previewAssetId ? { preview_asset_id: previewAssetId } : {}),
   });
-  // One spend-ledger row and one audit event, keyed by the voice ulid so a
-  // design is charged at most once (F-PRV-05, TRD-15). The fal request id is
-  // recorded in the audit meta so a spend can be traced back to fal.
-  await services.db.db.insert(spendLedger).values({
-    id: voiceUlid,
-    providerId: input.provider,
-    modelId: DESIGN_PRICING[input.provider],
-    folder: 'inbox',
-    kind: 'voice_clone',
-    estimateUsd: designEstimate.estimate_usd.toFixed(6),
-    actualUsd: chargedUsd.toFixed(6),
-    currencyNote: 'voice design',
-    occurredAt: now(),
-  });
+  // The hold becomes the design's ledger row; one audit event beside it
+  // (F-PRV-05, TRD-15). The fal request id is in the audit meta so a spend can
+  // be traced back to fal.
+  await settleHold(services.db, hold, { actual_usd: chargedUsd, note: 'voice design' });
   await services.db.db.insert(auditEvents).values({
     id: ulid(),
     actor: 'user',

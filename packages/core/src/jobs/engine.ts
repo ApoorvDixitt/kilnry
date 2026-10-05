@@ -14,7 +14,7 @@ import { bindFragmentAssets, mentionsPossible, mergeFragment, resolveForEngine }
 import { recordAssetCharacters } from '../characters/store.js';
 import { indexAsset } from '../library/index.js';
 import { createDerivatives } from '@kilnry/media';
-import { assertCostConfirmation, reserveBudget } from '../budget/enforcer.js';
+import { BUDGET_LOCK_ID, assertCostConfirmation, reserveBudget } from '../budget/enforcer.js';
 import { normalizeConfirmedBy } from '../budget/confirmation.js';
 import { KilnryError } from '../errors.js';
 import { eventHub, type EventHub } from '../events/hub.js';
@@ -68,7 +68,7 @@ interface StoredResolved {
   };
 }
 
-const budgetLockId = 1_264_843_079;
+const budgetLockId = BUDGET_LOCK_ID;
 
 // A Check status (F-JOB-04) does a single bounded poll rather than the full poll
 // window, so the request returns within seconds even when the provider is still

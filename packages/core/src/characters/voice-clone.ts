@@ -11,10 +11,10 @@
 // stores the clone and, when asked, binds it to a Character version.
 
 import type { DatabaseState } from '@kilnry/db';
-import { auditEvents, spendLedger } from '@kilnry/db';
+import { auditEvents } from '@kilnry/db';
 import { KilnryError } from '../errors.js';
 import { ulid } from '../ids.js';
-import { assertCostConfirmation, reserveBudget } from '../budget/enforcer.js';
+import { assertCostConfirmation, holdSpend, releaseHold, settleHold } from '../budget/enforcer.js';
 import { estimate as priceEstimate } from '../registry/estimator.js';
 import { loadRegistry } from '../registry/store.js';
 import type { CanonicalRequest, Estimate } from '../types.js';
@@ -180,19 +180,26 @@ export async function cloneVoice(services: CloneServices, input: CloneInput): Pr
   if (!key) throw new KilnryError('NO_PROVIDER', `${paying} has no connected key.`);
 
   // Price the clone from the registry, refuse it unless the confirmed figure
-  // matches the priced one, and reserve the estimate against the budget caps
-  // before any provider request (F-VOI-02, F-PRV-05). A free clone (ElevenLabs
-  // instant voice cloning) passes confirmation and reservation and still records
-  // one ledger row at $0.
+  // matches the priced one, and hold the estimate against the budget caps
+  // before any provider request (F-VOI-02, F-PRV-04, PRD-14 "reserve"): the
+  // cap check and the pending ledger row are one locked transaction, so two
+  // concurrent clones against a cap with room for one admit exactly one. A free
+  // clone (ElevenLabs instant voice cloning) still records one ledger row at $0.
   const cloneEstimate = await priceClone(services.db, input.provider);
   assertCostConfirmation(cloneEstimate, input.confirmed_cost_usd);
-  await reserveBudget(services.db.db, {
+  const chargedUsd = cloneEstimate.authoritative_usd ?? cloneEstimate.estimate_usd;
+  // The ledger row is keyed by the voice's own id so a clone is charged at most
+  // once; it has no job id because cloning does not go through the job queue.
+  const voiceUlid = ulid();
+  const hold = await holdSpend(services.db, {
+    ledger_id: voiceUlid,
     estimate_usd: cloneEstimate.estimate_usd,
     provider: paying,
+    model_id: CLONE_PRICING[input.provider].model_id,
+    kind: 'voice_clone',
     folder: 'inbox',
     now: now(),
   });
-  const chargedUsd = cloneEstimate.authoritative_usd ?? cloneEstimate.estimate_usd;
 
   let cloned: { voiceId: string; previewAudioUrl?: string; requestId?: string };
   try {
@@ -204,31 +211,25 @@ export async function cloneVoice(services: CloneServices, input: CloneInput): Pr
       services.falPoll,
     );
   } catch (error) {
-    // A fal queue timeout: fal has accepted and may bill, so record the spend at
-    // the estimate with the request id rather than leaving it invisible, and
-    // surface a TIMEOUT naming the request (default; adjustable).
+    // A fal queue timeout: fal has accepted and may bill, so the hold stays as
+    // the charge at the estimate with the request id rather than vanishing, and
+    // a TIMEOUT names the request (default; adjustable).
     if (error instanceof FalQueueTimeout) {
-      await services.db.db.insert(spendLedger).values({
-        id: ulid(),
-        providerId: paying,
-        modelId: CLONE_PRICING[input.provider].model_id,
-        folder: 'inbox',
-        kind: 'voice_clone',
-        estimateUsd: cloneEstimate.estimate_usd.toFixed(6),
-        actualUsd: chargedUsd.toFixed(6),
-        currencyNote: `ambiguous: fal request ${error.request_id}`,
-        occurredAt: now(),
+      await settleHold(services.db, hold, {
+        actual_usd: chargedUsd,
+        note: `ambiguous: fal request ${error.request_id}`,
       });
       throw new KilnryError('TIMEOUT', `fal voice clone did not finish (request ${error.request_id}).`, {
         provider: 'fal',
         retryable: true,
       });
     }
+    // The provider refused or failed before charging: release the hold.
+    await releaseHold(services.db, hold);
     throw error;
   }
   const voiceId = cloned.voiceId;
 
-  const voiceUlid = ulid();
   await recordClonedVoice(services.db, {
     id: voiceUlid,
     provider: clonedVoiceProvider(input.provider),
@@ -239,20 +240,9 @@ export async function cloneVoice(services: CloneServices, input: CloneInput): Pr
     ...(input.sample_asset_id ? { sample_asset_id: input.sample_asset_id } : {}),
     ...(input.preview_asset_id ? { preview_asset_id: input.preview_asset_id } : {}),
   });
-  // One spend-ledger row and one audit event for the clone (F-PRV-05, TRD-15).
-  // The row has no job id because cloning does not go through the job queue; it
-  // is keyed by the voice's own id so a clone is charged at most once.
-  await services.db.db.insert(spendLedger).values({
-    id: voiceUlid,
-    providerId: paying,
-    modelId: CLONE_PRICING[input.provider].model_id,
-    folder: 'inbox',
-    kind: 'voice_clone',
-    estimateUsd: cloneEstimate.estimate_usd.toFixed(6),
-    actualUsd: chargedUsd.toFixed(6),
-    currencyNote: 'voice clone',
-    occurredAt: now(),
-  });
+  // The hold becomes the clone's ledger row; one audit event beside it
+  // (F-PRV-05, TRD-15).
+  await settleHold(services.db, hold, { actual_usd: chargedUsd, note: 'voice clone' });
   await services.db.db.insert(auditEvents).values({
     id: ulid(),
     actor: 'user',
