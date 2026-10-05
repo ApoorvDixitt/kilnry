@@ -9,7 +9,7 @@
 // and the input's named reason before any approval or spend. An approval step is
 // never used as a refusal: Approve proceeds, a refusal does not.
 
-import { KilnryError } from '@kilnry/core';
+import { KilnryError } from '@kilnry/core/errors';
 import type { WorkflowFile } from './schema.js';
 
 export interface DurationConstraint {
