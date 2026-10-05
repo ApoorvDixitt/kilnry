@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 import * as z from 'zod';
 import { KILNRY_TOOLS, toolAllowedForScope, type KilnryTool, type ToolServices } from '@kilnry/core';
 import {
+  MCP_APPS_PROTOCOL_VERSION,
   MCP_INSTRUCTIONS,
   TOOLS_LIST_TTL_MS,
   createKilnryMcpServer,
@@ -100,19 +101,52 @@ describe('MCP server core (F-MCP-01)', () => {
     expect(server).toBeDefined();
   });
 
-  it('renders a self-contained, read-only MCP Apps widget (F-MCP-07)', () => {
+  it('renders a self-contained MCP Apps widget that speaks only the specification (F-MCP-07)', () => {
     const html = uiWidgetHtml('job_progress');
     expect(html.startsWith('<!doctype html>')).toBe(true);
     expect(html).toContain('Job progress');
-    // It is an MCP Apps client over postMessage: it sends ui/initialize and calls
-    // kilnry_jobs via tools/call for Cancel (apps.mdx §Bidirectional Communication).
-    expect(html).toContain("send('ui/initialize'");
-    expect(html).toContain("name: 'kilnry_jobs'");
-    expect(html).toContain("action: 'cancel'");
     expect(html).toContain('kilnry-widget-root');
     // Self-contained: no external script/style/image assets so a sandboxed
     // iframe renders it under the default CSP (the only <script> is inline).
     expect(html).not.toMatch(/src="https?:|href="https?:/);
+
+    // Host → View: the widget reacts to exactly the notifications apps.mdx
+    // 2026-01-26 §Notifications (Host → View) defines for a tool's view, and to
+    // its own ui/initialize result (§Lifecycle 2). Any other method name in a
+    // listener — an invented render-data, a hostContext.data — fails here.
+    const listened = [...html.matchAll(/msg\.method === '([^']+)'/g)].map((m) => m[1]).sort();
+    expect(listened).toEqual(
+      [
+        'ui/notifications/tool-cancelled',
+        'ui/notifications/tool-input',
+        'ui/notifications/tool-result',
+      ].sort(),
+    );
+    expect(html).toContain('msg.id === INIT_ID && (msg.result || msg.error)');
+    expect(html).not.toContain('hostContext');
+
+    // View → Host: ui/initialize with appCapabilities, clientInfo and the
+    // protocol version (§App Capabilities in ui/initialize); then
+    // ui/notifications/initialized (§Standard MCP Messages, Lifecycle); a picker
+    // selection by ui/update-model-context { structuredContent } (§Requests
+    // (View → Host)); Cancel by the standard tools/call of kilnry_jobs.
+    const requested = [...html.matchAll(/request\('([^']+)'/g)].map((m) => m[1]);
+    const notified = [...html.matchAll(/notify\('([^']+)'/g)].map((m) => m[1]);
+    expect([...new Set(requested)].sort()).toEqual([
+      'tools/call',
+      'ui/initialize',
+      'ui/update-model-context',
+    ]);
+    expect([...new Set(notified)]).toEqual(['ui/notifications/initialized']);
+    expect(html).toContain(`protocolVersion: "${MCP_APPS_PROTOCOL_VERSION}"`);
+    expect(MCP_APPS_PROTOCOL_VERSION).toBe('2026-01-26');
+    expect(html).toContain("name: 'kilnry_jobs', arguments: { action: 'cancel', job_id: id }");
+    expect(html).toContain('structuredContent: { asset_ids: selectedAssets.slice() }');
+    expect(html).toContain('structuredContent: { handles: selectedHandles.slice() }');
+    // The tool result is rendered from params.structuredContent, with the text
+    // content as the fallback (§Data Passing 2).
+    expect(html).toContain('var data = result.structuredContent;');
+
     // The picker views render their own controls.
     expect(uiWidgetHtml('asset_picker')).toContain('kilnry-asset-card');
     expect(uiWidgetHtml('character_picker')).toContain('kilnry-character-card');

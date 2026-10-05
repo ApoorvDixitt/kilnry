@@ -26,15 +26,21 @@ Rules: (1) Every generation costs the user real money. Call kilnry_estimate or r
 
 // The self-contained HTML for an MCP Apps widget (F-MCP-07, PRD-12 §8). It uses
 // no external assets so it renders under the default CSP in a sandboxed iframe,
-// and it is an MCP client over postMessage JSON-RPC 2.0 (apps.mdx §Bidirectional
-// Communication). On load the View sends `ui/initialize`; the host answers and
-// then posts the tool result's structuredContent in a `ui/notifications/
-// render-data` message (apps.mdx lifecycle). The widget renders one of three
-// views from that data:
-//   • job_progress — a row per job with its cost and a Cancel button that calls
-//     kilnry_jobs { action: 'cancel', job_id } via tools/call (host-gated);
-//   • asset_picker — a grid that returns the chosen asset_id;
-//   • character_picker — cards that return the chosen @handle.
+// and it is an MCP client over postMessage JSON-RPC 2.0 speaking exactly the
+// MCP Apps specification (ext-apps specification/2026-01-26/apps.mdx):
+//   • §Lifecycle 2 / §Standard MCP Messages: the View sends the `ui/initialize`
+//     request, and after the host's result sends `ui/notifications/initialized`;
+//   • §Notifications (Host → View): `ui/notifications/tool-input` carries the
+//     tool arguments (the view name), `ui/notifications/tool-result` carries the
+//     CallToolResult whose structuredContent the widget renders, and
+//     `ui/notifications/tool-cancelled` ends the view with its reason;
+//   • §Requests (View → Host): a picker returns its selection with
+//     `ui/update-model-context` { structuredContent }, and Cancel is a standard
+//     `tools/call` of kilnry_jobs (§Standard MCP Messages, host-gated).
+// Nothing else is listened for. The three views:
+//   • job_progress — a row per job with its cost and a Cancel button;
+//   • asset_picker — a grid that returns { asset_ids: [...] };
+//   • character_picker — cards that return { handles: ['@maya'] }.
 // Text and structuredContent are complete without the widget, so a host without
 // MCP Apps still shows something useful.
 const UI_WIDGET_TITLES: Record<string, string> = {
@@ -42,6 +48,8 @@ const UI_WIDGET_TITLES: Record<string, string> = {
   asset_picker: 'Pick an asset',
   character_picker: 'Pick a character',
 };
+
+export const MCP_APPS_PROTOCOL_VERSION = '2026-01-26';
 
 export function uiWidgetHtml(view: string): string {
   const title = UI_WIDGET_TITLES[view] ?? 'Kilnry';
@@ -62,23 +70,33 @@ export function uiWidgetHtml(view: string): string {
   button { font: inherit; cursor: pointer; }
   .kilnry-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
   .kilnry-card { padding: 8px; border: 1px solid rgba(128,128,128,0.35); border-radius: 6px; text-align: left; }
+  .kilnry-card[aria-pressed="true"] { outline: 2px solid currentColor; }
 </style>
 </head>
 <body>
   <main class="kilnry-widget" data-view="${safeView}">
-    <h1>${title}</h1>
-    <div id="kilnry-root" data-testid="kilnry-widget-root">
+    <h1 id="kilnry-title">${title}</h1>
+    <div id="kilnry-root" data-testid="kilnry-widget-root" data-state="initializing">
       <p class="kilnry-widget-note">Loading…</p>
     </div>
   </main>
   <script>
   (function () {
+    var TITLES = ${JSON.stringify(UI_WIDGET_TITLES)};
     var view = ${JSON.stringify(safeView)};
     var root = document.getElementById('kilnry-root');
-    var nextId = 2;
+    var titleEl = document.getElementById('kilnry-title');
+    var nextId = 1;
+    var INIT_ID = 0;
+    var selectedAssets = [];
+    var selectedHandles = [];
 
-    function send(method, params) {
-      window.parent.postMessage({ jsonrpc: '2.0', id: nextId++, method: method, params: params }, '*');
+    // apps.mdx §Transport Layer: requests and notifications are JSON-RPC 2.0
+    // posted to the parent; a request carries an id, a notification does not.
+    function request(method, params) {
+      var id = nextId++;
+      window.parent.postMessage({ jsonrpc: '2.0', id: id, method: method, params: params }, '*');
+      return id;
     }
     function notify(method, params) {
       window.parent.postMessage({ jsonrpc: '2.0', method: method, params: params }, '*');
@@ -89,6 +107,12 @@ export function uiWidgetHtml(view: string): string {
         return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
       });
     }
+    function setView(next) {
+      if (typeof next !== 'string' || !TITLES[next]) return;
+      view = next;
+      document.querySelector('.kilnry-widget').setAttribute('data-view', next);
+      titleEl.textContent = TITLES[next];
+    }
 
     function renderJobs(data) {
       var jobs = (data && data.jobs) || [];
@@ -98,17 +122,19 @@ export function uiWidgetHtml(view: string): string {
         var li = document.createElement('li');
         li.className = 'kilnry-row';
         li.setAttribute('data-testid', 'kilnry-job-row');
-        var cost = job.cost_usd != null ? ('$' + Number(job.cost_usd).toFixed(2)) : '';
-        li.innerHTML = '<span class="name">' + escapeHtml(job.label || job.id) + '</span>' +
-          '<span class="cost">' + escapeHtml(cost) + '</span>';
+        var id = job.job_id || job.id;
+        var cost = job.cost_usd != null ? job.cost_usd : job.actual_usd;
+        var costText = cost != null ? ('$' + Number(cost).toFixed(2)) : '';
+        li.innerHTML = '<span class="name">' + escapeHtml(job.label || job.model || id) + '</span>' +
+          '<span class="cost">' + escapeHtml(costText) + '</span>';
         var cancel = document.createElement('button');
         cancel.type = 'button';
         cancel.textContent = 'Cancel';
         cancel.setAttribute('data-testid', 'kilnry-job-cancel');
         cancel.addEventListener('click', function () {
-          // Cancel is a host-gated tools/call to kilnry_jobs (apps.mdx: UI calls
-          // reuse MCP's tools/call over postMessage).
-          send('tools/call', { name: 'kilnry_jobs', arguments: { action: 'cancel', job_id: job.id } });
+          // apps.mdx §Standard MCP Messages: a View may call tools/call; the host
+          // gates it and forwards it to the server (§Lifecycle 3 "Tool call").
+          request('tools/call', { name: 'kilnry_jobs', arguments: { action: 'cancel', job_id: id } });
         });
         li.appendChild(cancel);
         ul.appendChild(li);
@@ -117,19 +143,35 @@ export function uiWidgetHtml(view: string): string {
       root.appendChild(ul);
     }
 
+    // apps.mdx §Requests (View → Host) ui/update-model-context: the selection
+    // goes to the model as structuredContent; each request overwrites the last.
+    function publishSelection() {
+      if (view === 'asset_picker') {
+        request('ui/update-model-context', { structuredContent: { asset_ids: selectedAssets.slice() } });
+      } else if (view === 'character_picker') {
+        request('ui/update-model-context', { structuredContent: { handles: selectedHandles.slice() } });
+      }
+    }
+    function toggle(list, value, card) {
+      var at = list.indexOf(value);
+      if (at === -1) list.push(value); else list.splice(at, 1);
+      card.setAttribute('aria-pressed', at === -1 ? 'true' : 'false');
+      publishSelection();
+    }
+
     function renderAssets(data) {
       var assets = (data && data.assets) || [];
       var grid = document.createElement('div');
       grid.className = 'kilnry-grid';
       assets.forEach(function (asset) {
+        var id = asset.asset_id || asset.id;
         var card = document.createElement('button');
         card.type = 'button';
         card.className = 'kilnry-card';
         card.setAttribute('data-testid', 'kilnry-asset-card');
-        card.textContent = asset.label || asset.asset_id;
-        card.addEventListener('click', function () {
-          notify('ui/notifications/data-changed', { selection: { asset_id: asset.asset_id } });
-        });
+        card.setAttribute('aria-pressed', 'false');
+        card.textContent = asset.label || asset.path || id;
+        card.addEventListener('click', function () { toggle(selectedAssets, id, card); });
         grid.appendChild(card);
       });
       root.innerHTML = '';
@@ -141,15 +183,14 @@ export function uiWidgetHtml(view: string): string {
       var grid = document.createElement('div');
       grid.className = 'kilnry-grid';
       characters.forEach(function (character) {
-        var handle = character.handle;
+        var handle = '@' + String(character.handle || '').replace(/^@/, '');
         var card = document.createElement('button');
         card.type = 'button';
         card.className = 'kilnry-card';
         card.setAttribute('data-testid', 'kilnry-character-card');
-        card.textContent = '@' + handle;
-        card.addEventListener('click', function () {
-          notify('ui/notifications/data-changed', { selection: { handle: '@' + handle } });
-        });
+        card.setAttribute('aria-pressed', 'false');
+        card.textContent = handle;
+        card.addEventListener('click', function () { toggle(selectedHandles, handle, card); });
         grid.appendChild(card);
       });
       root.innerHTML = '';
@@ -157,6 +198,7 @@ export function uiWidgetHtml(view: string): string {
     }
 
     function render(data) {
+      root.setAttribute('data-state', 'rendered');
       if (view === 'asset_picker') return renderAssets(data);
       if (view === 'character_picker') return renderCharacters(data);
       return renderJobs(data);
@@ -164,20 +206,49 @@ export function uiWidgetHtml(view: string): string {
 
     window.addEventListener('message', function (event) {
       var msg = event.data || {};
-      // The host's render-data notification carries the tool result's data.
-      if (msg.method === 'ui/notifications/render-data' && msg.params) {
-        render(msg.params.data || msg.params);
+      if (msg.jsonrpc !== '2.0') return;
+      // apps.mdx §Lifecycle 2: the ui/initialize result arrives, then the View
+      // sends ui/notifications/initialized.
+      if (msg.id === INIT_ID && (msg.result || msg.error)) {
+        notify('ui/notifications/initialized', {});
+        root.setAttribute('data-state', 'initialized');
+        return;
       }
-      // The ui/initialize response may also carry the data in hostContext.
-      if (msg.id === 1 && msg.result && msg.result.hostContext && msg.result.hostContext.data) {
-        render(msg.result.hostContext.data);
+      // apps.mdx §Notifications (Host → View) ui/notifications/tool-input: the
+      // complete tool arguments; kilnry_ui's view argument names what to render.
+      if (msg.method === 'ui/notifications/tool-input') {
+        var args = (msg.params && msg.params.arguments) || {};
+        setView(args.view);
+        return;
+      }
+      // apps.mdx §Notifications (Host → View) ui/notifications/tool-result: the
+      // CallToolResult; structuredContent holds the rows (§Data Passing 2).
+      if (msg.method === 'ui/notifications/tool-result') {
+        var result = msg.params || {};
+        var data = result.structuredContent;
+        if (!data && Array.isArray(result.content)) {
+          var text = result.content.filter(function (c) { return c && c.type === 'text'; })
+            .map(function (c) { return c.text; }).join('');
+          try { data = JSON.parse(text); } catch (_e) { data = {}; }
+        }
+        if (data && data.view) setView(data.view);
+        render(data || {});
+        return;
+      }
+      // apps.mdx §Notifications (Host → View) ui/notifications/tool-cancelled.
+      if (msg.method === 'ui/notifications/tool-cancelled') {
+        root.setAttribute('data-state', 'cancelled');
+        root.innerHTML = '<p class="kilnry-widget-note">Cancelled' +
+          (msg.params && msg.params.reason ? ': ' + escapeHtml(msg.params.reason) : '') + '.</p>';
       }
     });
 
-    // MCP-like handshake: the View announces itself with ui/initialize, then
-    // signals it is ready (apps.mdx: ui/initialize → ui/notifications/initialized).
-    send('ui/initialize', { appCapabilities: {} });
-    notify('ui/notifications/initialized', {});
+    // apps.mdx §Standard MCP Messages / §App Capabilities in ui/initialize.
+    INIT_ID = request('ui/initialize', {
+      appCapabilities: {},
+      clientInfo: { name: 'kilnry-widget', version: '1' },
+      protocolVersion: ${JSON.stringify(MCP_APPS_PROTOCOL_VERSION)},
+    });
   })();
   </script>
 </body>

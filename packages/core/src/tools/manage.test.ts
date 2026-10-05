@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { closeDatabaseState, createDatabase } from '@kilnry/db';
 import { ulid } from '../ids.js';
+import { createCharacter } from '../characters/store.js';
 import {
   MANAGE_TOOLS,
   charactersManageTool,
@@ -163,11 +164,26 @@ describe('management and template tools (F-MCP-02 §3.3–§3.6)', () => {
     expect(calls.filter((c) => c.startsWith('run:'))).toHaveLength(1);
   });
 
-  it('returns a widget resource link and a fallback from kilnry_ui', async () => {
+  it('returns a widget resource link, a fallback, and the rows each view renders from kilnry_ui', async () => {
     const state = await db();
     const result = await uiTool.execute({ view: 'job_progress' }, { db: state, scope: 'read_only' });
     expect(result.structuredContent.resource_uri).toBe('ui://kilnry/job_progress');
     expect(typeof result.structuredContent.fallback_text).toBe('string');
+    // PRD-12 §8: structuredContent is complete without the widget — the host
+    // hands this same result to the widget in ui/notifications/tool-result, so it
+    // carries the job rows, the folder's assets, or the character cards.
+    expect(result.structuredContent.jobs).toEqual([]);
+    await createCharacter(state, { handle: 'maya', kind: 'character', display_name: 'Maya' });
+    const characters = await uiTool.execute({ view: 'character_picker' }, { db: state, scope: 'read_only' });
+    expect(characters.structuredContent.characters).toEqual([
+      { handle: 'maya', display_name: 'Maya', kind: 'character', version: 1 },
+    ]);
+    expect(characters.text).toContain('1 character(s).');
+    const assets = await uiTool.execute(
+      { view: 'asset_picker', folder: 'inbox' },
+      { db: state, scope: 'read_only' },
+    );
+    expect(assets.structuredContent).toMatchObject({ view: 'asset_picker', folder: 'inbox', assets: [] });
   });
 
   it('kilnry_library_manage reports no Library and refuses export_bundle precisely', async () => {

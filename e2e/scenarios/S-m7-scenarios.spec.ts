@@ -835,50 +835,142 @@ test('@m7 F-MCP-07 kilnry_ui returns a ui:// resource served as an MCP Apps widg
   // Load the widget as a top-level document from a routed URL so its inline
   // script runs (scripts injected via innerHTML/srcdoc do not execute, and a
   // cross-origin subframe is blocked under the e2e network policy). In a
-  // top-level view window.parent is the window itself, so the harness listens on
-  // the same window and answers the widget's handshake with a render-data
-  // notification carrying two jobs — the real View↔host message contract.
-  await page.route('http://127.0.0.1:3123/__widget', (route) =>
+  // top-level view window.parent is the window itself, so a fake host on the same
+  // window plays the host's side of apps.mdx 2026-01-26 — and only that side:
+  // §Lifecycle 2: answer ui/initialize with a result; after the View's
+  // ui/notifications/initialized send ui/notifications/tool-input (the kilnry_ui
+  // arguments) then ui/notifications/tool-result (the CallToolResult). Nothing
+  // else is sent, so a widget waiting for any invented message stays on Loading…
+  const widgetUrl = 'http://127.0.0.1:3123/__widget';
+  await page.route(widgetUrl, (route) =>
     route.fulfill({ status: 200, contentType: 'text/html', body: widgetHtml }),
   );
-  await page.goto('http://127.0.0.1:3123/__widget');
-  await page.evaluate(() => {
-    (window as unknown as { __kilnryPosted: unknown[] }).__kilnryPosted = [];
-    const renderData = {
-      jsonrpc: '2.0',
-      method: 'ui/notifications/render-data',
-      params: {
-        view: 'job_progress',
-        data: {
-          jobs: [
-            { id: 'job-a', label: 'Render A', cost_usd: 0.12 },
-            { id: 'job-b', label: 'Render B', cost_usd: 0.34 },
-          ],
-        },
-      },
-    };
+  const toolResult = {
+    content: [{ type: 'text', text: '2 job(s).' }],
+    structuredContent: {
+      view: 'job_progress',
+      jobs: [
+        { job_id: 'job-a', label: 'Render A', actual_usd: 0.12 },
+        { job_id: 'job-b', label: 'Render B', actual_usd: 0.34 },
+      ],
+    },
+  };
+  // The host listener must exist before the widget script runs, so it is added
+  // through an init script that runs on the document before any of its own.
+  await page.addInitScript((result) => {
+    const log: unknown[] = [];
+    (window as unknown as { __kilnryHostLog: unknown[] }).__kilnryHostLog = log;
     window.addEventListener('message', (event) => {
-      (window as unknown as { __kilnryPosted: unknown[] }).__kilnryPosted.push(event.data);
-      const data = event.data as { method?: string };
-      if (data.method === 'ui/initialize' || data.method === 'ui/notifications/initialized') {
-        window.postMessage(renderData, '*');
+      const msg = event.data as { jsonrpc?: string; id?: number; method?: string; params?: unknown };
+      if (msg?.jsonrpc !== '2.0' || typeof msg.method !== 'string') return;
+      log.push(msg);
+      if (msg.method === 'ui/initialize') {
+        window.postMessage(
+          {
+            jsonrpc: '2.0',
+            id: msg.id,
+            result: { protocolVersion: '2026-01-26', hostCapabilities: {}, hostContext: {} },
+          },
+          '*',
+        );
+      }
+      if (msg.method === 'ui/notifications/initialized') {
+        window.postMessage(
+          {
+            jsonrpc: '2.0',
+            method: 'ui/notifications/tool-input',
+            params: { arguments: { view: 'job_progress' } },
+          },
+          '*',
+        );
+        window.postMessage({ jsonrpc: '2.0', method: 'ui/notifications/tool-result', params: result }, '*');
       }
     });
-    // The widget's handshake fired on load, before this listener existed, so
-    // post the data directly too; the widget renders on the render-data message.
-    window.postMessage(renderData, '*');
-  });
+  }, toolResult);
+  await page.goto(widgetUrl);
   const widget = page;
+  const hostLog = (): Promise<Array<{ id?: number; method: string; params?: Record<string, unknown> }>> =>
+    page.evaluate(
+      () =>
+        (
+          window as unknown as {
+            __kilnryHostLog: Array<{ id?: number; method: string; params?: Record<string, unknown> }>;
+          }
+        ).__kilnryHostLog,
+    );
+
+  // The rows come from the tool result's structuredContent (§Data Passing 2).
   await expect(widget.getByTestId('kilnry-job-row')).toHaveCount(2, { timeout: 15_000 });
   await expect(widget.getByTestId('kilnry-job-row').first()).toContainText('Render A');
   await expect(widget.getByTestId('kilnry-job-row').first()).toContainText('$0.12');
-  // Each job row offers a Cancel control. Clicking it posts a tools/call for
-  // kilnry_jobs { action: 'cancel', job_id } to the host — the exact JSON-RPC
-  // the widget sends is asserted against the widget HTML in packages/mcp
-  // server.test.ts (name: 'kilnry_jobs', action: 'cancel'); here we prove the
-  // control renders per job and is actionable in a real browser.
+  // The View's side of the handshake, in order: ui/initialize with the protocol
+  // version and appCapabilities, then ui/notifications/initialized.
+  const handshake = (await hostLog()).slice(0, 2);
+  expect(handshake[0]).toMatchObject({
+    id: 1,
+    method: 'ui/initialize',
+    params: { protocolVersion: '2026-01-26', appCapabilities: {}, clientInfo: { name: 'kilnry-widget' } },
+  });
+  expect(handshake[1]).toMatchObject({ method: 'ui/notifications/initialized' });
+
+  // Cancel is the standard tools/call of kilnry_jobs (§Standard MCP Messages),
+  // a request with an id, naming the row's job.
   await expect(widget.getByTestId('kilnry-job-cancel')).toHaveCount(2);
-  await widget.getByTestId('kilnry-job-cancel').first().click();
+  await widget.getByTestId('kilnry-job-cancel').nth(1).click();
+  await expect
+    .poll(async () => (await hostLog()).find((m) => m.method === 'tools/call'))
+    .toMatchObject({
+      method: 'tools/call',
+      params: { name: 'kilnry_jobs', arguments: { action: 'cancel', job_id: 'job-b' } },
+    });
+  expect(typeof (await hostLog()).find((m) => m.method === 'tools/call')?.id).toBe('number');
+
+  // The asset picker returns its selection to the model with
+  // ui/update-model-context { structuredContent: { asset_ids } } (§Requests
+  // (View → Host)); the second click adds to the same context.
+  const assetResult = {
+    content: [{ type: 'text', text: '2 asset(s).' }],
+    structuredContent: {
+      view: 'asset_picker',
+      assets: [
+        { asset_id: 'asset-1', path: 'inbox/one.png' },
+        { asset_id: 'asset-2', path: 'inbox/two.png' },
+      ],
+    },
+  };
+  await page.evaluate((result) => {
+    window.postMessage(
+      {
+        jsonrpc: '2.0',
+        method: 'ui/notifications/tool-input',
+        params: { arguments: { view: 'asset_picker' } },
+      },
+      '*',
+    );
+    window.postMessage({ jsonrpc: '2.0', method: 'ui/notifications/tool-result', params: result }, '*');
+  }, assetResult);
+  await expect(widget.getByTestId('kilnry-asset-card')).toHaveCount(2);
+  await widget.getByTestId('kilnry-asset-card').first().click();
+  await expect(widget.getByTestId('kilnry-asset-card').first()).toHaveAttribute('aria-pressed', 'true');
+  await widget.getByTestId('kilnry-asset-card').nth(1).click();
+  await expect
+    .poll(async () => (await hostLog()).filter((m) => m.method === 'ui/update-model-context').at(-1))
+    .toMatchObject({
+      method: 'ui/update-model-context',
+      params: { structuredContent: { asset_ids: ['asset-1', 'asset-2'] } },
+    });
+
+  // The widget never sent anything the specification does not name. (The log
+  // also holds the host's own two notifications, since host and View share this
+  // window; those are the host's, not the View's.)
+  const hostOwn = new Set(['ui/notifications/tool-input', 'ui/notifications/tool-result']);
+  const sent = [...new Set((await hostLog()).map((m) => m.method))].filter((m) => !hostOwn.has(m)).sort();
+  expect(sent).toEqual([
+    'tools/call',
+    'ui/initialize',
+    'ui/notifications/initialized',
+    'ui/update-model-context',
+  ]);
 });
 
 test('@m7 F-SET-07 the Updates page shows the version, checks a manifest, and offers the command', async ({

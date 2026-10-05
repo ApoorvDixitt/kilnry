@@ -16,10 +16,13 @@ import * as z from 'zod';
 import { rename as fsRename, copyFile, mkdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { createCharacter } from '../characters/store.js';
+import { listCards } from '../characters/full.js';
+import { desc } from 'drizzle-orm';
+import { jobs } from '@kilnry/db';
 import { setConsent } from '../characters/consent.js';
 import { listSkills, loadSkill, loadSkillFile } from '../skills/loader.js';
 import { createFolder } from '../library/folders.js';
-import { deleteAssetToTrash, restoreAsset, updateAssetMetadata } from '../library/assets.js';
+import { deleteAssetToTrash, listAssets, restoreAsset, updateAssetMetadata } from '../library/assets.js';
 import { getAssetDetail } from '../library/assets.js';
 import { importSources } from '../library/import.js';
 import { indexAsset } from '../library/index.js';
@@ -675,6 +678,69 @@ export const publishTool: KilnryTool = {
   },
 };
 
+// The rows each kilnry_ui view renders (PRD-12 §8): live jobs with cost, the
+// folder's assets, or the character cards. Read-only.
+async function uiViewRows(
+  services: ToolServices,
+  view: string,
+  input: { jobIds: string[] | undefined; folder: string | undefined; kind: string | undefined },
+): Promise<{ text: string; content: Record<string, unknown> }> {
+  if (view === 'asset_picker') {
+    const assets = await listAssets(services.db, { folder: input.folder ?? 'inbox', sort: 'newest' });
+    const picked = (input.kind ? assets.filter((asset) => asset.kind === input.kind) : assets).slice(0, 48);
+    return {
+      text: `${picked.length} asset(s).`,
+      content: {
+        assets: picked.map((asset) => ({
+          asset_id: asset.id,
+          path: asset.path,
+          kind: asset.kind,
+          ...(asset.width && asset.height ? { width: asset.width, height: asset.height } : {}),
+          ...(asset.duration_s === null ? {} : { duration_s: asset.duration_s }),
+        })),
+      },
+    };
+  }
+  if (view === 'character_picker') {
+    const cards = await listCards(services.db, {});
+    return {
+      text: `${cards.length} character(s).`,
+      content: {
+        characters: cards.map((card) => ({
+          handle: card.handle,
+          display_name: card.display_name,
+          kind: card.kind,
+          version: card.version,
+          ...(card.anchor_asset_id ? { anchor_asset_id: card.anchor_asset_id } : {}),
+        })),
+      },
+    };
+  }
+  const rows = await services.db.db.select().from(jobs).orderBy(desc(jobs.createdAt)).limit(100);
+  const active = rows.filter((row) =>
+    input.jobIds
+      ? input.jobIds.includes(row.id)
+      : !['completed', 'failed', 'moderated', 'cancelled'].includes(row.status),
+  );
+  return {
+    text: `${active.length} job(s).`,
+    content: {
+      jobs: active.map((row) => ({
+        job_id: row.id,
+        status: row.status,
+        label: `${row.kind} · ${row.modelId ?? row.providerId}`,
+        provider: row.providerId,
+        model: row.modelId,
+        estimate_usd: row.estimateUsd === null ? null : Number(row.estimateUsd),
+        actual_usd: row.actualUsd === null ? null : Number(row.actualUsd),
+        progress: row.progress === null ? null : Number(row.progress),
+        step_label: row.stepLabel,
+        output_asset_ids: row.outputAssetIds ?? [],
+      })),
+    },
+  };
+}
+
 // kilnry_ui — open an MCP App widget.
 export const uiTool: KilnryTool = {
   name: 'kilnry_ui',
@@ -693,6 +759,9 @@ export const uiTool: KilnryTool = {
     job_ids: z.array(z.string()).optional(),
     folder: z.string().optional(),
     kind: z.string().optional(),
+    jobs: z.array(z.record(z.string(), z.unknown())).optional(),
+    assets: z.array(z.record(z.string(), z.unknown())).optional(),
+    characters: z.array(z.record(z.string(), z.unknown())).optional(),
   },
   annotations: { readOnlyHint: true },
   // MCP Apps tool-UI linkage (apps.mdx §Tool-UI Linkage): the host learns this
@@ -704,16 +773,19 @@ export const uiTool: KilnryTool = {
   meta: {
     ui: { resourceUri: 'ui://kilnry/job_progress', visibility: ['model', 'app'] },
   },
-  async execute(input): Promise<ToolResult> {
+  async execute(input, services): Promise<ToolResult> {
     const view = typeof input.view === 'string' ? input.view : 'job_progress';
     const jobIds = Array.isArray(input.job_ids) ? (input.job_ids as string[]) : undefined;
     const folder = typeof input.folder === 'string' ? input.folder : undefined;
     const kind = typeof input.kind === 'string' ? input.kind : undefined;
-    // The structuredContent is complete without the widget (apps.mdx): it names
-    // the view and the selection the widget operates over, and the resource the
-    // host renders. The widget reads this and shows rows the user can act on.
+    // The structuredContent is complete without the widget (PRD-12 §8): it
+    // carries the rows the view shows — the jobs, the folder's assets, or the
+    // characters — so a text-only host has the same facts, and the host hands
+    // the same result to the widget in ui/notifications/tool-result (apps.mdx
+    // §Data Passing 2), which renders those rows.
+    const rows = await uiViewRows(services, view, { jobIds, folder, kind });
     return {
-      text: `Open the ${view.replace('_', ' ')} in a widget-capable client.`,
+      text: `Open the ${view.replace('_', ' ')} in a widget-capable client. ${rows.text}`,
       structuredContent: {
         resource_uri: `ui://kilnry/${view}`,
         fallback_text: `Open the ${view.replace('_', ' ')} in the Kilnry window.`,
@@ -721,6 +793,7 @@ export const uiTool: KilnryTool = {
         ...(jobIds ? { job_ids: jobIds } : {}),
         ...(folder ? { folder } : {}),
         ...(kind ? { kind } : {}),
+        ...rows.content,
       },
     };
   },
