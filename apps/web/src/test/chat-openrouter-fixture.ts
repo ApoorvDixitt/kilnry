@@ -179,8 +179,9 @@ function completion(content: string): Response {
 // foreach expects (rule 7.4 checks the count). Defaults to three.
 function requestedCount(prompt: string): number {
   const match =
-    /(?:exactly|write|into|split[^.]*into)\s+(\d+)\s+(?:blocks?|scenes?|segments?|framings?)/i.exec(prompt) ??
-    /(\d+)\s+(?:blocks?|scenes?|segments?|framings?)/i.exec(prompt);
+    /(?:exactly|write|into|split[^.]*into)\s+(\d+)\s+(?:blocks?|scenes?|segments?|framings?|edits?|variants?)/i.exec(
+      prompt,
+    ) ?? /(\d+)\s+(?:blocks?|scenes?|segments?|framings?|edits?|variants?)/i.exec(prompt);
   const n = match ? Number(match[1]) : 3;
   return Number.isFinite(n) && n > 0 && n <= 24 ? n : 3;
 }
@@ -229,6 +230,17 @@ function analyzeJson(prompt: string): string {
     sources: [],
     // motion design
     scenes,
+    // ad multiplier — the shot list (cuts, subjects, on-screen text) and the
+    // edit plan the versions foreach expands (expect: inputs.n). caption_changed
+    // is false so no caption re-burn is needed; subjects/on_screen_text are a
+    // short list the plan reads.
+    cuts: 2,
+    subjects: ['the presenter', 'the product'],
+    on_screen_text: [],
+    versions: Array.from({ length: n }, (_, i) => ({
+      edit: `Replace the presenter with variant ${i + 1}.`,
+      caption_changed: false,
+    })),
   });
 }
 

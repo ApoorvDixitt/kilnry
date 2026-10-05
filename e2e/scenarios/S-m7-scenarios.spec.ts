@@ -27,6 +27,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import { driveWorkflowRun } from './workflow-harness';
 
 const root = process.cwd();
 const dataDir = join(root, '.dev', 'e2e-data');
@@ -963,4 +964,45 @@ test('@m7 F-SET-11 the About page shows the version, licence, and third-party no
     /sk-or-v1-[0-9a-f]{32}|fal_[A-Za-z0-9_-]{16}|xi-[0-9a-f]{32}|AIza[0-9A-Za-z_-]{35}/,
   );
   expect(dump).not.toContain('"prompt":"');
+});
+
+test('@m7 F-WFL-10 save a completed run as a workflow with one input fixed as a read-only chip', async ({
+  page,
+}) => {
+  test.setTimeout(600_000);
+  // A completed thumbnail run is the cheapest run to save (stills only).
+  await ensureProvider(page, 'fal', FAL_KEY);
+  await ensureProvider(page, 'openrouter', OPENROUTER_KEY);
+  const { runId } = await driveWorkflowRun(page, {
+    workflowId: 'kilnry-thumbnail',
+    folder: 'Save_A',
+    slugPrefix: 'Thumbnail_',
+    inputs: { topic: 'The secret life of bees', headline: 'Bees rule', aspect: '16:9', takes: 1 },
+  });
+
+  // Open the run view and Save as Workflow, turning the `topic` input OFF so it
+  // is fixed as a const, and leaving the rest as fields (PRD-10 §8).
+  await page.goto(`/workflows/runs/${runId}`);
+  await page.locator('.run-menu-button').click();
+  await page.getByTestId('run-save-as-workflow').click();
+  await expect(page.getByTestId('run-save-dialog')).toBeVisible();
+  await page.getByTestId('run-save-field-topic').uncheck();
+  await page.getByTestId('run-save-confirm').click();
+  await expect(page.getByTestId('run-saved-note')).toContainText('me.', { timeout: 20_000 });
+
+  // The catalogue's "Mine" now lists the saved workflow.
+  await page.goto('/workflows');
+  const savedRow = page.locator('.workflow-row[data-workflow-id="me.kilnry-thumbnail-saved"]');
+  await expect(savedRow).toBeVisible({ timeout: 20_000 });
+
+  // Opening its intake shows `topic` as a read-only chip (not an editable field)
+  // carrying the run's value; the other inputs stay editable fields.
+  await savedRow.getByRole('button', { name: 'Run' }).first().click();
+  const drawer = page.locator('.workflow-drawer[data-workflow-id="me.kilnry-thumbnail-saved"]');
+  await expect(drawer).toBeVisible();
+  const chip = drawer.getByTestId('workflow-field-const');
+  await expect(chip).toContainText('The secret life of bees');
+  // The fixed input has no editable control; headline is still an editable field.
+  await expect(drawer.locator('#wf-input-topic')).toHaveCount(0);
+  await expect(drawer.locator('#wf-input-headline')).toBeVisible();
 });
