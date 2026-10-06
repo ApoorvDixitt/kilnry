@@ -50,7 +50,7 @@ Geist and Geist Mono are used under the SIL Open Font License 1.1 and are self-h
 ### BSD-3-Clause
 
 - qs 6.16.0
-- source-map-js 1.2.1
+- source-map-js 1.2.2
 
 ### CC-BY-4.0
 
