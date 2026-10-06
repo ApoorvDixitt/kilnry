@@ -184,6 +184,45 @@ export function Composer({
   // When a result tile asks to reuse its prompt, the page bumps the seed token
   // and the composer adopts that prompt text once per new token.
   const appliedSeed = useRef<number | undefined>(undefined);
+  const pickerAnchor = useRef<HTMLDivElement>(null);
+
+  // The Auto row says what Auto does and what it picked, in plain words: the
+  // subtitle used to be the estimate's first breakdown label, which is the
+  // engineering formula "1.048576 MP × 0.014" (UX-04).
+  const autoSubtitle = useMemo(() => {
+    if (!estimate) return message('create.picker.autoPlain');
+    const routed = models.find((model) => model.model_id === estimate.route.model);
+    const name = routed?.display_name ?? estimate.route.model;
+    const usd = estimate.authoritative_usd ?? estimate.estimate_usd;
+    return `${message('create.picker.autoPlain')} · ${name} ≈ $${usd.toFixed(usd < 1 ? 3 : 2)}`;
+  }, [estimate, models]);
+
+  // A popover closes on Escape and on a click outside it (design contract rule
+  // 12, F-16): the picker could only be dismissed by picking a model or
+  // re-clicking the chip, so a keyboard user was stuck and a mouse user could
+  // generate behind an open panel.
+  useEffect(() => {
+    if (!pickerOpen) return;
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') {
+        event.stopPropagation();
+        setPickerOpen(false);
+      }
+    };
+    const onPointerDown = (event: PointerEvent): void => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (pickerAnchor.current?.contains(target)) return;
+      if ((target as HTMLElement).closest?.('.model-chip')) return;
+      setPickerOpen(false);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    document.addEventListener('pointerdown', onPointerDown);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      document.removeEventListener('pointerdown', onPointerDown);
+    };
+  }, [pickerOpen]);
   useEffect(() => {
     if (seed && seed.token !== appliedSeed.current) {
       appliedSeed.current = seed.token;
@@ -333,6 +372,9 @@ export function Composer({
 
   function submit(override = false): void {
     if (state.disabled) return;
+    // Generate closes the picker: nothing should run behind an open panel
+    // (UX-05).
+    setPickerOpen(false);
     onGenerate?.({
       mode,
       prompt,
@@ -479,12 +521,12 @@ export function Composer({
             {modelChipLabel}
           </button>
           {pickerOpen ? (
-            <div className="composer-picker-anchor">
+            <div className="composer-picker-anchor" ref={pickerAnchor}>
               <ModelPicker
                 mode={mode}
                 models={models}
                 selectedId={selectedModel}
-                autoWhy={estimate?.breakdown[0]?.label ?? message('create.picker.auto')}
+                autoWhy={autoSubtitle}
                 now={now}
                 onSelect={(id) => {
                   setSelectedModel(id);

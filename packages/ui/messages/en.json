@@ -164,7 +164,8 @@
       "addKey": "Add {provider} key",
       "noMatch": "No model matches that. Try a capability: video, edit, tts.",
       "staleShort": "Price is out of date",
-      "trainsOnInputs": "trains on inputs"
+      "trainsOnInputs": "trains on inputs",
+      "autoPlain": "Picks the cheapest model that fits your settings"
     },
     "likeness": {
       "title": "Send a real person's likeness?",

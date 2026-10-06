@@ -20,6 +20,8 @@ export interface PriceView {
   amount_usd: number;
   fetched_at: string;
   source_url?: string;
+  /** The figure is computed from a token table, so it is shown with ≈ (F-15). */
+  estimated?: boolean;
 }
 
 // The estimate the /api/estimate route returns, straight from the core engine.

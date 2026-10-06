@@ -200,4 +200,53 @@ describe('Composer', () => {
     await act(async () => exit.click());
     expect(exits).toBe(1);
   });
+
+  // F-16 and UX-05: the picker could only be dismissed by picking a model or
+  // re-clicking the chip, so Escape and an outside click left it open and a user
+  // could press Generate behind it.
+  it('closes the model picker on Escape, on an outside click, and on Generate', async () => {
+    const host = await render(<Composer models={[imageModel()]} estimate={estimate} now={NOW} />);
+    const chip = host.querySelector<HTMLButtonElement>('.model-chip')!;
+    const open = async (): Promise<void> => {
+      await act(async () => chip.click());
+      expect(host.querySelector('.model-picker')).not.toBeNull();
+    };
+
+    await open();
+    await act(async () => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+    expect(host.querySelector('.model-picker')).toBeNull();
+
+    await open();
+    await act(async () => {
+      document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    });
+    expect(host.querySelector('.model-picker')).toBeNull();
+
+    await open();
+    const prompt = host.querySelector<HTMLTextAreaElement>('textarea')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(
+        prompt,
+        'a chai glass',
+      );
+      prompt.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    const generate = [...host.querySelectorAll('button')].find(
+      (button) => button.textContent?.trim() === 'Generate',
+    )!;
+    await act(async () => generate.click());
+    expect(host.querySelector('.model-picker')).toBeNull();
+  });
+
+  // UX-04: the Auto row showed the estimate's first breakdown label, which is the
+  // engineering formula.
+  it('gives the Auto row a plain subtitle naming the model it picked', async () => {
+    const host = await render(<Composer models={[imageModel()]} estimate={estimate} now={NOW} />);
+    await act(async () => host.querySelector<HTMLButtonElement>('.model-chip')!.click());
+    const why = host.querySelector('.model-picker-why')?.textContent ?? '';
+    expect(why).toContain('Picks the cheapest model that fits your settings');
+    expect(why).not.toContain('×');
+  });
 });

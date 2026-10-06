@@ -219,4 +219,42 @@ describe('ModelPicker', () => {
     });
     expect(picks).toEqual(['pickme']);
   });
+
+  // F-15: a token-billed image model showed "$0.0001/output_token", and one of
+  // them "$0.0000", which reads as free. PRD-05:92 asks for the computed
+  // per-image figure with ≈.
+  it('prices a token-billed model per image with an approximation sign', () => {
+    expect(formatPrice({ unit: 'image', amount_usd: 0.067, estimated: true })).toBe('≈ $0.067/img');
+    expect(formatPrice({ unit: 'image', amount_usd: 0.04 })).toBe('$0.040/img');
+  });
+
+  // UX-04: the registry lists an id per route, so the picker showed Nano Banana 2
+  // twice and GPT Image three times.
+  it('shows one row per model name and keeps the cheapest id', async () => {
+    const host = await render({
+      mode: 'image',
+      models: [
+        makeModel({
+          model_id: 'google/gemini-3.1-flash-image',
+          display_name: 'Nano Banana 2',
+          provider: 'google',
+          price: { unit: 'image', amount_usd: 0.067, fetched_at: '2026-09-19T00:00:00.000Z' },
+        }),
+        makeModel({
+          model_id: 'google/gemini-3.1-flash-image-preview',
+          display_name: 'Nano Banana 2',
+          provider: 'google',
+          price: { unit: 'image', amount_usd: 0.09, fetched_at: '2026-09-19T00:00:00.000Z' },
+        }),
+      ],
+      selectedId: 'auto',
+      autoWhy: 'Picks the cheapest model that fits your settings',
+      onSelect: () => undefined,
+      now: Date.parse('2026-09-20T00:00:00.000Z'),
+    });
+    const rows = [...host.querySelectorAll('.model-row:not(.model-row-auto)')];
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.textContent).toContain('Nano Banana 2');
+    expect(rows[0]?.textContent).toContain('$0.067/img');
+  });
 });

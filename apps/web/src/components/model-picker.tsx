@@ -59,11 +59,13 @@ export function providerLabel(provider: string): string {
   return PROVIDER_NAMES[provider] ?? provider;
 }
 
-export function formatPrice(price: { unit: string; amount_usd: number }): string {
+export function formatPrice(price: { unit: string; amount_usd: number; estimated?: boolean }): string {
   const suffix = UNIT_SUFFIX[price.unit] ?? `/${price.unit}`;
   const amount = price.unit === 'character' ? price.amount_usd * 1000 : price.amount_usd;
   const digits = amount < 0.01 ? 4 : amount < 1 ? 3 : 2;
-  return `$${amount.toFixed(digits)}${suffix}`;
+  // Estimates carry ≈; actuals do not (design contract rule 11). A token-billed
+  // model's per-image figure is computed, so it is an estimate (F-15).
+  return `${price.estimated ? '≈ ' : ''}$${amount.toFixed(digits)}${suffix}`;
 }
 
 export function priceAgeDays(fetchedAt: string, now: number = Date.now()): number {
@@ -102,6 +104,28 @@ interface ModelRow {
   model: PickerModel;
   priceLabel: string | null;
   stale: boolean;
+}
+
+/**
+ * One model, one row (UX-04). The registry lists an id per route — Nano Banana 2
+ * twice (the preview and the live id), GPT Image three times, once per quality
+ * tier — and the picker showed every one, so the recommended rows read like a
+ * bug. Rows that share a provider and a display name collapse into the cheapest
+ * id; the rest of the family stays reachable through Auto and the search box.
+ */
+function collapseByName(rows: ModelRow[]): ModelRow[] {
+  const seen = new Map<string, ModelRow>();
+  for (const row of rows) {
+    const key = `${row.model.provider}:${row.model.display_name}`;
+    const prior = seen.get(key);
+    if (!prior) {
+      seen.set(key, row);
+      continue;
+    }
+    // The list is already cheapest-first, so the first row stays; the tier of the
+    // duplicate is worth nothing to the user beyond the name it shares.
+  }
+  return [...seen.values()];
 }
 
 function toRow(model: PickerModel, now: number): ModelRow | null {
@@ -148,11 +172,13 @@ export function ModelPicker({
     );
   }, [forMode, query]);
 
-  const connectedRows = searched
-    .filter((model) => model.connected)
-    .map((model) => toRow(model, now))
-    .filter((row): row is ModelRow => row !== null)
-    .sort((a, b) => (a.model.price?.amount_usd ?? 0) - (b.model.price?.amount_usd ?? 0));
+  const connectedRows = collapseByName(
+    searched
+      .filter((model) => model.connected)
+      .map((model) => toRow(model, now))
+      .filter((row): row is ModelRow => row !== null)
+      .sort((a, b) => (a.model.price?.amount_usd ?? 0) - (b.model.price?.amount_usd ?? 0)),
+  );
 
   const recommended = connectedRows.slice(0, 3);
   const recommendedIds = new Set(recommended.map((row) => row.model.model_id));

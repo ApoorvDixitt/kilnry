@@ -30,6 +30,9 @@ export async function GET(): Promise<Response> {
                   amount_usd: summary.amount,
                   fetched_at: snapshot.fetched_at,
                   source_url: snapshot.source_url,
+                  // A token-table figure is computed, so the row shows it with ≈
+                  // (PRD-05:92, design contract rule 11).
+                  ...(summary.estimated ? { estimated: true } : {}),
                 }
               : undefined,
         };

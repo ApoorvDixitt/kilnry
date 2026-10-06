@@ -18,7 +18,12 @@ import {
 } from './manifest.js';
 import { registrySeed, seedModel, seedSnapshot } from './seed/index.js';
 
-export function priceSummary(ruleInput: PriceRule): { unit: string; amount: number } {
+export function priceSummary(ruleInput: PriceRule): {
+  unit: string;
+  amount: number;
+  /** true when the figure is computed from a token table rather than a listed unit price. */
+  estimated?: boolean;
+} {
   const rule = ruleInput.kind === 'provider_estimate' ? parsePriceRule(ruleInput.fallback) : ruleInput;
   switch (rule.kind) {
     case 'free':
@@ -38,8 +43,14 @@ export function priceSummary(ruleInput: PriceRule): { unit: string; amount: numb
       };
     case 'image_tokens':
       return { unit: 'image', amount: rule.table.medium?.['1024x1024'] ?? 0 };
-    case 'output_tokens_table':
-      return { unit: 'output_token', amount: rule.usd_per_token };
+    case 'output_tokens_table': {
+      // A token-billed image model shows the computed per-image figure, not a
+      // per-token price a creator cannot compare with $0.04/img (PRD-05:92,
+      // F-15). 1K is the picker's default size; the cost strip prices the
+      // resolution the user actually chose.
+      const tokens = rule.tokens_by_size['1K'] ?? Object.values(rule.tokens_by_size)[0] ?? 0;
+      return { unit: 'image', amount: tokens * rule.usd_per_token, estimated: true };
+    }
     case 'per_million_tokens':
       return { unit: 'M tokens', amount: rule.out };
     case 'per_1k_chars':
