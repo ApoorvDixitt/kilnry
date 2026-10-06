@@ -4,13 +4,20 @@
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
 import { NextRequest } from 'next/server';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { proxy, ratePolicy } from './proxy';
+import { resetRateLimits } from './server/rate-limit';
 
-const original = { release: process.env.KILNRY_RELEASE_BUILD, msw: process.env.KILNRY_TEST_MSW };
+const original = {
+  release: process.env.KILNRY_RELEASE_BUILD,
+  msw: process.env.KILNRY_TEST_MSW,
+  trustedProxy: process.env.KILNRY_TRUSTED_PROXY,
+};
 afterEach(() => {
   process.env.KILNRY_RELEASE_BUILD = original.release;
   process.env.KILNRY_TEST_MSW = original.msw;
+  if (original.trustedProxy === undefined) delete process.env.KILNRY_TRUSTED_PROXY;
+  else process.env.KILNRY_TRUSTED_PROXY = original.trustedProxy;
 });
 
 function request(path: string, init?: { method?: string; headers?: Record<string, string> }): NextRequest {
@@ -76,5 +83,59 @@ describe('request proxy security boundaries (F-SET-08)', () => {
     expect(ratePolicy('/api/runs/abc/cancel').name).toBe('default');
     // The workflow plan route does not spend, so it is not in the spend bucket.
     expect(ratePolicy('/api/workflows/kilnry-ugc-ad/plan').name).not.toBe('spend');
+  });
+});
+
+describe('pre-session rate limit keys on the peer, not X-Forwarded-For (F-ONB-02)', () => {
+  beforeEach(() => {
+    resetRateLimits();
+    delete process.env.KILNRY_RELEASE_BUILD;
+    delete process.env.KILNRY_TEST_MSW;
+    delete process.env.KILNRY_TRUSTED_PROXY;
+  });
+
+  it('shares one sign-in bucket across requests with different X-Forwarded-For', () => {
+    // The sign-in throttle is "10/min per IP" (TRD-15 §6). An attacker without a
+    // session cookie must not be able to mint a fresh bucket by rotating the
+    // client-supplied X-Forwarded-For header: ten attempts exhaust the one bucket
+    // and the eleventh — with yet another forwarded address — is refused 429.
+    let last = proxy(
+      request('/api/auth/sign-in/email', {
+        method: 'POST',
+        headers: { origin: 'http://127.0.0.1:3000', 'x-forwarded-for': '203.0.113.1' },
+      }),
+    );
+    expect(last.status).not.toBe(429);
+    for (let attempt = 2; attempt <= 10; attempt += 1) {
+      last = proxy(
+        request('/api/auth/sign-in/email', {
+          method: 'POST',
+          headers: { origin: 'http://127.0.0.1:3000', 'x-forwarded-for': `203.0.113.${attempt}` },
+        }),
+      );
+      expect(last.status).not.toBe(429);
+    }
+    const eleventh = proxy(
+      request('/api/auth/sign-in/email', {
+        method: 'POST',
+        headers: { origin: 'http://127.0.0.1:3000', 'x-forwarded-for': '198.51.100.9' },
+      }),
+    );
+    expect(eleventh.status).toBe(429);
+  });
+
+  it('honours X-Forwarded-For only when the trusted-proxy flag is set', () => {
+    // Behind a trusted reverse proxy the operator opts in and each real client
+    // address keeps its own bucket again.
+    process.env.KILNRY_TRUSTED_PROXY = '1';
+    for (let attempt = 1; attempt <= 11; attempt += 1) {
+      const response = proxy(
+        request('/api/auth/sign-in/email', {
+          method: 'POST',
+          headers: { origin: 'http://127.0.0.1:3000', 'x-forwarded-for': `203.0.113.${attempt}` },
+        }),
+      );
+      expect(response.status).not.toBe(429);
+    }
   });
 });

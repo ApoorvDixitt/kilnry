@@ -131,7 +131,18 @@ function principalKey(request: NextRequest): string {
     .sort((left, right) => left.name.localeCompare(right.name))
     .map((cookie) => `${cookie.name}=${cookie.value}`)
     .join(';');
-  const fallback = `${request.headers.get('x-forwarded-for') ?? 'loopback'}:${request.headers.get('user-agent') ?? ''}`;
+  // The pre-session fallback must not key on a client-controlled header, or the
+  // "10/min per IP" sign-in throttle (TRD-15 §6) is defeated by rotating
+  // X-Forwarded-For to mint a fresh bucket for every password guess (F-05). The
+  // app binds the loopback peer, and LAN mode has no reverse proxy, so an
+  // unauthenticated caller collapses to one shared bucket by default. Only when
+  // the operator opts in behind a trusted reverse proxy (KILNRY_TRUSTED_PROXY=1)
+  // is the first forwarded address honoured as the real client address.
+  let fallback = 'peer';
+  if (process.env.KILNRY_TRUSTED_PROXY === '1') {
+    const forwarded = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim();
+    if (forwarded) fallback = `proxy:${forwarded}`;
+  }
   return createHash('sha256')
     .update(session || fallback)
     .digest('hex')
