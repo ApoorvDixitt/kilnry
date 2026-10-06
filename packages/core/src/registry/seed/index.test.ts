@@ -136,4 +136,25 @@ describe('canonical registry seed', () => {
         .every((model) => !model.enabled),
     ).toBe(true);
   });
+
+  // F-12: OpenAI's deprecation page (read 2026-10-06,
+  // https://developers.openai.com/api/docs/deprecations) retires these four
+  // transcription models from the API on 2027-02-26 and names gpt-live-transcribe
+  // or gpt-transcribe as the replacements. A seeded, routable row on that list is
+  // a job that will 404 after the shutdown date with nothing in the product to
+  // notice, because the OpenAI adapter has no model refresh.
+  it('seeds no routable OpenAI model that OpenAI has scheduled for removal', () => {
+    const RETIRED = ['whisper-1', 'gpt-4o-transcribe', 'gpt-4o-mini-transcribe', 'gpt-4o-transcribe-diarize'];
+    for (const model of registrySeed) {
+      if (model.provider !== 'openai') continue;
+      if (!RETIRED.includes(model.model_id)) continue;
+      expect(model.enabled, model.model_id).toBe(false);
+      expect(model.deprecated_at, model.model_id).toBe('2027-02-26T00:00:00.000Z');
+    }
+    // Diarised transcription still has a live home.
+    const diarize = registrySeed.filter(
+      (model) => model.provider === 'openai' && model.tags.includes('diarize') && model.enabled,
+    );
+    expect(diarize.map((model) => model.model_id)).toEqual(['gpt-transcribe']);
+  });
 });

@@ -245,17 +245,29 @@ export const openaiSeed: ModelManifest[] = [
     media_roles: [{ role: 'audio', min: 1, max: 1, kinds: ['audio'] }],
     retention_days: null,
     moderation: openaiModeration,
+    // Diarised transcription comes here now: OpenAI names gpt-transcribe the
+    // replacement for the retired gpt-4o-transcribe-diarize below (F-12).
+    tags: ['diarize'],
   }),
+  // Retired (F-12). OpenAI notified developers on 2026-08-26 that whisper-1,
+  // gpt-4o-transcribe, gpt-4o-mini-transcribe and gpt-4o-transcribe-diarize are
+  // deprecated and removed from the API on 2027-02-26, with gpt-live-transcribe
+  // or gpt-transcribe as the replacements
+  // (https://developers.openai.com/api/docs/deprecations, read 2026-10-06). The
+  // row stays so a stored job or sidecar can still name its model, but it is
+  // disabled and deprecated, so the router never picks it again.
   openai({
     model_id: 'gpt-4o-transcribe-diarize',
-    display_name: 'GPT-4o Transcribe Diarize',
+    display_name: 'GPT-4o Transcribe Diarize (retired)',
     capabilities: ['stt'],
     price_rule: { kind: 'per_minute', amount: 0.006, unit_of: 'input', per_target_language: false },
     supports: textOnlySupports,
     media_roles: [{ role: 'audio', min: 1, max: 1, kinds: ['audio'] }],
     retention_days: null,
     moderation: openaiModeration,
-    tags: ['diarize'],
+    enabled: false,
+    deprecated_at: '2027-02-26T00:00:00.000Z',
+    deprecation_note: 'OpenAI removes this model on 2027-02-26; diarised transcription uses GPT Transcribe.',
   }),
   openai({
     model_id: 'gpt-5.6-terra',
