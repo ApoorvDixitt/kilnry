@@ -144,9 +144,74 @@ describe('CostStrip', () => {
     );
   });
 
-  it('shows the unpriced copy and no figure when there is no estimate', async () => {
-    const host = await render({ estimate: null, params: { count: 1 }, promptChars: 0, now: NOW });
-    expect(host.querySelector('.cost-strip')?.getAttribute('data-status')).toBe('unpriced');
-    expect(host.textContent).toContain('Refresh prices in Settings');
+  // UX-03: the strip used to blame stale prices and send the user to Settings
+  // whenever there was no estimate, including before they typed anything.
+  it('says what is actually true in each no-estimate state', async () => {
+    const empty = await render({
+      estimate: null,
+      params: { count: 1 },
+      promptChars: 0,
+      now: NOW,
+      promptEmpty: true,
+    });
+    expect(empty.querySelector('.cost-strip')?.getAttribute('data-status')).toBe('unpriced');
+    expect(empty.textContent).toBe('Type a prompt to see the price.');
+    await act(async () => root?.unmount());
+
+    const pricing = await render({
+      estimate: null,
+      params: { count: 1 },
+      promptChars: 12,
+      now: NOW,
+      pricing: true,
+    });
+    expect(pricing.textContent).toBe('Pricing…');
+    await act(async () => root?.unmount());
+
+    const failed = await render({
+      estimate: null,
+      params: { count: 1 },
+      promptChars: 12,
+      now: NOW,
+      priceError: 'No connected provider can do this.',
+    });
+    expect(failed.textContent).toBe('No connected provider can do this.');
+  });
+
+  // PRD-14 §8 as amended by D-71a: the stale state names the model and its age
+  // and offers the refresh and the per-action override.
+  it('names the model and the age on a stale price, with both actions', async () => {
+    const refreshes: number[] = [];
+    const overrides: number[] = [];
+    const host = await render({
+      estimate: estimate({
+        unit_price: {
+          unit: 'image',
+          amount_usd: 0.04,
+          fetched_at: '2026-08-01T00:00:00.000Z',
+          source_url: 'https://example.com/price',
+        },
+      }),
+      params: { count: 1 },
+      promptChars: 12,
+      now: NOW,
+      onRefreshPrices: () => refreshes.push(1),
+      onUseStalePrice: () => overrides.push(1),
+    });
+    expect(host.querySelector('.cost-strip')?.getAttribute('data-status')).toBe('stale');
+    expect(host.querySelector('[data-testid="cost-strip-stale"]')?.textContent).toBe(
+      'Price data for fal-ai/example is 49 days old.',
+    );
+    await act(async () => host.querySelector<HTMLButtonElement>('.cost-strip-refresh')!.click());
+    await act(async () => host.querySelector<HTMLButtonElement>('.cost-strip-use-stale')!.click());
+    expect([refreshes.length, overrides.length]).toEqual([1, 1]);
+  });
+
+  // UX-19: a video strip read "0 s" before the duration chip was touched while
+  // the engine priced the model's minimum.
+  it('shows the duration the engine priced until the user picks one', () => {
+    expect(outputSize('second', { count: 1 }, 0, 3)).toBe('3 s');
+    expect(outputSize('second', { count: 1, duration_s: 8 }, 0, 3)).toBe('8 s');
+    expect(outputSize('second', { count: 2, duration_s: 5 }, 0)).toBe('10 s');
   });
 });

@@ -55,10 +55,13 @@ export function outputSize(
   unit: string,
   params: { count: number; duration_s?: number | undefined },
   promptChars: number,
+  billedUnits?: number,
 ): string {
   switch (unit) {
+    // The engine reports the seconds it priced, so before the duration chip is
+    // touched the strip shows that default instead of "0 s" (UX-19).
     case 'second':
-      return `${(params.duration_s ?? 0) * params.count} s`;
+      return `${(params.duration_s ?? billedUnits ?? 0) * params.count} s`;
     // Speech is billed by the thousand characters, so the size line counts the
     // characters that will be spoken rather than a number of files.
     case 'character':
@@ -110,19 +113,40 @@ export function CostStrip({
   promptChars,
   budgets = [],
   now = Date.now(),
+  promptEmpty = false,
+  pricing = false,
+  priceError,
+  onRefreshPrices,
+  onUseStalePrice,
 }: {
   estimate: CostEstimate | null;
   params: { count: number; duration_s?: number | undefined };
   promptChars: number;
   budgets?: BudgetLine[];
   now?: number;
+  /** No prompt yet, so there is nothing to price (UX-03). */
+  promptEmpty?: boolean;
+  /** An estimate request is in flight. */
+  pricing?: boolean;
+  /** The engine's own message when pricing failed. */
+  priceError?: string | undefined;
+  onRefreshPrices?: (() => void) | undefined;
+  onUseStalePrice?: (() => void) | undefined;
 }): React.ReactNode {
   const state = costStripState({ estimate, budgets, now });
 
+  // Three no-estimate states, each saying what is true (UX-03): the strip used
+  // to blame stale prices and send the user to Settings whenever there was no
+  // estimate — including before they had typed anything.
   if (!estimate || state.status === 'unpriced') {
+    const text = promptEmpty
+      ? message('create.cost.noPrompt')
+      : pricing
+        ? message('create.cost.pricing')
+        : (priceError ?? message('create.cost.unpriced'));
     return (
       <span className="cost-strip is-unpriced" data-status="unpriced">
-        {message('create.cost.unpriced')}
+        {text}
       </span>
     );
   }
@@ -130,7 +154,7 @@ export function CostStrip({
   const amount = state.amount ?? 0;
   const digits = usdFractionDigits(amount);
   const over = state.status === 'over-budget';
-  const size = outputSize(estimate.unit_price.unit, params, promptChars);
+  const size = outputSize(estimate.unit_price.unit, params, promptChars, estimate.billed_units);
   const ageDays = priceAgeDays(estimate.unit_price.fetched_at, now);
 
   const tooltipLines = [
@@ -155,12 +179,31 @@ export function CostStrip({
       title={tooltipLines.join('\n')}
     >
       {state.status === 'stale' ? (
-        <AlertTriangle
-          className="cost-strip-stale"
-          aria-label={message('create.cost.stale')}
-          size={13}
-          strokeWidth={2}
-        />
+        <>
+          <AlertTriangle
+            className="cost-strip-stale"
+            aria-label={message('create.cost.stale')}
+            size={13}
+            strokeWidth={2}
+          />
+          {/* PRD-14 §8 as amended by D-71a: name the model and the age, offer the
+              refresh, and let the user acknowledge this one estimate. */}
+          <span className="cost-strip-stale-text" data-testid="cost-strip-stale">
+            {message('create.cost.staleDetail')
+              .replace('{model}', estimate.route.model)
+              .replace('{days}', String(ageDays))}
+          </span>
+          {onRefreshPrices ? (
+            <button type="button" className="cost-strip-refresh" onClick={onRefreshPrices}>
+              {message('create.cost.refreshToContinue')}
+            </button>
+          ) : null}
+          {onUseStalePrice ? (
+            <button type="button" className="cost-strip-use-stale" onClick={onUseStalePrice}>
+              {message('create.cost.useAnyway')}
+            </button>
+          ) : null}
+        </>
       ) : null}
       <motion.span
         className="cost-strip-figure"

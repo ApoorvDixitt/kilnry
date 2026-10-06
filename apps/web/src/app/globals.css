@@ -7022,6 +7022,21 @@ html[data-motion='reduced'] *::after {
   font-size: 13px;
 }
 
+.cost-strip-stale-text {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.cost-strip-refresh,
+.cost-strip-use-stale {
+  border: 1px solid var(--border-control);
+  background: var(--surface-2);
+  color: var(--text);
+  border-radius: 7px;
+  padding: 2px 8px;
+  font-size: 12px;
+}
+
 .ready-theme {
   display: flex;
   gap: 14px;

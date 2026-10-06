@@ -197,7 +197,12 @@
       "providerEstimate": "Provider estimate {amount}",
       "priceAge": "Price fetched {days} days ago",
       "budgetLine": "{label} {spent} of {cap}",
-      "overBudget": "Daily cap {cap} reached ({spent} spent). Raise the cap or wait until midnight."
+      "overBudget": "Daily cap {cap} reached ({spent} spent). Raise the cap or wait until midnight.",
+      "noPrompt": "Type a prompt to see the price.",
+      "pricing": "Pricing…",
+      "staleDetail": "Price data for {model} is {days} days old.",
+      "refreshToContinue": "Refresh prices to continue",
+      "useAnyway": "Use this price anyway"
     },
     "tray": {
       "title": "Attachments",

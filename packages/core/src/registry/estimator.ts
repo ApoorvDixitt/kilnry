@@ -22,6 +22,8 @@ interface PriceResult {
   usd: number;
   unit: string;
   unitAmount: number;
+  /** How many of the unit were priced (the billed seconds for a video). */
+  units?: number;
   breakdown: EstimateBreakdown[];
 }
 
@@ -212,7 +214,7 @@ function price(ruleInput: PriceRule, input: EstimateInput, adjustments: string[]
         breakdown.push({ label: 'provider minimum', usd: rule.min_charge_usd - usd });
         usd = rule.min_charge_usd;
       }
-      return { usd, unit: 'second', unitAmount: rate, breakdown };
+      return { usd, unit: 'second', unitAmount: rate, units: billedSeconds, breakdown };
     }
     case 'video_tokens': {
       const size = dimensions(request);
@@ -366,6 +368,7 @@ export function estimate(input: EstimateInput): Estimate {
       fetched_at: input.snapshot.fetched_at,
       source_url: input.snapshot.source_url,
     },
+    ...(one.units === undefined ? {} : { billed_units: one.units }),
     breakdown,
     route: { provider: input.model.provider, model: input.model.model_id, why: '' },
     adjustments,

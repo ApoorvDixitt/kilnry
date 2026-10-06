@@ -159,6 +159,13 @@ export interface Estimate {
   authoritative_usd?: number;
   source: 'formula' | 'provider';
   unit_price: UnitPrice;
+  /**
+   * How many of the priced unit this estimate covers — the seconds a video was
+   * priced for, the images, the minutes. The interface reads it instead of
+   * guessing: a video strip showed "0 s" before the duration chip was touched
+   * while the engine was pricing the model's minimum (UX-19).
+   */
+  billed_units?: number;
   breakdown: EstimateBreakdown[];
   route: { provider: ProviderId; model: string; why: string };
   adjustments: string[];

@@ -544,6 +544,7 @@ export function Composer({
           promptChars={prompt.trim().length}
           budgets={budgets}
           now={now}
+          promptEmpty={prompt.trim().length === 0}
         />
         {overBudgetAsks && overBudgetLine && !budgetAskDismissed ? (
           <div className="budget-approval" role="alertdialog" aria-label={message('create.budgetAsk.title')}>
