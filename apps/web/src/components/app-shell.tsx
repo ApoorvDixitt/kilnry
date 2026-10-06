@@ -91,10 +91,15 @@ export function AppShell({ children }: { children: ReactNode }): React.ReactNode
     refresh();
     if (typeof EventSource === 'undefined') return;
     const source = new EventSource('/api/events');
-    source.addEventListener('message', refresh);
-    // The stream sends named events (`event: job.completed`), which a
-    // 'message' listener never receives. Spend lands in the ledger when a job
-    // ends, so the budget meter re-reads on each terminal event (F-17).
+    // Every event on /api/events is named (`event: job.completed`,
+    // events/route.ts), so the badge subscribes by name: the unnamed 'message'
+    // listener it used to carry never fired once, which left the Jobs count
+    // frozen at whatever it was on mount (D-71c, the gap found in task 6).
+    // The four names the engine emits (engine.ts).
+    const JOB_EVENTS = ['job.updated', 'job.completed', 'job.failed', 'job.moderated'];
+    for (const type of JOB_EVENTS) source.addEventListener(type, refresh);
+    // Spend lands in the ledger when a job ends, so the budget meter re-reads on
+    // each terminal event (F-17).
     const spent = (): void => setBudgetTick((tick) => tick + 1);
     for (const type of ['job.completed', 'job.failed', 'job.moderated']) source.addEventListener(type, spent);
     source.addEventListener('error', () => source.close());

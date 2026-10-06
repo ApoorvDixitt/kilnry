@@ -33,8 +33,15 @@ function excerpt(body: ProviderBody | undefined): string | undefined {
   return value ? redactString(value).slice(0, 200) : undefined;
 }
 
-function message(sentence: string, providerText?: string): string {
-  return providerText ? `${sentence} Provider said: "${providerText}"` : sentence;
+/**
+ * Kilnry's sentence, then the provider's own message verbatim behind the canon
+ * prefix "<provider> (<status>): " (PRD-15:104, F-59). It used to read
+ * `Provider said: "…"`, which carried neither the provider's name nor the status
+ * the user needs to look the failure up.
+ */
+function message(sentence: string, providerText?: string, origin?: string): string {
+  if (!providerText) return sentence;
+  return origin ? `${sentence} ${origin}: ${providerText}` : `${sentence} ${providerText}`;
 }
 
 export function providerHttpError(
@@ -45,6 +52,7 @@ export function providerHttpError(
 ): KilnryError {
   const value = typeof body === 'object' && body !== null ? (body as ProviderBody) : undefined;
   const providerText = excerpt(value);
+  const origin = `${provider} (${status})`;
   const retryAfter = Number(headers?.get('retry-after') ?? 0) || undefined;
   const detailArray = Array.isArray(value?.detail) ? value.detail : [];
   const falModerated = detailArray.some(
@@ -67,7 +75,7 @@ export function providerHttpError(
   if (falModerated || openRouterModerated || openaiModerated) {
     return new KilnryError(
       'MODERATION_REJECTED',
-      message("Blocked by the provider's content filter. Not charged.", providerText),
+      message("Blocked by the provider's content filter. Not charged.", providerText, origin),
       {
         provider,
         provider_code: falModerated
@@ -85,7 +93,7 @@ export function providerHttpError(
   if (insufficientFunds) {
     return new KilnryError(
       'INSUFFICIENT_FUNDS',
-      message(`${provider} says your account is out of balance. Top up, then retry.`, providerText),
+      message(`${provider} says your account is out of balance. Top up, then retry.`, providerText, origin),
       {
         provider,
         provider_code: String(value?.error?.code ?? status),
@@ -97,7 +105,7 @@ export function providerHttpError(
   if (status === 401 || status === 403) {
     return new KilnryError(
       'INVALID_INPUT',
-      message(`${provider} rejected that key (${status}).`, providerText),
+      message(`${provider} rejected that key (${status}).`, providerText, origin),
       {
         provider,
         provider_code: String(value?.error?.code ?? status),
@@ -109,7 +117,8 @@ export function providerHttpError(
   if (status === 404) {
     return new KilnryError(
       'NOT_FOUND',
-      message(`The requested ${provider} model or job was not found.`, providerText),
+      // PRD-15:109's wording (F-58).
+      message(`Something this job needs is missing: ${providerText ?? 'the model or job'}.`, undefined),
       {
         provider,
         provider_code: '404',
@@ -121,7 +130,13 @@ export function providerHttpError(
   if (status === 408 || status === 504 || status === 524) {
     return new KilnryError(
       'TIMEOUT',
-      message(`No answer from ${provider}. Kilnry has not resubmitted.`, providerText),
+      // PRD-15:116's wording (F-58). The elapsed minutes are the caller's to
+      // fill when it knows them; the sentence is otherwise verbatim.
+      message(
+        `No answer from ${provider}. Kilnry hasn't resubmitted, so you won't be charged twice. Checking their status first.`,
+        providerText,
+        origin,
+      ),
       {
         provider,
         provider_code: String(status),
@@ -131,12 +146,22 @@ export function providerHttpError(
     );
   }
   if (status === 429) {
-    return new KilnryError('RATE_LIMITED', message(`${provider} is rate-limiting requests.`, providerText), {
-      provider,
-      provider_code: String(status),
-      retryable: true,
-      details,
-    });
+    // PRD-15:113 includes the retry timing (F-57): the Retry-After seconds when
+    // the provider sent one, else the first step of the engine's own schedule.
+    return new KilnryError(
+      'RATE_LIMITED',
+      message(
+        `${provider} is rate-limiting requests. Kilnry will retry in ${retryAfter ?? 2} s.`,
+        providerText,
+        origin,
+      ),
+      {
+        provider,
+        provider_code: String(status),
+        retryable: true,
+        details,
+      },
+    );
   }
   if (status >= 500) {
     return new KilnryError(
@@ -144,6 +169,7 @@ export function providerHttpError(
       message(
         `${provider} returned an error. Not charged unless their message says otherwise.`,
         providerText,
+        origin,
       ),
       {
         provider,
@@ -155,7 +181,8 @@ export function providerHttpError(
   }
   return new KilnryError(
     'INVALID_INPUT',
-    message(`Kilnry could not send this request to ${provider}.`, providerText),
+    // PRD-15:108's wording (F-58).
+    message(`Kilnry couldn't send this: ${providerText ?? `${provider} rejected the request`}.`, undefined),
     {
       provider,
       provider_code: String(value?.error?.code ?? status),

@@ -847,6 +847,24 @@
       "failed": "Failed",
       "cancelled": "Cancelled",
       "moderated": "Blocked"
+    },
+    "failedUnknown": "This job failed and Kilnry has no message from the provider.",
+    "charge": {
+      "no": "Not charged",
+      "unknown": "Charge unknown",
+      "charged": "Charged"
+    },
+    "action": {
+      "edit": "Edit",
+      "locate": "Locate…",
+      "addKey": "Add key",
+      "raiseCap": "Raise cap",
+      "retry": "Retry now",
+      "lowerConcurrency": "Lower concurrency",
+      "billing": "Open billing",
+      "anotherModel": "Try another model",
+      "copyDetails": "Copy details",
+      "checkStatus": "Check status"
     }
   },
   "library": {

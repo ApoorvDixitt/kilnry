@@ -74,6 +74,113 @@ export function timeoutRowText(row: JobRow): string {
     .replace('{minutes}', String(timeoutMinutes(row)));
 }
 
+/**
+ * Was money taken? PRD-15 §4's "Charged?" column: a moderated or refused request
+ * is not charged, a timeout is unknown, a provider error depends on what the
+ * provider says, and anything with a recorded actual was charged.
+ */
+export function chargeState(row: JobRow): 'no' | 'unknown' | 'charged' {
+  const actual = row.actualUsd === null || row.actualUsd === undefined ? 0 : Number(row.actualUsd);
+  if (actual > 0) return 'charged';
+  if (row.errorCode === 'TIMEOUT' || row.errorCode === 'PROVIDER_ERROR') return 'unknown';
+  return 'no';
+}
+
+/**
+ * The buttons PRD-15 §4 offers for each code. The row always offers Dismiss;
+ * these are the ones that differ (F-20).
+ */
+export function failedActions(
+  row: JobRow,
+): Array<
+  | 'edit'
+  | 'locate'
+  | 'addKey'
+  | 'raiseCap'
+  | 'retry'
+  | 'lowerConcurrency'
+  | 'billing'
+  | 'anotherModel'
+  | 'copyDetails'
+  | 'checkStatus'
+> {
+  switch (row.errorCode) {
+    case 'INVALID_INPUT':
+      return ['edit'];
+    case 'NOT_FOUND':
+      return ['locate', 'anotherModel'];
+    case 'NO_PROVIDER':
+      return ['addKey'];
+    case 'BUDGET_EXCEEDED':
+      return ['raiseCap'];
+    case 'MODERATION_REJECTED':
+      return ['edit', 'anotherModel'];
+    case 'RATE_LIMITED':
+      return ['retry', 'lowerConcurrency'];
+    case 'INSUFFICIENT_FUNDS':
+      return ['billing', 'retry'];
+    case 'TIMEOUT':
+      return ['checkStatus', 'retry'];
+    case 'PROVIDER_ERROR':
+      return ['retry', 'anotherModel', 'copyDetails'];
+    default:
+      return ['retry', 'copyDetails'];
+  }
+}
+
+/**
+ * The expanded detail under a failed row (PRD-15:29, F-20): Kilnry's sentence,
+ * the provider's own message verbatim in mono, the code, whether money was
+ * taken, and the per-code actions. Before this a failed row showed the prompt
+ * and a Retry button, so the user learned nothing about what went wrong, what to
+ * do, or whether they had paid.
+ */
+export function FailedRowDetail({
+  row,
+  onRetry,
+  onAction,
+}: {
+  row: JobRow;
+  onRetry?: ((id: string) => void) | undefined;
+  onAction?: ((action: string, row: JobRow) => void) | undefined;
+}): React.ReactNode {
+  const sentence = row.errorMessage ?? message('jobs.failedUnknown');
+  // The provider's message is appended behind "<provider> (<status>): " by the
+  // provider layer, so the mono line is whatever follows that prefix.
+  const providerSplit = /(^|\s)([a-z0-9.-]+ \(\d{3}\)): /i.exec(sentence);
+  const kilnrySentence = providerSplit ? sentence.slice(0, providerSplit.index).trim() : sentence;
+  const providerLine = providerSplit
+    ? `${providerSplit[2]}: ${sentence.slice((providerSplit.index ?? 0) + providerSplit[0].length)}`
+    : undefined;
+  const charge = chargeState(row);
+  return (
+    <div className="jobs-failed-detail" data-testid="jobs-failed-detail">
+      <p className="jobs-failed-sentence">{kilnrySentence}</p>
+      {providerLine ? <code className="jobs-failed-provider">{providerLine}</code> : null}
+      <p className="jobs-failed-meta">
+        <span className="jobs-failed-code">{row.errorCode ?? 'UNKNOWN'}</span>
+        <span className="jobs-failed-charge">{message(`jobs.charge.${charge}`)}</span>
+      </p>
+      <div className="jobs-failed-actions">
+        {failedActions(row).map((action) => (
+          <button
+            key={action}
+            type="button"
+            data-action={action}
+            onClick={(event) => {
+              event.stopPropagation();
+              if (action === 'retry') onRetry?.(row.id);
+              else onAction?.(action, row);
+            }}
+          >
+            {message(`jobs.action.${action}`)}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // Whether a job may be retried (a failed, terminal error) or cancelled (still in
 // flight). Moderated jobs are not retried here — they route to Edit prompt.
 export function jobActions(status: string): { canRetry: boolean; canCancel: boolean } {
@@ -131,10 +238,13 @@ export function JobsTable({
   onCancel,
   onCheck,
   onOpen,
+  onAction,
 }: {
   rows: JobRow[];
   onRetry: (id: string) => void;
   onCancel: (id: string) => void;
+  /** A per-code action from a failed row's detail (PRD-15 §4, F-20). */
+  onAction?: ((action: string, row: JobRow) => void) | undefined;
   onCheck?: (id: string) => void;
   onOpen?: (id: string) => void;
 }): React.ReactNode {
@@ -167,6 +277,9 @@ export function JobsTable({
                     <span className="jobs-timeout-note" role="note">
                       {timeoutRowText(row)}
                     </span>
+                  ) : null}
+                  {row.status === 'failed' ? (
+                    <FailedRowDetail row={row} onRetry={onRetry} {...(onAction ? { onAction } : {})} />
                   ) : null}
                 </td>
                 <td className="jobs-model">{row.model ?? row.modelId ?? '—'}</td>

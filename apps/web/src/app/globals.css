@@ -7023,6 +7023,50 @@ html[data-motion='reduced'] *::after {
   font-size: 13px;
 }
 
+.jobs-failed-detail {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface-2);
+}
+
+.jobs-failed-sentence {
+  margin: 0;
+  font-size: 13px;
+}
+
+.jobs-failed-provider {
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: pre-wrap;
+}
+
+.jobs-failed-meta {
+  display: flex;
+  gap: 10px;
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.jobs-failed-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.jobs-failed-actions button {
+  border: 1px solid var(--border-control);
+  background: var(--surface-1);
+  border-radius: 7px;
+  padding: 2px 8px;
+  font-size: 12px;
+}
+
 .budget-meter.is-warning i b {
   background: var(--warn, #c98a2b);
 }

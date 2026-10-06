@@ -6,7 +6,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { JobsTable, costCell, filterJobs, jobActions, type JobRow } from './jobs-table';
+import { JobsTable, chargeState, costCell, filterJobs, jobActions, type JobRow } from './jobs-table';
 
 let root: Root | undefined;
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -91,5 +91,70 @@ describe('JobsTable', () => {
     });
     const retries = [...host.querySelectorAll('button')].filter((b) => b.textContent === 'Retry');
     expect(retries).toHaveLength(1);
+  });
+});
+
+// F-20: a failed row showed the prompt and a Retry button and nothing else — not
+// Kilnry's sentence, not the provider's own message, not the code, not whether
+// money had been taken (PRD-15:29 and §4).
+describe('the failed-row detail (F-JOB-01)', () => {
+  it("shows Kilnry's sentence, the provider's message in mono, the code and the charge", async () => {
+    const host = await render({
+      rows: [
+        job({
+          status: 'failed',
+          errorCode: 'INVALID_INPUT',
+          errorMessage:
+            "Kilnry couldn't send this: duration 45 s is above Kling 3.0's 15 s maximum. fal (422): duration out of range",
+          actualUsd: '0',
+        }),
+      ],
+      onRetry: () => undefined,
+      onCancel: () => undefined,
+    });
+    const detail = host.querySelector('[data-testid="jobs-failed-detail"]')!;
+    expect(detail.querySelector('.jobs-failed-sentence')?.textContent).toBe(
+      "Kilnry couldn't send this: duration 45 s is above Kling 3.0's 15 s maximum.",
+    );
+    expect(detail.querySelector('.jobs-failed-provider')?.textContent).toBe(
+      'fal (422): duration out of range',
+    );
+    expect(detail.querySelector('.jobs-failed-code')?.textContent).toBe('INVALID_INPUT');
+    expect(detail.querySelector('.jobs-failed-charge')?.textContent).toBe('Not charged');
+    expect(detail.querySelector('[data-action="edit"]')).not.toBeNull();
+  });
+
+  it('offers the actions PRD-15 §4 names for each code', async () => {
+    const cases: Array<[string, string[]]> = [
+      ['NOT_FOUND', ['locate', 'anotherModel']],
+      ['NO_PROVIDER', ['addKey']],
+      ['BUDGET_EXCEEDED', ['raiseCap']],
+      ['RATE_LIMITED', ['retry', 'lowerConcurrency']],
+      ['INSUFFICIENT_FUNDS', ['billing', 'retry']],
+      ['PROVIDER_ERROR', ['retry', 'anotherModel', 'copyDetails']],
+      ['TIMEOUT', ['checkStatus', 'retry']],
+    ];
+    for (const [code, expected] of cases) {
+      const host = await render({
+        rows: [job({ status: 'failed', errorCode: code, errorMessage: 'something went wrong' })],
+        onRetry: () => undefined,
+        onCancel: () => undefined,
+      });
+      const actions = [...host.querySelectorAll('.jobs-failed-actions button')].map((button) =>
+        button.getAttribute('data-action'),
+      );
+      expect(actions, code).toEqual(expected);
+      await act(async () => root?.unmount());
+    }
+  });
+
+  it('reports an unknown charge for a timeout and a charge when money was taken', async () => {
+    expect(chargeState(job({ status: 'failed', errorCode: 'TIMEOUT', actualUsd: '0' }))).toBe('unknown');
+    expect(chargeState(job({ status: 'failed', errorCode: 'PROVIDER_ERROR', actualUsd: '0.42' }))).toBe(
+      'charged',
+    );
+    expect(chargeState(job({ status: 'failed', errorCode: 'MODERATION_REJECTED', actualUsd: '0' }))).toBe(
+      'no',
+    );
   });
 });
