@@ -23,6 +23,7 @@ import {
 import { VersionSwitcher } from './version-switcher';
 import { CloneVoiceDrawer } from './clone-voice';
 import { TrainerCards } from './train-identity';
+import { WorkflowIntakeDrawer } from './workflow-intake-drawer';
 import { VoiceBindPicker } from './voice-bind-picker';
 
 type DetailTab = 'sheet' | 'identities' | 'voice' | 'usage' | 'settings';
@@ -154,17 +155,27 @@ export function CharacterDetail({ handle }: { handle: string }): React.ReactNode
     [handle],
   );
 
-  const buildSheet = useCallback(() => {
-    setBuilding(true);
+  // "Build sheet" opens the Character Sheet workflow intake prefilled with this
+  // Character, so plan, estimate and Approve apply like any paid run, and the
+  // button carries the sheet's price (PRD-07:278, F-112). The price is the
+  // engine estimate of every planned generate step; asking for it is free.
+  const [sheetPrice, setSheetPrice] = useState<number>();
+  const [sheetIntake, setSheetIntake] = useState(false);
+  useEffect(() => {
+    let current = true;
     void apiFetch('/api/characters/manage', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'build_sheet', handle }),
+      body: JSON.stringify({ action: 'price_sheet', handle }),
     })
-      .then((response) => (response.ok ? (response.json() as Promise<SheetResponse>) : null))
-      .then((body) => setSheet((prev) => sheetView(prev, body)))
-      .catch(() => setSheet((prev) => sheetView(prev, null)))
-      .finally(() => setBuilding(false));
+      .then((response) => (response.ok ? (response.json() as Promise<{ estimate_usd?: number }>) : null))
+      .then((body) => {
+        if (current && typeof body?.estimate_usd === 'number') setSheetPrice(body.estimate_usd);
+      })
+      .catch(() => undefined);
+    return () => {
+      current = false;
+    };
   }, [handle]);
 
   const decideSheet = useCallback((action: 'approve_sheet' | 'deny_sheet') => {
@@ -250,8 +261,17 @@ export function CharacterDetail({ handle }: { handle: string }): React.ReactNode
           <Link className="btn" href={`/create?character=${item.handle}`}>
             {message('characters.detail.useInCreate')}
           </Link>
-          <button className="btn" type="button" disabled={building} onClick={buildSheet}>
-            {message('characters.detail.buildSheet')}
+          <button
+            className="btn character-build-sheet"
+            type="button"
+            disabled={building}
+            onClick={() => setSheetIntake(true)}
+          >
+            {sheetPrice === undefined
+              ? message('characters.detail.buildSheet')
+              : format(message('characters.detail.buildSheetWithPrice'), {
+                  price: `$${sheetPrice.toFixed(2)}`,
+                })}
           </button>
           <button
             className="btn"
@@ -324,6 +344,15 @@ export function CharacterDetail({ handle }: { handle: string }): React.ReactNode
           </button>
         ))}
       </nav>
+
+      {sheetIntake ? (
+        <WorkflowIntakeDrawer
+          workflowId="kilnry-character-sheet"
+          name={message('characters.detail.buildSheet')}
+          initialValues={{ character: `@${item.handle}` }}
+          onClose={() => setSheetIntake(false)}
+        />
+      ) : null}
 
       {tab === 'sheet' ? (
         <section className="character-detail-body">

@@ -7,8 +7,10 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { closeDatabaseState, createDatabase } from '@kilnry/db';
+import { closeDatabaseState, createDatabase, runSteps, runs } from '@kilnry/db';
+import { eq } from 'drizzle-orm';
 import {
+  priceSheet,
   advanceSheetRun,
   approveSheetRun,
   denySheetRun,
@@ -145,5 +147,52 @@ describe('sheet run (F-CHR-04 minimal executor)', () => {
     expect(await denySheetRun(state, run_id)).toBe('cancelled');
     const run = await getSheetRun(state, run_id);
     expect(run.steps.find((s) => s.id === 'expressions')?.status).toBe('cancelled');
+  });
+});
+
+// F-112: a throwing first submission was swallowed, leaving a run that said
+// "running" with no job behind it and no way to see why.
+describe('a sheet whose first job cannot be submitted (F-112)', () => {
+  it('marks the first generate step failed with the reason and fails the run', async () => {
+    const state = await db();
+    const { sink } = fakes();
+    const refusing = {
+      async createJob(): Promise<{ job_id: string; status: string }> {
+        throw new Error('No connected provider offers image editing.');
+      },
+    };
+    const started = await startSheetRun(state, refusing, {
+      characterId: 'char_1',
+      anchorAssetId: 'anchor_1',
+      folder: 'People/maya',
+      short: 'A woman in her 30s.',
+    });
+    const [run] = await state.db.select().from(runs).where(eq(runs.id, started.run_id));
+    expect(run?.status).toBe('failed');
+    const steps = await state.db.select().from(runSteps).where(eq(runSteps.runId, started.run_id));
+    const first = steps.find((step) => step.stepId === started.steps.find((s) => s.kind === 'generate')?.id);
+    expect(first?.status).toBe('failed');
+    expect(first?.error).toBe('No connected provider offers image editing.');
+    // A failed run is final: advancing it never skips past the failed step.
+    await expect(advanceSheetRun(state, refusing, sink, started.run_id)).resolves.toBe('failed');
+  });
+});
+
+describe('the sheet price before anything runs (F-112, PRD-07:278)', () => {
+  it('sums the engine estimate of every generate step and writes nothing', async () => {
+    const state = await db();
+    const priced: Array<Record<string, unknown>> = [];
+    const result = await priceSheet(
+      async (request) => {
+        priced.push(request);
+        return 0.04;
+      },
+      { anchorAssetId: 'anchor_1', short: 'A woman in her 30s.' },
+    );
+    expect(result.generate_steps).toBe(priced.length);
+    expect(result.generate_steps).toBeGreaterThan(0);
+    expect(result.estimate_usd).toBeCloseTo(0.04 * priced.length, 6);
+    expect(priced[0]).toMatchObject({ kind: 'image_edit', medias: [{ role: 'reference', ref: 'anchor_1' }] });
+    expect(await state.db.select().from(runs)).toHaveLength(0);
   });
 });

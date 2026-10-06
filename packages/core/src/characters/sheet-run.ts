@@ -97,8 +97,40 @@ export async function startSheetRun(
   return { run_id: runId, steps };
 }
 
-// Submit the first generate step if there is one; failures are non-fatal here so
-// the plan is always returned and the run can be advanced or retried later.
+// The generate request a sheet step submits: an image edit of the anchor at high
+// quality in 3:4, one image. Pricing and submission build the same request, so
+// the figure on the Build sheet button is the figure the jobs confirm.
+export function sheetGenerateRequest(
+  prompt: string,
+  input: { anchorAssetId: string | null; model?: string },
+): Record<string, unknown> {
+  return {
+    kind: 'image_edit',
+    prompt,
+    ...(input.model && input.model !== 'auto' ? { model: input.model } : {}),
+    params: { quality: 'high', aspect_ratio: '3:4' },
+    medias: input.anchorAssetId ? [{ role: 'reference', ref: input.anchorAssetId }] : [],
+    count: 1,
+    injections: [],
+  };
+}
+
+// Price a sheet before anything runs (F-112, PRD-07:278 "Build sheet · ≈ $0.83"):
+// the sum of every generate step's engine estimate. Nothing is written.
+export async function priceSheet(
+  estimate: (request: Record<string, unknown>) => Promise<number>,
+  input: SheetPlanInput & { anchorAssetId: string | null; model?: string },
+): Promise<{ estimate_usd: number; generate_steps: number }> {
+  const generates = planSheet(input).filter((step) => step.kind === 'generate');
+  let total = 0;
+  for (const step of generates) total += await estimate(sheetGenerateRequest(step.prompt ?? '', input));
+  return { estimate_usd: Number(total.toFixed(6)), generate_steps: generates.length };
+}
+
+// Submit the first generate step if there is one. A failed submission (no
+// connected image model, a cap, a refused price) is recorded on the step and
+// fails the run with the reason, so the user sees it instead of a run that
+// says "running" with nothing behind it (F-112).
 async function submitFirstStep(
   db: DatabaseState,
   engine: SheetEngine,
@@ -110,8 +142,16 @@ async function submitFirstStep(
   if (!first) return;
   try {
     await submitGenerate(db, engine, runId, first.id, input);
-  } catch {
-    // Leave the step pending; advanceSheetRun will retry the submission.
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : 'The first sheet job could not be submitted.';
+    await db.db
+      .update(runSteps)
+      .set({ status: 'failed', error: reason })
+      .where(and(eq(runSteps.runId, runId), eq(runSteps.stepId, first.id)));
+    await db.db
+      .update(runs)
+      .set({ status: 'failed' satisfies SheetRunStatus })
+      .where(eq(runs.id, runId));
   }
 }
 
@@ -133,15 +173,7 @@ async function submitGenerate(
   if (!row || row.kind !== 'generate') return;
   const prompt = String((row.inputs as { prompt?: string } | null)?.prompt ?? '');
   const job = await engine.createJob({
-    request: {
-      kind: 'image_edit',
-      prompt,
-      ...(input.model && input.model !== 'auto' ? { model: input.model } : {}),
-      params: { quality: 'high', aspect_ratio: '3:4' },
-      medias: input.anchorAssetId ? [{ role: 'reference', ref: input.anchorAssetId }] : [],
-      count: 1,
-      injections: [],
-    },
+    request: sheetGenerateRequest(prompt, input),
     // The user clicked Run and confirmed the sheet's cost, so the job is confirmed
     // by the user (TRD-04's confirmed_by set is user | auto | mcp:<token_id>).
     confirmed_by: 'user',
@@ -172,6 +204,8 @@ export async function advanceSheetRun(
   const [run] = await db.db.select().from(runs).where(eq(runs.id, runId)).limit(1);
   if (!run) throw new KilnryError('NOT_FOUND', 'Sheet run not found.');
   if (run.status === 'awaiting_approval') return 'awaiting_approval';
+  // A failed or cancelled run is final: its failed step is never skipped past.
+  if (run.status === 'failed' || run.status === 'cancelled') return run.status;
 
   const characterId = String((run.inputs as { character_id?: string }).character_id ?? '');
   const anchorAssetId = ((run.inputs as { anchor_asset_id?: string | null }).anchor_asset_id ?? null) as
@@ -181,6 +215,10 @@ export async function advanceSheetRun(
   const steps = await orderedSteps(db, runId);
   for (const step of steps) {
     if (step.status === 'completed' || step.status === 'skipped') continue;
+    if (step.status === 'failed') {
+      await db.db.update(runs).set({ status: 'failed' }).where(eq(runs.id, runId));
+      return 'failed';
+    }
 
     // A running generate step: check its job and, when complete, split + register.
     if (step.kind === 'generate' && step.status === 'running' && step.jobId) {

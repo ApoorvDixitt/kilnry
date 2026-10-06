@@ -1214,6 +1214,7 @@
     "detail": {
       "useInCreate": "Use in Create",
       "buildSheet": "Build sheet",
+      "buildSheetWithPrice": "Build sheet · ≈ {price}",
       "export": "Export bundle",
       "exportTitle": "Export character bundle",
       "exportHint": "The current version, its references and voice ids are included. Trained weights and the consent release are left out unless you tick them.",

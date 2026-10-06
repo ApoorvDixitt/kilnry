@@ -163,10 +163,14 @@ export function WorkflowIntakeDrawer({
   workflowId,
   name,
   onClose,
+  initialValues,
 }: {
   workflowId: string;
   name: string;
   onClose: () => void;
+  // Answers the opener already knows, laid over the workflow's defaults (the
+  // Character page opens the sheet intake with its own @handle, PRD-07:278).
+  initialValues?: Record<string, unknown>;
 }): React.ReactNode {
   const [fields, setFields] = useState<WorkflowInputField[]>([]);
   const [values, setValues] = useState<Record<string, unknown>>({});
@@ -193,7 +197,7 @@ export function WorkflowIntakeDrawer({
         if (!current || !workflow) return;
         const read = readInputFields(workflow.inputs);
         setFields(read);
-        setValues(initialInputs(read));
+        setValues({ ...initialInputs(read), ...(initialValues ?? {}) });
         setDescription(workflow.description ?? '');
       })
       .catch(() => {

@@ -18,6 +18,7 @@ import {
   linkStateVariant,
   approvalIndex,
   startSheetRun,
+  priceSheet,
   advanceSheetRun,
   approveSheetRun,
   denySheetRun,
@@ -30,7 +31,7 @@ import { eq } from 'drizzle-orm';
 import { assertMayMutate, errorResponse, requireSessionOrBearer } from '../../../../server/http';
 import { runtimeServices } from '../../../../server/runtime';
 import { trainingRunner } from '../../../../server/training';
-import { sheetEngine, sheetSink } from '../../../../server/sheet-sink';
+import { sheetEngine, sheetEstimator, sheetSink } from '../../../../server/sheet-sink';
 
 const Kind = z.enum(['character', 'prop', 'environment', 'style']);
 const Role = z.enum(['anchor', 'turnaround', 'expression', 'outfit', 'state', 'prop']);
@@ -48,6 +49,7 @@ const Body = z.object({
     'train',
     'add_state_variant',
     'build_sheet',
+    'price_sheet',
     'approve_sheet',
     'deny_sheet',
   ]),
@@ -266,6 +268,16 @@ export async function POST(request: Request): Promise<Response> {
       await linkStateVariant(db, head.handle, variant.handle);
       const item = await loadFullCharacter(db, variant.handle);
       return NextResponse.json({ item });
+    } else if (body.action === 'price_sheet') {
+      // The Build sheet button's price (F-112, PRD-07:278): the engine estimate
+      // of every planned generate step at Auto. Free; writes nothing.
+      const full = await loadFullCharacter(db, head.handle);
+      const short =
+        `${(full.appearance.descriptor ?? '').split('.')[0] ?? ''}. ${(full.appearance.anchors ?? []).join(', ')}`.trim();
+      const anchorAssetId =
+        full.references.find((reference) => reference.role === 'anchor')?.asset_id ?? null;
+      const priced = await priceSheet(await sheetEstimator(), { anchorAssetId, short });
+      return NextResponse.json(priced);
     } else if (body.action === 'build_sheet') {
       // Start the reference-sheet run on the minimal executor (F-CHR-04): plan
       // the steps, submit the first turnaround sheet job with the anchor as the

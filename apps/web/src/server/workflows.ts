@@ -2191,16 +2191,20 @@ export async function listRuns(
   Array<{ id: string; workflow_id: string; status: string; spent_usd: number; created_at: string }>
 > {
   const rows = await db.db.select().from(runs);
-  return rows
-    .filter((row) => row.source === 'workflow')
-    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
-    .map((row) => ({
-      id: row.id,
-      workflow_id: row.workflowId,
-      status: row.status,
-      spent_usd: Number(row.spentUsd ?? 0),
-      created_at: row.createdAt.toISOString(),
-    }));
+  return (
+    rows
+      // Sheet runs (F-CHR-04) are runs the user started too and must be visible
+      // and cancellable here, not only on the Character page (F-112).
+      .filter((row) => row.source === 'workflow' || row.source === 'sheet')
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .map((row) => ({
+        id: row.id,
+        workflow_id: row.workflowId,
+        status: row.status,
+        spent_usd: Number(row.spentUsd ?? 0),
+        created_at: row.createdAt.toISOString(),
+      }))
+  );
 }
 
 /** Validate an imported workflow through the same validator as the CLI. */

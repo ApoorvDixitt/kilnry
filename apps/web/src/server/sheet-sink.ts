@@ -37,33 +37,49 @@ function libraryRoot(): string {
   return config.library_root;
 }
 
+// Map a sheet generate request onto the canonical request the engine expects.
+function sheetCanonical(input: Record<string, unknown>): ReturnType<typeof canonicalGeneration> {
+  const request = input as {
+    prompt?: string;
+    model?: string;
+    params?: Record<string, unknown>;
+    medias?: Array<{ role: string; ref: string }>;
+  };
+  return canonicalGeneration({
+    kind: 'image',
+    prompt: request.prompt ?? '',
+    model: request.model ?? 'auto',
+    params: request.params ?? {},
+    medias: (request.medias ?? []).map((media) => ({
+      role: media.role as never,
+      asset_id: media.ref,
+    })),
+    count: 1,
+    target_folder: 'inbox',
+    override_budget: false,
+    allow_stale_price: false,
+    source: 'ui',
+  });
+}
+
+// Price one sheet generate request with the engine's own estimate, so the
+// Build sheet label shows what the jobs will confirm (F-112). Never spends.
+export async function sheetEstimator(): Promise<(request: Record<string, unknown>) => Promise<number>> {
+  const engine = await ensureRuntimeEngine();
+  return async (request) => {
+    const canonical = sheetCanonical(request);
+    const priced = await engine.estimate(canonical.request, canonical.constraints);
+    return priced.estimate.authoritative_usd ?? priced.estimate.estimate_usd;
+  };
+}
+
 // Build the engine adapter: map a sheet generate request onto the canonical
 // request the engine expects and submit it.
 export async function sheetEngine(): Promise<SheetEngine> {
   const engine = await ensureRuntimeEngine();
   return {
     async createJob(input) {
-      const request = input.request as {
-        prompt?: string;
-        model?: string;
-        params?: Record<string, unknown>;
-        medias?: Array<{ role: string; ref: string }>;
-      };
-      const canonical = canonicalGeneration({
-        kind: 'image',
-        prompt: request.prompt ?? '',
-        model: request.model ?? 'auto',
-        params: request.params ?? {},
-        medias: (request.medias ?? []).map((media) => ({
-          role: media.role as never,
-          asset_id: media.ref,
-        })),
-        count: 1,
-        target_folder: 'inbox',
-        override_budget: false,
-        allow_stale_price: false,
-        source: 'ui',
-      });
+      const canonical = sheetCanonical(input.request);
       const created = await engine.createJob({
         request: canonical.request,
         constraints: canonical.constraints,
