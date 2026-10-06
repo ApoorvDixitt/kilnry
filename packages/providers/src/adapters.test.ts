@@ -622,3 +622,130 @@ describe('fal file inputs', () => {
     expect(put).toEqual([{ length: tinyPng.byteLength, type: 'image/png' }]);
   });
 });
+
+// F-09, F-10, F-11, F-119: fal's own input schemas (fal/schemas.ts, read from
+// https://fal.ai/models/<endpoint>/llms.txt on 2026-10-06) name a start frame
+// `start_image_url` on Kling v3 and Wan 3.0 image-to-video, a lone source image
+// `image_url` on avatar/upscale/bg-remove/reframe, and reference lists
+// `reference_*_urls` on Wan 3.0 reference-to-video. The body each sends:
+describe('fal sends each model the field names its schema requires (F-PRV-01)', () => {
+  function mediaRequest(
+    model: string,
+    kind: 'image' | 'video' | 'image_edit',
+    capability: string,
+    medias: Array<{ role: string; url: string }>,
+  ): CanonicalRequest {
+    return CanonicalRequestSchema.parse({
+      kind,
+      capability,
+      prompt: 'fixture request',
+      params: { extra: { model } },
+      medias: medias.map((media, index) => ({ ...media, asset_id: `asset-${index}` })),
+      injections: [],
+      count: 1,
+      target_folder: 'inbox',
+      source: 'ui',
+    });
+  }
+
+  async function bodyFor(request: CanonicalRequest): Promise<Record<string, unknown>> {
+    const model = String(request.params.extra?.model);
+    let sent: Record<string, unknown> = {};
+    server.use(
+      http.post(`https://queue.fal.run/${model}`, async ({ request: incoming }) => {
+        sent = (await incoming.json()) as Record<string, unknown>;
+        return HttpResponse.json({
+          request_id: 'fal-fields',
+          status_url: `https://queue.fal.run/${model}/requests/fal-fields/status`,
+          response_url: `https://queue.fal.run/${model}/requests/fal-fields`,
+        });
+      }),
+    );
+    await falAdapter.submit(request, context());
+    return sent;
+  }
+
+  const IMG = 'https://v3.fal.media/files/test/one.png';
+  const IMG2 = 'https://v3.fal.media/files/test/two.png';
+  const AUDIO = 'https://v3.fal.media/files/test/voice.mp3';
+
+  it('Kling v3 image-to-video: the start frame is start_image_url, never image_url', async () => {
+    for (const tier of ['standard', 'pro']) {
+      const body = await bodyFor(
+        mediaRequest(`fal-ai/kling-video/v3/${tier}/image-to-video`, 'video', 'image2video', [
+          { role: 'start_frame', url: IMG },
+          { role: 'end_frame', url: IMG2 },
+        ]),
+      );
+      expect(body).toMatchObject({ start_image_url: IMG, end_image_url: IMG2 });
+      expect(body).not.toHaveProperty('image_url');
+      expect(body).not.toHaveProperty('image_urls');
+    }
+  });
+
+  it('Kling v3 image-to-video: a lone reference becomes the start frame', async () => {
+    const body = await bodyFor(
+      mediaRequest('fal-ai/kling-video/v3/standard/image-to-video', 'video', 'reference2video', [
+        { role: 'reference', url: IMG },
+      ]),
+    );
+    expect(body.start_image_url).toBe(IMG);
+    expect(body).not.toHaveProperty('image_urls');
+  });
+
+  it('Wan 3.0 image-to-video: start_image_url; reference-to-video: reference_*_urls lists', async () => {
+    const i2v = await bodyFor(
+      mediaRequest('alibaba/wan-3.0/image-to-video', 'video', 'image2video', [
+        { role: 'start_frame', url: IMG },
+      ]),
+    );
+    expect(i2v.start_image_url).toBe(IMG);
+    expect(i2v).not.toHaveProperty('image_url');
+    const r2v = await bodyFor(
+      mediaRequest('alibaba/wan-3.0/reference-to-video', 'video', 'reference2video', [
+        { role: 'reference', url: IMG },
+        { role: 'reference', url: IMG2 },
+        { role: 'audio', url: AUDIO },
+      ]),
+    );
+    expect(r2v).toMatchObject({ reference_image_urls: [IMG, IMG2], reference_audio_urls: [AUDIO] });
+    expect(r2v).not.toHaveProperty('image_urls');
+    expect(r2v).not.toHaveProperty('audio_url');
+  });
+
+  it('Kling AI Avatar: singular image_url and the driving audio_url', async () => {
+    const body = await bodyFor(
+      mediaRequest('fal-ai/kling-video/ai-avatar/v2/pro', 'video', 'avatar', [
+        { role: 'reference', url: IMG },
+        { role: 'audio', url: AUDIO },
+      ]),
+    );
+    expect(body).toMatchObject({ image_url: IMG, audio_url: AUDIO });
+    expect(body).not.toHaveProperty('image_urls');
+  });
+
+  it('upscale, background removal and reframe take one singular image_url', async () => {
+    for (const [model, capability] of [
+      ['fal-ai/clarity-upscaler', 'upscale_image'],
+      ['fal-ai/aura-sr', 'upscale_image'],
+      ['fal-ai/bria/background/remove', 'bg_remove'],
+      ['fal-ai/image-editing/reframe', 'reframe_image'],
+    ] as const) {
+      const body = await bodyFor(
+        mediaRequest(model, 'image_edit', capability, [{ role: 'reference', url: IMG }]),
+      );
+      expect(body.image_url, model).toBe(IMG);
+      expect(body, model).not.toHaveProperty('image_urls');
+    }
+  });
+
+  it('a model outside the table keeps the generic image_urls list', async () => {
+    const body = await bodyFor(
+      mediaRequest('fal-ai/nano-banana-2/edit', 'image_edit', 'image_edit', [
+        { role: 'reference', url: IMG },
+        { role: 'reference', url: IMG2 },
+      ]),
+    );
+    expect(body.image_urls).toEqual([IMG, IMG2]);
+  });
+});

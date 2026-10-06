@@ -13,6 +13,7 @@ import {
   type ProviderPriceUpdate,
 } from '@kilnry/core';
 import { downloadOutputs } from '../download.js';
+import { falEndpointSchema } from './schemas.js';
 import { providerHttpError } from '../errors.js';
 import { requestJson } from '../http.js';
 import { priceUpdate, withBasePrice } from '../pricing.js';
@@ -75,12 +76,18 @@ function falPayload(request: CanonicalRequest): Record<string, unknown> {
   const model = extra.model;
   delete extra.model;
   delete extra.route_why;
+  const schema = falEndpointSchema(typeof model === 'string' ? model : undefined);
+  const fields = schema?.fields ?? {};
   for (const key of [
     'prompt',
     'negative_prompt',
     'image_url',
+    'start_image_url',
     'end_image_url',
     'image_urls',
+    'reference_image_urls',
+    'reference_video_urls',
+    'reference_audio_urls',
     'audio_url',
     'video_url',
   ]) {
@@ -105,19 +112,49 @@ function falPayload(request: CanonicalRequest): Record<string, unknown> {
   if (request.params.audio !== undefined) payload.generate_audio = request.params.audio;
   if (request.params.seed !== undefined) payload.seed = request.params.seed;
   if (request.count > 1) payload.num_images = request.count;
+  // Each media input goes under the field the endpoint's own schema names
+  // (fal/schemas.ts; F-09, F-10, F-11): `start_image_url` for Kling v3 and
+  // Wan 3.0 image-to-video, a singular `image_url` for one-image endpoints,
+  // `reference_*_urls` lists for Wan 3.0 reference-to-video. Endpoints the
+  // table does not list keep the generic names they were built and tested on.
+  const append = (key: string, url: string): void => {
+    const list = Array.isArray(payload[key]) ? (payload[key] as unknown[]) : [];
+    payload[key] = [...list, url];
+  };
+  const hasStartFrame = request.medias.some((media) => media.role === 'start_frame');
+  const references: string[] = [];
   for (const media of request.medias) {
     if (!media.url)
       throw new KilnryError(
         'INVALID_INPUT',
         'fal media inputs must be uploaded or use an HTTPS URL before submit.',
       );
-    if (media.role === 'start_frame') payload.image_url = media.url;
-    else if (media.role === 'end_frame') payload.end_image_url = media.url;
-    else if (media.role === 'audio') payload.audio_url = media.url;
-    else if (media.role === 'video' || media.role === 'driving_video') payload.video_url = media.url;
-    else {
-      const images = Array.isArray(payload.image_urls) ? payload.image_urls : [];
-      payload.image_urls = [...images, media.url];
+    if (media.role === 'start_frame') payload[fields.start_frame ?? 'image_url'] = media.url;
+    else if (media.role === 'end_frame') payload[fields.end_frame ?? 'end_image_url'] = media.url;
+    else if (media.role === 'audio') {
+      if (fields.reference_audios) append(fields.reference_audios, media.url);
+      else payload.audio_url = media.url;
+    } else if (media.role === 'video' || media.role === 'driving_video') {
+      if (fields.reference_videos) append(fields.reference_videos, media.url);
+      else payload.video_url = media.url;
+    } else references.push(media.url);
+  }
+  if (references.length > 0) {
+    if (fields.single_image) {
+      // A one-image endpoint takes its source image under a singular field.
+      if (references.length > 1) {
+        throw new KilnryError(
+          'INVALID_INPUT',
+          `${String(model)} takes one source image; ${references.length} were given.`,
+        );
+      }
+      payload[fields.single_image] = references[0];
+    } else if (fields.reference_as_start_frame) {
+      // Kling v3 image-to-video has no reference-image list: the first
+      // reference is its start frame when no start frame was given.
+      if (!hasStartFrame) payload[fields.start_frame ?? 'image_url'] = references[0];
+    } else {
+      for (const url of references) append(fields.reference_images ?? 'image_urls', url);
     }
   }
   return { ...extra, ...payload };

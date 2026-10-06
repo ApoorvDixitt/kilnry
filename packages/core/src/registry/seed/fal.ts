@@ -4,6 +4,7 @@
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
 import type { ModelManifest, PriceRule } from '../manifest.js';
+import type { Capability } from '../../types.js';
 import { referenceRoles, seed, videoSupports } from './helpers.js';
 
 const source = (id: string): string => `https://fal.ai/models/${id}`;
@@ -16,8 +17,47 @@ function mapped(
   ids: string[],
   common: Omit<Parameters<typeof fal>[0], 'model_id' | 'display_name'>,
   name: (id: string) => string,
+  // Fields that differ per endpoint of one family, such as the capability a
+  // text-to-video and an image-to-video endpoint can each run (F-119).
+  perId?: (id: string) => Partial<Omit<Parameters<typeof fal>[0], 'model_id' | 'display_name'>>,
 ): ModelManifest[] {
-  return ids.map((model_id) => fal({ ...common, model_id, display_name: name(model_id) }));
+  return ids.map((model_id) =>
+    fal({ ...common, ...(perId ? perId(model_id) : {}), model_id, display_name: name(model_id) }),
+  );
+}
+
+// Each endpoint of a video family carries only what its fal schema accepts
+// (fal's pages, read 2026-10-06; F-09, F-10, F-119): a text-to-video endpoint
+// takes no image, so it serves text2video alone; an image-to-video endpoint
+// requires start_image_url, so it never serves a text-only request.
+// Endpoints whose fal schema requires an image input (image_url / image_urls),
+// read 2026-10-06 from https://fal.ai/models/<id>/llms.txt: they cannot run a
+// text-only request, so they never carry text2video (F-119).
+const IMAGE_REQUIRED = new Set([
+  'bytedance/seedance-2.0/image-to-video',
+  'bytedance/seedance-2.5/image-to-video',
+  'fal-ai/veo3.1/image-to-video',
+  'fal-ai/veo3.1/fast/image-to-video',
+  'fal-ai/veo3.1/lite/image-to-video',
+  'fal-ai/veo3.1/reference-to-video',
+]);
+
+function textOnlyExcluded(
+  capabilities: Capability[],
+): (id: string) => Partial<Omit<Parameters<typeof fal>[0], 'model_id' | 'display_name'>> {
+  return (id) =>
+    IMAGE_REQUIRED.has(id)
+      ? { capabilities: capabilities.filter((capability) => capability !== 'text2video') }
+      : {};
+}
+
+function videoEndpoint(id: string): Partial<Omit<Parameters<typeof fal>[0], 'model_id' | 'display_name'>> {
+  // Only the capability moves; the media roles stay as they were so the
+  // Character element route (an OWNER DECISION NEEDED: fal's Kling v3
+  // text-to-video schema has no `elements` field) is not changed here.
+  if (id.endsWith('/text-to-video')) return { capabilities: ['text2video'] };
+  if (id.endsWith('/image-to-video')) return { capabilities: ['image2video', 'reference2video'] };
+  return {};
 }
 
 const klingRule = (tier: 'standard' | 'pro'): PriceRule => ({
@@ -59,6 +99,7 @@ const kling = (tier: 'standard' | 'pro'): ModelManifest[] =>
     },
     (id) =>
       id.includes('image-to-video') ? `Kling 3.0 ${tier} image-to-video` : `Kling 3.0 ${tier} text-to-video`,
+    videoEndpoint,
   );
 
 const veoRule = (rates: Record<string, { no_audio: number; audio: number }>): PriceRule => ({
@@ -159,6 +200,7 @@ export const falSeed: ModelManifest[] = [
       tags: ['native-audio'],
     },
     () => 'Seedance 2.0',
+    textOnlyExcluded(['text2video', 'image2video', 'reference2video']),
   ),
   ...mapped(
     ['bytedance/seedance-2.5/text-to-video', 'bytedance/seedance-2.5/image-to-video'],
@@ -183,6 +225,7 @@ export const falSeed: ModelManifest[] = [
       eta_s: 120,
     },
     () => 'Seedance 2.5 (fal route excluded)',
+    textOnlyExcluded(['text2video', 'image2video']),
   ),
   ...mapped(
     ['minimax/h3/text-to-video', 'minimax/h3/image-to-video', 'minimax/h3/reference-to-video'],
@@ -254,6 +297,7 @@ export const falSeed: ModelManifest[] = [
       eta_s: 120,
     },
     () => 'Veo 3.1 Fast',
+    textOnlyExcluded(['text2video', 'image2video']),
   ),
   ...mapped(
     ['fal-ai/veo3.1/lite', 'fal-ai/veo3.1/lite/image-to-video'],
@@ -273,6 +317,7 @@ export const falSeed: ModelManifest[] = [
       }),
     },
     () => 'Veo 3.1 Lite',
+    textOnlyExcluded(['text2video', 'image2video']),
   ),
   ...mapped(
     ['fal-ai/veo3.1', 'fal-ai/veo3.1/image-to-video', 'fal-ai/veo3.1/reference-to-video'],
@@ -298,6 +343,7 @@ export const falSeed: ModelManifest[] = [
       eta_s: 180,
     },
     () => 'Veo 3.1',
+    textOnlyExcluded(['text2video', 'image2video', 'reference2video']),
   ),
   ...mapped(
     ['alibaba/wan-3.0/text-to-video', 'alibaba/wan-3.0/image-to-video', 'alibaba/wan-3.0/reference-to-video'],
@@ -322,6 +368,18 @@ export const falSeed: ModelManifest[] = [
       media_roles: referenceRoles(12, ['image', 'video', 'audio']),
     },
     () => 'Wan 3.0',
+    (id) =>
+      id.endsWith('/text-to-video')
+        ? { capabilities: ['text2video'], media_roles: [] }
+        : id.endsWith('/image-to-video')
+          ? {
+              capabilities: ['image2video'],
+              media_roles: [
+                { role: 'start_frame', min: 1, max: 1, kinds: ['image'] },
+                { role: 'end_frame', min: 0, max: 1, kinds: ['image'] },
+              ],
+            }
+          : { capabilities: ['reference2video'] },
   ),
   // Wan 2.7 on fal is two endpoints with the same per-second price ($0.10 at
   // 720p, $0.15 at 1080p): image-to-video (image_url, 2–15 s) and edit-video
@@ -390,7 +448,11 @@ export const falSeed: ModelManifest[] = [
     capabilities: ['avatar'],
     price_rule: { kind: 'flat_per_unit', unit: 'second', amount: 0.115, extras: [] },
     supports: videoSupports({ resolutions: ['1080p'] }),
-    media_roles: referenceRoles(1),
+    // fal requires both the avatar image and the driving audio (F-11).
+    media_roles: [
+      { role: 'reference', min: 1, max: 1, kinds: ['image'] },
+      { role: 'audio', min: 1, max: 1, kinds: ['audio'] },
+    ],
     eta_s: 120,
   }),
   fal({

@@ -17,6 +17,7 @@ import { replicateAdapter } from './replicate/index.js';
 
 export * from './elevenlabs/index.js';
 export * from './fal/index.js';
+export * from './fal/schemas.js';
 export * from './google/index.js';
 export * from './higgsfield/index.js';
 export * from './minimax/index.js';

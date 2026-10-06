@@ -113,3 +113,58 @@ describe('Auto router', () => {
     ).toThrow(/Seedance 2\.5/i);
   });
 });
+
+// F-119: these fal endpoints require an image input — start_image_url on Kling
+// v3 and Wan 3.0 image-to-video, image_url on Seedance and Veo 3.1
+// image-to-video, image_urls on Veo 3.1 reference-to-video
+// (https://fal.ai/models/<id>/llms.txt, read 2026-10-06). A text-only request
+// routed to one is rejected by fal after Kilnry quoted its price.
+const REQUIRES_IMAGE = [
+  'fal-ai/kling-video/v3/standard/image-to-video',
+  'fal-ai/kling-video/v3/pro/image-to-video',
+  'alibaba/wan-3.0/image-to-video',
+  'bytedance/seedance-2.0/image-to-video',
+  'bytedance/seedance-2.5/image-to-video',
+  'fal-ai/veo3.1/image-to-video',
+  'fal-ai/veo3.1/fast/image-to-video',
+  'fal-ai/veo3.1/lite/image-to-video',
+  'fal-ai/veo3.1/reference-to-video',
+];
+
+describe('a text-only video request (F-119)', () => {
+  const request = CanonicalRequestSchema.parse({
+    kind: 'video',
+    capability: 'text2video',
+    prompt: 'slow dolly on a chai glass, steam',
+    params: { resolution: '720p', duration_s: 5 },
+    medias: [],
+    injections: [],
+    count: 1,
+    target_folder: 'inbox',
+    source: 'ui',
+  });
+
+  it('is routed to an endpoint that takes a prompt alone, never one that requires an image', () => {
+    const falOnly = { fal: { connected: true, status: 'ok' as const } };
+    const result = route(
+      request,
+      {},
+      { models: [...registrySeed], snapshots: seedSnapshotMap(), providers: falOnly },
+    );
+    expect(REQUIRES_IMAGE).not.toContain(result.model_id);
+    for (const alternate of result.alternates) expect(REQUIRES_IMAGE).not.toContain(alternate.model_id);
+  });
+
+  it('can never be routed to one of them: no image-required endpoint carries text2video', () => {
+    // The router only considers rows whose capabilities include the request's,
+    // so this covers every candidate, not just the ones it ranks first.
+    for (const id of REQUIRES_IMAGE) {
+      const row = registrySeed.find((model) => model.model_id === id);
+      expect(row, id).toBeDefined();
+      expect(row?.capabilities, id).not.toContain('text2video');
+    }
+    for (const id of ['alibaba/wan-3.0/text-to-video', 'fal-ai/kling-video/v3/standard/text-to-video']) {
+      expect(registrySeed.find((model) => model.model_id === id)?.capabilities, id).toEqual(['text2video']);
+    }
+  });
+});

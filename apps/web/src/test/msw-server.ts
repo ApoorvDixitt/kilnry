@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
+import { falEndpointSchema } from '@kilnry/providers';
 import { chatCompletionHandler } from './chat-openrouter-fixture';
 import { consistencyFixtureHandlers } from './consistency-fixture';
 
@@ -197,7 +198,7 @@ export function startTestMsw(): void {
       const body = (await request
         .clone()
         .json()
-        .catch(() => ({}))) as { prompt?: string };
+        .catch(() => ({}))) as { prompt?: string } & Record<string, unknown>;
       // What the provider was actually sent, so an acceptance check can assert
       // that a resolved Character reached fal as an element or an image_url
       // rather than as the literal @handle (S-03, F-CHR-09).
@@ -206,6 +207,31 @@ export function startTestMsw(): void {
         writeFileSync(
           join(dataDir, 'msw-fal-last-submit.json'),
           JSON.stringify({ model: url.pathname.replace(/^\//, ''), body }),
+        );
+      }
+      // fal validates the body against the endpoint's input schema before it
+      // queues anything: a missing required field is a 422 whose detail[] names
+      // it with loc ["body", "<field>"] (https://docs.fal.ai/model-apis/errors,
+      // read 2026-10-06). The required fields are the ones fal's own schema page
+      // lists for the endpoint (packages/providers/src/fal/schemas.ts), so a body
+      // with the wrong field names fails here exactly as on a real key (F-09,
+      // F-10, F-11; D-57: the mock mirrors the provider, not the adapter).
+      const submitted = new URL(request.url).pathname.replace(/^\//, '');
+      const missing = (falEndpointSchema(submitted)?.required ?? []).filter((field) => {
+        const value = body[field];
+        return value === undefined || value === null || value === '';
+      });
+      if (missing.length > 0) {
+        return HttpResponse.json(
+          {
+            detail: missing.map((field) => ({
+              loc: ['body', field],
+              msg: 'Field required',
+              type: 'missing',
+              url: 'https://docs.fal.ai/model-apis/errors',
+            })),
+          },
+          { status: 422, headers: { 'X-Fal-Retryable': 'false' } },
         );
       }
       if (typeof body.prompt === 'string' && body.prompt.includes('TRIGGER')) {
