@@ -12,6 +12,7 @@ import {
   closeDatabaseState,
   createDatabase,
   characterVoices,
+  priceSnapshots,
   spendLedger,
   voices,
 } from '@kilnry/db';
@@ -149,5 +150,31 @@ describe('voice preview holds its estimate before synthesis (F-01, F-PRV-04)', (
       ),
     ).rejects.toThrow('synthesis refused');
     expect(await state.db.select().from(spendLedger)).toHaveLength(0);
+  });
+});
+
+// F-21: a price snapshot older than 30 days must not price a paid call that
+// does not go through a job without the explicit override (PRD-14 §8).
+describe('voice preview refuses a stale price (F-21, F-PRV-07)', () => {
+  it('refuses a 31-day-old price with CONFIRMATION_REQUIRED and synthesises nothing', async () => {
+    const state = await db();
+    await state.db.update(priceSnapshots).set({ fetchedAt: new Date(Date.now() - 31 * 86_400_000) });
+    let calls = 0;
+    await expect(
+      previewVoice(
+        {
+          db: state,
+          synth: async () => {
+            calls += 1;
+            return { bytes: new Uint8Array([1]), mime: 'audio/mpeg' };
+          },
+        },
+        { provider: 'elevenlabs', voiceId: 'v1' },
+      ),
+    ).rejects.toMatchObject({
+      code: 'CONFIRMATION_REQUIRED',
+      options: { details: { reason: 'stale_price' } },
+    });
+    expect(calls).toBe(0);
   });
 });

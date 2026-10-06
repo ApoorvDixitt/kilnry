@@ -8,7 +8,14 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { budgets, closeDatabaseState, createDatabase, spendLedger, trainedIdentities } from '@kilnry/db';
+import {
+  budgets,
+  closeDatabaseState,
+  createDatabase,
+  priceSnapshots,
+  spendLedger,
+  trainedIdentities,
+} from '@kilnry/db';
 import { eq } from 'drizzle-orm';
 import type { ProviderAdapter, SubmitHandle } from '../providers/adapter.js';
 import { seedRegistry } from '../registry/store.js';
@@ -343,6 +350,24 @@ describe('training holds its estimate before the trainer is called (F-01, F-PRV-
     };
     const result = await startTraining(services, { handle: 'maya', trainer: 'fal', confirmed_cost_usd: 2 });
     expect(result.status).toBe('failed');
+    expect(await state.db.select().from(spendLedger)).toHaveLength(0);
+  });
+});
+
+// F-21: a price snapshot older than 30 days must not price a paid call that
+// does not go through a job without the explicit override (PRD-14 §8).
+describe('training refuses a stale price (F-21, F-PRV-07)', () => {
+  it('refuses a 31-day-old price with CONFIRMATION_REQUIRED and holds nothing', async () => {
+    const state = await db();
+    await characterWithRefs(state);
+    await state.db.update(priceSnapshots).set({ fetchedAt: new Date(Date.now() - 31 * 86_400_000) });
+    const services = trainingServices(state, (async () => new Response('{}')) as unknown as typeof fetch);
+    await expect(
+      startTraining(services, { handle: 'maya', trainer: 'fal', confirmed_cost_usd: 2 }),
+    ).rejects.toMatchObject({
+      code: 'CONFIRMATION_REQUIRED',
+      options: { details: { reason: 'stale_price' } },
+    });
     expect(await state.db.select().from(spendLedger)).toHaveLength(0);
   });
 });

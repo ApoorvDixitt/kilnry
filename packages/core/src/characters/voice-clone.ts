@@ -14,7 +14,13 @@ import type { DatabaseState } from '@kilnry/db';
 import { auditEvents } from '@kilnry/db';
 import { KilnryError } from '../errors.js';
 import { ulid } from '../ids.js';
-import { assertCostConfirmation, holdSpend, releaseHold, settleHold } from '../budget/enforcer.js';
+import {
+  assertCostConfirmation,
+  assertFreshPrice,
+  holdSpend,
+  releaseHold,
+  settleHold,
+} from '../budget/enforcer.js';
 import { estimate as priceEstimate } from '../registry/estimator.js';
 import { loadRegistry } from '../registry/store.js';
 import type { CanonicalRequest, Estimate } from '../types.js';
@@ -106,6 +112,8 @@ export async function priceClone(db: DatabaseState, provider: CloneProvider): Pr
 export interface CloneInput {
   name: string;
   provider: CloneProvider;
+  // Pay from a price snapshot older than 30 days anyway (F-21).
+  allow_stale_price?: boolean;
   sample_url: string;
   sample_seconds: number;
   consent_confirmed: boolean;
@@ -188,6 +196,7 @@ export async function cloneVoice(services: CloneServices, input: CloneInput): Pr
   // concurrent clones against a cap with room for one admit exactly one. A free
   // clone (ElevenLabs instant voice cloning) still records one ledger row at $0.
   const cloneEstimate = await priceClone(services.db, input.provider);
+  assertFreshPrice(cloneEstimate, input.allow_stale_price);
   assertCostConfirmation(cloneEstimate, input.confirmed_cost_usd);
   const chargedUsd = cloneEstimate.authoritative_usd ?? cloneEstimate.estimate_usd;
   // The ledger row is keyed by the voice's own id so a clone is charged at most

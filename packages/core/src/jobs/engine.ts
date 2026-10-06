@@ -1015,6 +1015,14 @@ export class JobEngine {
     let handle = storedHandle(row);
     let result: ProviderResult | undefined;
     if (!handle) {
+      // TRD-04 invariant 5: a spend job from MCP or Chat must carry the cost the
+      // caller confirmed, and the worker re-checks the column before submitting
+      // (defence in depth beside createJob, F-22). A row without it — written by
+      // any path that skipped createJob's check — fails here and never spends.
+      if (row.source === 'mcp' || row.source === 'chat') {
+        const confirmed = Number(row.confirmedCostUsd ?? 0);
+        assertCostConfirmation(estimate, confirmed > 0 ? confirmed : undefined);
+      }
       await this.#options.state.db
         .update(jobs)
         .set({ stepLabel: 'submitting', attempts: row.attempts + 1 })

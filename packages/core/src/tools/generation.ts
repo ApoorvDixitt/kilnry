@@ -16,7 +16,7 @@ import { FFMPEG_OPS, ffmpegExtension, isSupportedFfmpegOp, runFfmpegOp } from '@
 import { probeMedia } from '@kilnry/media';
 import { auditEvents } from '@kilnry/db';
 import { confirmationDecision } from '../budget/confirmation.js';
-import { holdSpend, releaseHold, settleHold, type SpendHold } from '../budget/enforcer.js';
+import { assertFreshPrice, holdSpend, releaseHold, settleHold, type SpendHold } from '../budget/enforcer.js';
 import {
   ANALYZE_TASKS,
   DEFAULT_ANALYZE_MODEL,
@@ -416,6 +416,8 @@ export const analyzeTool: KilnryTool = {
     schema: z.record(z.string(), z.unknown()).optional(),
     model: z.string().optional(),
     confirm_cost_usd: z.number().optional(),
+    // Run on a price snapshot older than 30 days anyway (F-21, PRD-14 §8).
+    allow_stale_price: z.boolean().optional(),
     // A folder for the ledger row and, for a workflow step, the run and step id
     // that carry into the audit event. Absent means the inbox and no run link.
     folder: z.string().optional(),
@@ -488,6 +490,15 @@ export const analyzeTool: KilnryTool = {
     }
     const estimateUsd = prepared.estimate.estimate_usd;
     const requiredUsd = prepared.estimate.authoritative_usd ?? estimateUsd;
+    // A stale price is refused before any confirmation or hold (F-21).
+    try {
+      assertFreshPrice(prepared.estimate, input.allow_stale_price === true);
+    } catch (error) {
+      return toolError(
+        'CONFIRMATION_REQUIRED',
+        error instanceof Error ? error.message : 'Refresh prices first.',
+      );
+    }
     const decision = confirmationDecision({
       estimateUsd: requiredUsd,
       confirmCostUsd: confirm,

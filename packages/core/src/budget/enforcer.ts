@@ -30,6 +30,25 @@ export function assertCostConfirmation(estimate: Estimate, confirmedCostUsd: num
   }
 }
 
+/**
+ * Refuse a spend priced from a snapshot older than price_max_age_days (30)
+ * unless the caller explicitly allows the stale estimate (PRD-14 §8 "Stale
+ * prices cannot be used without the override"; TRD-07 §6.3: CONFIRMATION_REQUIRED
+ * with reason stale_price). The job engine applies the same rule in createJob;
+ * this is the check for the paid paths that do not go through a job (F-21).
+ */
+export function assertFreshPrice(estimate: Estimate, allowStale: boolean | undefined): void {
+  // An injected engine (the analyze tool's) may hand back an estimate without
+  // adjustments; only a named stale_price refuses.
+  const stale = Array.isArray(estimate.adjustments) && estimate.adjustments.includes('stale_price');
+  if (allowStale === true || !stale) return;
+  throw new KilnryError(
+    'CONFIRMATION_REQUIRED',
+    'This price snapshot is older than 30 days. Refresh provider prices before paying for this, or explicitly allow the stale estimate.',
+    { details: { reason: 'stale_price', stale_price: true, estimate } },
+  );
+}
+
 export type BudgetDatabase = Pick<DatabaseState['db'], 'select'>;
 
 function startOfDay(now: Date): Date {

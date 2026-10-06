@@ -12,6 +12,7 @@ import {
   closeDatabaseState,
   createDatabase,
   characterVoices,
+  priceSnapshots,
   spendLedger,
   voices,
 } from '@kilnry/db';
@@ -457,5 +458,45 @@ describe('cloning refuses a Character that reads as a minor (F-07, PRD-07 §7)',
     ).rejects.toMatchObject({ code: 'INVALID_INPUT', message: 'Kilnry does not train or clone minors.' });
     expect(providerCalls).toBe(0);
     expect(await state.db.select().from(spendLedger)).toHaveLength(0);
+  });
+});
+
+// F-21: a price snapshot older than 30 days must not price a paid call that
+// does not go through a job without the explicit override (PRD-14 §8).
+describe('voice clone refuses a stale price (F-21, F-PRV-07)', () => {
+  it('refuses a 31-day-old price with CONFIRMATION_REQUIRED and calls no provider', async () => {
+    const state = await db();
+    await state.db.update(priceSnapshots).set({ fetchedAt: new Date(Date.now() - 31 * 86_400_000) });
+    let calls = 0;
+    const counting = (async (url: string, init?: RequestInit) => {
+      calls += 1;
+      return minimaxFetch()(url, init);
+    }) as unknown as typeof fetch;
+    await expect(
+      cloneVoice(services(state, counting), {
+        name: 'Riya',
+        provider: 'minimax',
+        sample_url: 'https://media.test/sample.mp3',
+        sample_seconds: 30,
+        consent_confirmed: true,
+        confirmed_cost_usd: 1.5,
+      }),
+    ).rejects.toMatchObject({
+      code: 'CONFIRMATION_REQUIRED',
+      options: { details: { reason: 'stale_price' } },
+    });
+    expect(calls).toBe(0);
+    // The explicit override lets the same clone proceed.
+    await expect(
+      cloneVoice(services(state, minimaxFetch()), {
+        name: 'Riya',
+        provider: 'minimax',
+        sample_url: 'https://media.test/sample.mp3',
+        sample_seconds: 30,
+        consent_confirmed: true,
+        confirmed_cost_usd: 1.5,
+        allow_stale_price: true,
+      }),
+    ).resolves.toMatchObject({ provider: 'minimax' });
   });
 });

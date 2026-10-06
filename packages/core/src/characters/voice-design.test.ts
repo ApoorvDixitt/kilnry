@@ -7,7 +7,14 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { closeDatabaseState, createDatabase, characterVoices, spendLedger, voices } from '@kilnry/db';
+import {
+  closeDatabaseState,
+  createDatabase,
+  characterVoices,
+  priceSnapshots,
+  spendLedger,
+  voices,
+} from '@kilnry/db';
 import { eq } from 'drizzle-orm';
 import { createCharacter } from './store.js';
 import { boundVoice } from './voices.js';
@@ -205,5 +212,27 @@ describe('voice design (F-VOI-03)', () => {
     const ledger = await state.db.select().from(spendLedger);
     expect(ledger).toHaveLength(1);
     expect(ledger[0]?.currencyNote).toContain('ambiguous: fal request req-1');
+  });
+});
+
+// F-21: a price snapshot older than 30 days must not price a paid call that
+// does not go through a job without the explicit override (PRD-14 §8).
+describe('voice design refuses a stale price (F-21, F-PRV-07)', () => {
+  it('refuses a 31-day-old price with CONFIRMATION_REQUIRED', async () => {
+    const state = await db();
+    await state.db.update(priceSnapshots).set({ fetchedAt: new Date(Date.now() - 31 * 86_400_000) });
+    await expect(
+      designVoice(services(state), {
+        name: 'Narrator',
+        provider: 'minimax',
+        description: 'A warm, low narrator voice.',
+        preview_text: 'Hello there.',
+        confirmed_cost_usd: 3,
+      }),
+    ).rejects.toMatchObject({
+      code: 'CONFIRMATION_REQUIRED',
+      options: { details: { reason: 'stale_price' } },
+    });
+    expect(await state.db.select().from(spendLedger)).toHaveLength(0);
   });
 });

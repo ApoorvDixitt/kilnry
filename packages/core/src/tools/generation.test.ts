@@ -411,4 +411,30 @@ describe('generation tools (F-MCP-02 §3.2, §3.6)', () => {
       globalThis.fetch = realFetch;
     }
   });
+
+  // F-21: analyze priced from a stale snapshot is refused before any hold.
+  it('kilnry_analyze refuses a stale price with CONFIRMATION_REQUIRED and holds nothing (F-21)', async () => {
+    const state = await db();
+    const { spendLedger } = await import('@kilnry/db');
+    const engine = {
+      estimate(request: Record<string, unknown>) {
+        return Promise.resolve({
+          request,
+          estimate: {
+            estimate_usd: 0.05,
+            authoritative_usd: 0.05,
+            route: { provider: 'openrouter', model: 'google/gemini-3.1-flash-lite' },
+            adjustments: ['stale_price'],
+            eta_s: 5,
+          },
+        });
+      },
+    };
+    const result = await analyzeTool.execute(
+      { task: 'describe', instructions: 'What is it?', confirm_cost_usd: 0.05 },
+      { db: state, scope: 'full', engine: engine as never, openrouterKey: 'sk-test' },
+    );
+    expect((result.structuredContent.error as { code: string }).code).toBe('CONFIRMATION_REQUIRED');
+    expect(await state.db.select().from(spendLedger)).toHaveLength(0);
+  });
 });

@@ -951,4 +951,42 @@ describe('F-VOI-04 the engine honours the voice provider', () => {
     ]);
     expect(priced.request.params.extra?.voice_id).toBe('fal-voice-1');
   });
+
+  // F-22, TRD-04 invariant 5: the worker re-checks confirmed_cost_usd before
+  // submitting an MCP or Chat job. A queued row that reached the queue without
+  // it (any path that skipped createJob's check) must fail, never spend.
+  it('refuses to submit a chat job whose row carries no confirmed cost (F-22)', async () => {
+    const fake = fakeAdapter();
+    const { engine, state } = await harness(fake.adapter);
+    const done = await createConfirmed(engine);
+    await engine.waitForJob(done.job_id, 5000);
+    const template = (await state.db.select().from(jobs).where(eq(jobs.id, done.job_id)))[0]!;
+    await engine.stop();
+    const bypassId = `${done.job_id.slice(0, 20)}BYPAS`;
+    await state.db.insert(jobs).values({
+      ...template,
+      id: bypassId,
+      status: 'queued',
+      source: 'chat',
+      clientRequestId: null,
+      confirmedCostUsd: '0.000000',
+      confirmedBy: 'auto',
+      providerRequestId: null,
+      providerStatusUrl: null,
+      resolved: null,
+      outputAssetIds: null,
+      actualUsd: null,
+      startedAt: null,
+      finishedAt: null,
+      errorCode: null,
+      errorMessage: null,
+      attempts: 0,
+    });
+    const submitsBefore = fake.state.submitCalls;
+    await engine.start();
+    const refused = await engine.waitForJob(bypassId, 5000);
+    expect(refused.status).toBe('failed');
+    expect(refused.errorCode).toBe('CONFIRMATION_REQUIRED');
+    expect(fake.state.submitCalls).toBe(submitsBefore);
+  });
 });

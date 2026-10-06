@@ -28,6 +28,7 @@ import { KilnryError } from '../errors.js';
 import { ulid } from '../ids.js';
 import {
   assertCostConfirmation,
+  assertFreshPrice,
   holdSpend,
   releaseHold,
   settleHold,
@@ -138,6 +139,8 @@ export function isValidTriggerWord(word: string): boolean {
 export interface TrainingInput {
   handle: string;
   trainer: TrainerId;
+  // Pay from a price snapshot older than 30 days anyway (F-21).
+  allow_stale_price?: boolean;
   steps?: number;
   trigger_word?: string;
   confirmed_cost_usd: number;
@@ -240,6 +243,7 @@ export async function startTraining(
   // reservation and the ledger row all use this one figure.
   const steps = input.steps ?? 1000;
   const trainingEstimate = await priceTraining(services.db, input.trainer, steps);
+  assertFreshPrice(trainingEstimate, input.allow_stale_price);
   assertCostConfirmation(trainingEstimate, input.confirmed_cost_usd);
   const chargedUsd = trainingEstimate.authoritative_usd ?? trainingEstimate.estimate_usd;
 

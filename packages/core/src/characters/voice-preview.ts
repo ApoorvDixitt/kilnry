@@ -14,7 +14,13 @@ import { and, eq } from 'drizzle-orm';
 import { auditEvents, characterVoices, voices, type DatabaseState } from '@kilnry/db';
 import { KilnryError } from '../errors.js';
 import { ulid } from '../ids.js';
-import { assertCostConfirmation, holdSpend, releaseHold, settleHold } from '../budget/enforcer.js';
+import {
+  assertCostConfirmation,
+  assertFreshPrice,
+  holdSpend,
+  releaseHold,
+  settleHold,
+} from '../budget/enforcer.js';
 import { estimate as priceEstimate } from '../registry/estimator.js';
 import { loadRegistry } from '../registry/store.js';
 import type { CanonicalRequest, Estimate, ProviderId } from '../types.js';
@@ -74,11 +80,12 @@ export interface PreviewServices {
 // F-PRV-05). Returns the audio bytes for the caller to stream or embed.
 export async function previewVoice(
   services: PreviewServices,
-  input: { provider: string; voiceId: string; text?: string },
+  input: { provider: string; voiceId: string; text?: string; allow_stale_price?: boolean },
 ): Promise<{ bytes: Uint8Array; mime: string; estimate_usd: number }> {
   const now = services.now ?? (() => new Date());
   const text = input.text && input.text.trim() !== '' ? input.text : PREVIEW_SAMPLE;
   const estimate = await pricePreview(services.db, input.provider, text);
+  assertFreshPrice(estimate, input.allow_stale_price);
   assertCostConfirmation(estimate, estimate.estimate_usd);
   // Hold the estimate before the synthesis call (F-01, D-60): the cap check and
   // a pending ledger row are one locked transaction, so two concurrent previews

@@ -14,7 +14,13 @@ import type { DatabaseState } from '@kilnry/db';
 import { auditEvents } from '@kilnry/db';
 import { KilnryError } from '../errors.js';
 import { ulid } from '../ids.js';
-import { assertCostConfirmation, holdSpend, releaseHold, settleHold } from '../budget/enforcer.js';
+import {
+  assertCostConfirmation,
+  assertFreshPrice,
+  holdSpend,
+  releaseHold,
+  settleHold,
+} from '../budget/enforcer.js';
 import { estimate as priceEstimate } from '../registry/estimator.js';
 import { loadRegistry } from '../registry/store.js';
 import type { CanonicalRequest, Estimate } from '../types.js';
@@ -76,6 +82,8 @@ export async function priceDesign(db: DatabaseState, provider: DesignProvider): 
 export interface DesignInput {
   name: string;
   provider: DesignProvider;
+  // Pay from a price snapshot older than 30 days anyway (F-21).
+  allow_stale_price?: boolean;
   description: string;
   preview_text: string;
   language?: string;
@@ -137,6 +145,7 @@ export async function designVoice(services: DesignServices, input: DesignInput):
   // one locked transaction, keyed by the voice's own id so a design is charged at
   // most once.
   const designEstimate = await priceDesign(services.db, input.provider);
+  assertFreshPrice(designEstimate, input.allow_stale_price);
   assertCostConfirmation(designEstimate, input.confirmed_cost_usd);
   const chargedUsd = designEstimate.authoritative_usd ?? designEstimate.estimate_usd;
   const voiceUlid = ulid();
