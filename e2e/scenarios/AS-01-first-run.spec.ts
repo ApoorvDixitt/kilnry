@@ -85,17 +85,18 @@ test('@smoke @m3 S-01 AS-01 first run creates a protected local account and Libr
   await expect(page.getByText('openrouter detected', { exact: false })).toBeVisible();
   await page.getByRole('button', { name: 'Test and save key' }).click();
   await expect(page.getByText(/Connected · \d+ ms/)).toBeVisible({ timeout: 30_000 });
-  const onboardingKit =
-    (await page.locator('.onboarding-recovery code').textContent())?.replace(/[\s-]/g, '') ?? '';
-  const onboardingGroups = onboardingKit.slice('kilnry1'.length).match(/.{1,4}/g) ?? [];
-  const onboardingConfirmation = page.locator('.onboarding-recovery .recovery-proof-fields label');
-  for (let index = 0; index < (await onboardingConfirmation.count()); index += 1) {
-    const label = onboardingConfirmation.nth(index);
-    const group = Number(/group (\d+)/i.exec((await label.textContent()) ?? '')?.[1]);
-    await label.locator('input').fill(onboardingGroups[group - 1] ?? '');
-  }
-  await page.getByRole('button', { name: "I've stored it safely" }).click();
+  // D-63: with the master key in the OS keychain there is no recovery-kit card
+  // in onboarding at all — the kit is a Settings › Security flow behind the
+  // password — and Continue is available as soon as the key is saved.
   await expect(page.locator('.onboarding-recovery')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Continue' })).toBeEnabled();
+  // F-14: a reload keeps the step usable, because the saved key is read from the
+  // server rather than held in component state.
+  await page.reload();
+  await expect(page.getByText('openrouter is already connected', { exact: false })).toBeVisible({
+    timeout: 30_000,
+  });
+  await expect(page.getByRole('button', { name: 'Continue' })).toBeEnabled();
   const providerTestStatuses = await page.evaluate(async () => {
     const csrf = decodeURIComponent(
       document.cookie
@@ -189,14 +190,9 @@ test('@smoke @m3 S-01 AS-01 first run creates a protected local account and Libr
       await fetch('/api/security/key-store', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Kilnry-CSRF': csrf },
-        body: JSON.stringify({
-          action: 'acknowledge',
-          challenge_token: 'invalid-recovery-challenge',
-          answers: [
-            { group: 1, value: 'aaaa' },
-            { group: 2, value: 'bbbb' },
-          ],
-        }),
+        // The acknowledgement is one checkbox now (D-63); anything else is a
+        // rejected body.
+        body: JSON.stringify({ action: 'acknowledge', stored: false }),
       })
     ).status;
   });
@@ -204,15 +200,11 @@ test('@smoke @m3 S-01 AS-01 first run creates a protected local account and Libr
   await page.getByLabel('Current password', { exact: true }).fill('Kilnry-local-test-42!');
   await page.getByRole('button', { name: 'View recovery kit' }).click();
   await expect(page.locator('.recovery-card code')).toContainText('kilnry1');
-  const recoveryKit = (await page.locator('.recovery-card code').textContent())?.replace(/[\s-]/g, '') ?? '';
-  const recoveryGroups = recoveryKit.slice('kilnry1'.length).match(/.{1,4}/g) ?? [];
-  const confirmationLabels = page.locator('.recovery-confirm label');
-  for (let index = 0; index < (await confirmationLabels.count()); index += 1) {
-    const label = confirmationLabels.nth(index);
-    const group = Number(/group (\d+)/i.exec((await label.textContent()) ?? '')?.[1]);
-    await label.locator('input').fill(recoveryGroups[group - 1] ?? '');
-  }
-  await page.getByRole('button', { name: "I've stored it safely" }).click();
+  // One checkbox, then Done (D-63): Done waits for the box to be ticked, and
+  // ticking it is the whole acknowledgement.
+  await expect(page.getByRole('button', { name: 'Done' })).toBeDisabled();
+  await page.locator('.recovery-stored input[type="checkbox"]').check();
+  await page.getByRole('button', { name: 'Done' }).click();
   await expect(page.locator('.recovery-card code')).toHaveCount(0);
   await page.screenshot({ path: join(root, 'test-results', 'm2-security-light.png'), fullPage: true });
   await page.goto('/settings/providers');

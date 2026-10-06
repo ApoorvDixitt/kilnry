@@ -86,7 +86,8 @@
     "genericError": "Kilnry couldn't save this step. Check the details and try again.",
     "progress": "Setup progress",
     "localOnly": "127.0.0.1 · local only",
-    "setupExpired": "This setup link has expired. Start Kilnry again and open the new link it prints."
+    "setupExpired": "This setup link has expired. Start Kilnry again and open the new link it prints.",
+    "providerAlreadyConnected": "{provider} is already connected on this machine."
   },
   "login": {
     "title": "Welcome back",
@@ -557,9 +558,7 @@
       "viewKit": "View recovery kit",
       "kitSaveTitle": "Save this recovery kit now",
       "kitSaveBody": "It is not stored in plaintext and will disappear when you close this panel.",
-      "confirmGroups": "To prove the backup is readable, re-enter these two four-character groups.",
-      "groupLabel": "Recovery kit group {group}",
-      "kitStored": "I've stored it safely",
+      "kitStored": "I've stored this somewhere safe",
       "networkTitle": "LAN access",
       "networkOff": "Off. Kilnry accepts connections only from this machine.",
       "networkPending": "LAN access will turn on after Kilnry restarts. Use HTTPS or a trusted private network.",
@@ -598,7 +597,8 @@
         "file": "KILNRY_MASTER_KEY_FILE",
         "machine": "machine-derived fallback",
         "pending": "not initialized"
-      }
+      },
+      "kitDone": "Done"
     },
     "appearance": {
       "eyebrow": "Display and motion",

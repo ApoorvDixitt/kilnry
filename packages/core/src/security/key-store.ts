@@ -367,7 +367,13 @@ export class ProviderKeyStore {
     return {
       id,
       key_prefix: keyPrefix,
-      ...(firstEnvelope ? { recovery_kit: formatRecoveryKit(encodeRecoveryKit(this.#requireKek())) } : {}),
+      // The view-once kit at first save belongs to the machine-derived-key mode
+      // alone (TRD-15 §8 as amended, D-63): where the key is in the OS keychain,
+      // an env variable or a key file, the kit is a Settings › Security flow
+      // behind the password re-prompt, not a ritual in the middle of onboarding.
+      ...(firstEnvelope && this.#source === 'machine'
+        ? { recovery_kit: formatRecoveryKit(encodeRecoveryKit(this.#requireKek())) }
+        : {}),
     };
   }
 

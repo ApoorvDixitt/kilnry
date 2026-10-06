@@ -10,7 +10,6 @@ import { ulid } from '@kilnry/core';
 import { auditEvents, getSetting, putSetting } from '@kilnry/db';
 import { errorResponse, requireSession } from '../../../../server/http';
 import { getAuth } from '../../../../server/auth';
-import { createRecoveryChallenge, verifyRecoveryChallenge } from '../../../../server/recovery-challenge';
 import { ensureRuntimeEngine, runtimeServices } from '../../../../server/runtime';
 
 const Input = z.discriminatedUnion('action', [
@@ -19,13 +18,9 @@ const Input = z.discriminatedUnion('action', [
   // Acceptance harness only; the key store refuses it outside KILNRY_TEST_MSW
   // and in release builds (S-22 locks the store without a process restart).
   z.object({ action: z.literal('simulate_key_loss') }),
-  z.object({
-    action: z.literal('acknowledge'),
-    challenge_token: z.string().min(20),
-    answers: z
-      .array(z.object({ group: z.number().int().positive(), value: z.string().min(1).max(4) }))
-      .length(2),
-  }),
+  // One checkbox, never a transcription quiz (D-63): the user says they have
+  // stored the kit and Done records recovery_kit_viewed_at.
+  z.object({ action: z.literal('acknowledge'), stored: z.literal(true) }),
 ]);
 
 export async function GET(): Promise<Response> {
@@ -50,11 +45,7 @@ export async function POST(request: Request): Promise<Response> {
     const services = await runtimeServices();
     if (input.action === 'view') {
       await getAuth().api.verifyPassword({ body: { password: input.password }, headers: await headers() });
-      const recoveryKit = services.keyStore.recoveryKit();
-      return NextResponse.json({
-        recovery_kit: recoveryKit,
-        confirmation: createRecoveryChallenge(session.session.id, recoveryKit),
-      });
+      return NextResponse.json({ recovery_kit: services.keyStore.recoveryKit() });
     }
     if (input.action === 'simulate_key_loss') {
       services.keyStore.simulateMasterKeyLoss();
@@ -90,8 +81,11 @@ export async function POST(request: Request): Promise<Response> {
       });
       return NextResponse.json({ ok: true, status: services.keyStore.status() });
     }
-    verifyRecoveryChallenge(session.session.id, input.challenge_token, input.answers);
-    await putSetting('recovery_kit_confirmed_at', new Date().toISOString());
+    const now = new Date().toISOString();
+    await putSetting('recovery_kit_confirmed_at', now);
+    // PRD-16 §8: Done sets recovery_kit_viewed_at, which the checklist item and
+    // the Providers banner read.
+    await putSetting('recovery_kit_viewed_at', now);
     return NextResponse.json({ ok: true });
   } catch (error) {
     return errorResponse(error);

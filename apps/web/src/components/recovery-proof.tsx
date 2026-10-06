@@ -5,25 +5,23 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
+// The view-once recovery kit and its acknowledgement: one checkbox and Done
+// (D-63). The transcription quiz this card used to run proved only that the user
+// could read two groups off the screen, cost most of onboarding's 60-second input
+// budget, and blocked the step'"'"'s primary button until it was passed (F-14, UX-01).
+
 import { useState } from 'react';
 import { apiFetch } from '../lib/api-client';
 import { message } from '../lib/messages';
 
-export interface RecoveryConfirmation {
-  challenge_token: string;
-  group_numbers: number[];
-}
-
 export function RecoveryProof({
   recoveryKit,
-  confirmation,
   onConfirmed,
 }: {
   recoveryKit: string;
-  confirmation: RecoveryConfirmation;
   onConfirmed: () => void;
 }): React.ReactNode {
-  const [answers, setAnswers] = useState<Record<number, string>>({});
+  const [stored, setStored] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string>();
 
@@ -34,11 +32,7 @@ export function RecoveryProof({
       const response = await apiFetch('/api/security/key-store', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'acknowledge',
-          challenge_token: confirmation.challenge_token,
-          answers: confirmation.group_numbers.map((group) => ({ group, value: answers[group] ?? '' })),
-        }),
+        body: JSON.stringify({ action: 'acknowledge', stored: true }),
       });
       const body = (await response.json()) as { error?: { message?: string } };
       if (!response.ok) throw new Error(body.error?.message ?? message('settings.security.loadFailed'));
@@ -55,31 +49,13 @@ export function RecoveryProof({
       <strong>{message('settings.security.kitSaveTitle')}</strong>
       <p>{message('settings.security.kitSaveBody')}</p>
       <code>{recoveryKit}</code>
-      <p>{message('settings.security.confirmGroups')}</p>
       <div className="recovery-proof-fields">
-        {confirmation.group_numbers.map((group) => (
-          <label key={group}>
-            {message('settings.security.groupLabel').replace('{group}', String(group))}
-            <input
-              maxLength={4}
-              value={answers[group] ?? ''}
-              onChange={(event) =>
-                setAnswers((current) => ({
-                  ...current,
-                  [group]: event.target.value.toLowerCase().replace(/[^a-z0-9]/g, ''),
-                }))
-              }
-            />
-          </label>
-        ))}
-        <button
-          type="button"
-          disabled={
-            pending || confirmation.group_numbers.some((group) => (answers[group]?.length ?? 0) !== 4)
-          }
-          onClick={() => void confirm()}
-        >
+        <label className="recovery-stored">
+          <input type="checkbox" checked={stored} onChange={(event) => setStored(event.target.checked)} />
           {message('settings.security.kitStored')}
+        </label>
+        <button type="button" disabled={pending || !stored} onClick={() => void confirm()}>
+          {message('settings.security.kitDone')}
         </button>
       </div>
       {error ? <p className="form-error">{error}</p> : null}

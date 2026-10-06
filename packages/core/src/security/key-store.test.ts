@@ -66,6 +66,10 @@ describe('provider key store', () => {
     const production = open({});
     await production.initialize();
     const saved = await production.save('fal', ['harness', 'provider', 'credential'].join('-'));
+    // D-63: the view-once kit at first save is the machine-derived-key mode's
+    // alone; with a keychain the kit is read in Settings behind the password.
+    expect(saved.recovery_kit).toBeUndefined();
+    const productionKit = production.recoveryKit();
     expect(() => production.simulateMasterKeyLoss()).toThrow(/only available under the test harness/);
     const release = open({ KILNRY_TEST_MSW: '1', KILNRY_RELEASE_BUILD: '1' });
     await release.initialize();
@@ -85,8 +89,8 @@ describe('provider key store', () => {
       message: 'That recovery kit does not match this installation.',
       checksum_words: before.checksum_words,
     });
-    expect(await harness.checkRecoveryKit(saved.recovery_kit!)).toEqual({ ok: true });
-    await harness.restoreRecoveryKit(saved.recovery_kit!);
+    expect(await harness.checkRecoveryKit(productionKit)).toEqual({ ok: true });
+    await harness.restoreRecoveryKit(productionKit);
     expect(harness.status().locked).toBe(false);
     expect(await harness.get('fal')).toBe(['harness', 'provider', 'credential'].join('-'));
   });
@@ -103,14 +107,16 @@ describe('provider key store', () => {
     await store.initialize();
     const plaintext = ['integration', 'provider', 'credential'].join('-');
     const saved = await store.save('fal', plaintext);
-    expect(saved.recovery_kit).toMatch(/^kilnry1/);
+    expect(saved.recovery_kit).toBeUndefined();
+    const storeKit = store.recoveryKit();
+    expect(storeKit).toMatch(/^kilnry1/);
     expect(await store.get('fal')).toBe(plaintext);
     expect(allBytes(dataDir).includes(Buffer.from(plaintext))).toBe(false);
 
     keychain.value = undefined;
     const locked = new ProviderKeyStore({ dataDir, database: state, keychain });
     expect((await locked.initialize()).locked).toBe(true);
-    await locked.restoreRecoveryKit(saved.recovery_kit!);
+    await locked.restoreRecoveryKit(storeKit);
     expect(await locked.get('fal')).toBe(plaintext);
 
     await state.db
@@ -136,7 +142,10 @@ describe('provider key store', () => {
       onWarning: (message) => warnings.push(message),
     });
     expect(await first.initialize()).toMatchObject({ source: 'machine', weaker_machine_key: true });
-    await first.save('fal', 'fixture-machine-credential');
+    // In this mode — and only in this mode — the first save hands back the
+    // view-once kit, because losing the machine loses the keys (TRD-15 §8, D-63).
+    const machineSave = await first.save('fal', 'fixture-machine-credential');
+    expect(machineSave.recovery_kit).toMatch(/^kilnry1/);
     const copiedToAnotherMachine = new ProviderKeyStore({
       dataDir,
       database: state,

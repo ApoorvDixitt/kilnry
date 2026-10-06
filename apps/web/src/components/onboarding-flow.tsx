@@ -5,13 +5,13 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Check, Eye, EyeOff, FolderOpen, KeyRound, LockKeyhole, Sparkles } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { detectProviderKey } from '@kilnry/core/security/key-detection';
 import { BrandMark } from './brand-mark';
-import { RecoveryProof, type RecoveryConfirmation } from './recovery-proof';
+import { RecoveryProof } from './recovery-proof';
 import { apiFetch } from '../lib/api-client';
 import { message } from '../lib/messages';
 
@@ -28,6 +28,10 @@ function passwordScore(password: string): number {
   if (/[a-z]/.test(password) && /[A-Z]/.test(password)) score += 1;
   if (/\d/.test(password) && /[^A-Za-z0-9]/.test(password)) score += 1;
   return score;
+}
+
+interface ProvidersBody {
+  providers?: Array<{ id: string; connected?: boolean }>;
 }
 
 export function OnboardingFlow({
@@ -50,7 +54,30 @@ export function OnboardingFlow({
   const [demoExpanded, setDemoExpanded] = useState(false);
   const [connectionNote, setConnectionNote] = useState<string>();
   const [recoveryKit, setRecoveryKit] = useState<string>();
-  const [recoveryConfirmation, setRecoveryConfirmation] = useState<RecoveryConfirmation>();
+
+  // A key that is already saved keeps Continue available across a reload: the
+  // step used to hold its only record of the save in component state, so a
+  // reload left the user on a step whose primary button never enabled while the
+  // key was connected on the server (F-14).
+  useEffect(() => {
+    if (step !== 3) return;
+    let cancelled = false;
+    void fetch('/api/providers')
+      .then((response) => (response.ok ? (response.json() as Promise<ProvidersBody>) : undefined))
+      .then((body) => {
+        if (cancelled || !body) return;
+        const live = (body.providers ?? []).filter((entry) => entry.connected);
+        if (live.length === 0) return;
+        setConnected(true);
+        const first = live[0]!.id;
+        if (first === 'fal' || first === 'openrouter' || first === 'pollinations') setProvider(first);
+        setConnectionNote(message('welcome.providerAlreadyConnected').replace('{provider}', live[0]!.id));
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [step]);
 
   function detectProvider(value: string): 'fal' | 'openrouter' | 'pollinations' | undefined {
     const candidates = detectProviderKey(value);
@@ -120,7 +147,6 @@ export function OnboardingFlow({
       });
       const body = (await response.json()) as {
         recovery_kit?: string;
-        confirmation?: RecoveryConfirmation;
         test?: { latency_ms?: number; model_count?: number };
         error?: { message?: string };
       };
@@ -128,7 +154,6 @@ export function OnboardingFlow({
       setProvider(selected);
       setConnected(true);
       setRecoveryKit(body.recovery_kit);
-      setRecoveryConfirmation(body.confirmation);
       setConnectionNote(
         message('welcome.providerConnected')
           .replace('{latency}', String(body.test?.latency_ms ?? 0))
@@ -336,16 +361,12 @@ export function OnboardingFlow({
                     {connectionNote}
                   </p>
                 ) : null}
-                {recoveryKit && recoveryConfirmation ? (
+                {/* The kit appears here only in machine-derived-key mode, where
+                    TRD-15 §8 requires it; everywhere else it lives in
+                    Settings › Security behind the password (D-63). */}
+                {recoveryKit ? (
                   <div className="onboarding-recovery">
-                    <RecoveryProof
-                      recoveryKit={recoveryKit}
-                      confirmation={recoveryConfirmation}
-                      onConfirmed={() => {
-                        setRecoveryKit(undefined);
-                        setRecoveryConfirmation(undefined);
-                      }}
-                    />
+                    <RecoveryProof recoveryKit={recoveryKit} onConfirmed={() => setRecoveryKit(undefined)} />
                   </div>
                 ) : null}
                 {error ? (
@@ -364,7 +385,7 @@ export function OnboardingFlow({
                   <button
                     className="primary-button"
                     type="button"
-                    disabled={pending || !connected || Boolean(recoveryKit)}
+                    disabled={pending || !connected}
                     onClick={() => void finishProviderStep()}
                   >
                     {message('welcome.continue')}

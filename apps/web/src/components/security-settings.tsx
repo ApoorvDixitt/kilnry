@@ -18,11 +18,6 @@ interface KeyStatus {
   fingerprint?: string;
 }
 
-interface RecoveryConfirmation {
-  challenge_token: string;
-  group_numbers: number[];
-}
-
 interface NetworkStatus {
   configured: boolean;
   active: boolean;
@@ -51,8 +46,7 @@ export function SecuritySettings(): React.ReactNode {
   const [status, setStatus] = useState<KeyStatus>();
   const [password, setPassword] = useState('');
   const [kit, setKit] = useState<string>();
-  const [confirmation, setConfirmation] = useState<RecoveryConfirmation>();
-  const [answers, setAnswers] = useState<Record<number, string>>({});
+  const [stored, setStored] = useState(false);
   const [restore, setRestore] = useState('');
   const [network, setNetwork] = useState<NetworkStatus>();
   const [networkPassword, setNetworkPassword] = useState('');
@@ -126,33 +120,24 @@ export function SecuritySettings(): React.ReactNode {
   async function viewKit(): Promise<void> {
     try {
       const value = await action({ action: 'view', password });
-      if (
-        typeof value.recovery_kit !== 'string' ||
-        typeof value.confirmation !== 'object' ||
-        value.confirmation === null
-      ) {
+      if (typeof value.recovery_kit !== 'string') {
         throw new Error(message('settings.security.loadFailed'));
       }
       setKit(value.recovery_kit);
-      setConfirmation(value.confirmation as unknown as RecoveryConfirmation);
-      setAnswers({});
+      setStored(false);
       setPassword('');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : message('settings.security.loadFailed'));
     }
   }
 
+  // One checkbox, then Done (D-63): a transcription quiz proved nothing about
+  // where the kit was stored and cost the user two four-character groups.
   async function confirmKit(): Promise<void> {
-    if (!confirmation) return;
     try {
-      await action({
-        action: 'acknowledge',
-        challenge_token: confirmation.challenge_token,
-        answers: confirmation.group_numbers.map((group) => ({ group, value: answers[group] ?? '' })),
-      });
+      await action({ action: 'acknowledge', stored: true });
       setKit(undefined);
-      setConfirmation(undefined);
-      setAnswers({});
+      setStored(false);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : message('settings.security.loadFailed'));
     }
@@ -266,39 +251,16 @@ export function SecuritySettings(): React.ReactNode {
           {kit ? (
             <>
               <code>{kit}</code>
-              {confirmation ? (
-                <div className="recovery-confirm">
-                  <p>{message('settings.security.confirmGroups')}</p>
-                  <div>
-                    {confirmation.group_numbers.map((group) => (
-                      <label key={group}>
-                        {message('settings.security.groupLabel').replace('{group}', String(group))}
-                        <input
-                          maxLength={4}
-                          autoComplete="off"
-                          value={answers[group] ?? ''}
-                          onChange={(event) =>
-                            setAnswers((current) => ({
-                              ...current,
-                              [group]: event.target.value.toLowerCase().replace(/[^a-z0-9]/g, ''),
-                            }))
-                          }
-                        />
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-              <button
-                type="button"
-                disabled={
-                  pending ||
-                  !confirmation ||
-                  confirmation.group_numbers.some((group) => (answers[group]?.length ?? 0) !== 4)
-                }
-                onClick={() => void confirmKit()}
-              >
+              <label className="recovery-stored">
+                <input
+                  type="checkbox"
+                  checked={stored}
+                  onChange={(event) => setStored(event.target.checked)}
+                />
                 {message('settings.security.kitStored')}
+              </label>
+              <button type="button" disabled={pending || !stored} onClick={() => void confirmKit()}>
+                {message('settings.security.kitDone')}
               </button>
             </>
           ) : (

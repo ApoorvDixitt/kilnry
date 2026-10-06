@@ -11,7 +11,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { detectProviderKey } from '@kilnry/core/security/key-detection';
 import { apiFetch } from '../lib/api-client';
 import { message } from '../lib/messages';
-import { RecoveryProof, type RecoveryConfirmation } from './recovery-proof';
+import { RecoveryProof } from './recovery-proof';
 
 type ProviderId = 'fal' | 'openrouter' | 'pollinations' | 'higgsfield';
 interface ProviderSummary {
@@ -88,7 +88,6 @@ export function ProviderSettings({
   const [error, setError] = useState<string>();
   const [notice, setNotice] = useState<string>();
   const [recoveryKit, setRecoveryKit] = useState<string>();
-  const [recoveryConfirmation, setRecoveryConfirmation] = useState<RecoveryConfirmation>();
   const [caps, setCaps] = useState<Record<string, string>>({});
   const [concurrency, setConcurrency] = useState<Record<string, string>>({});
   const [ollama, setOllama] = useState<OllamaDetection>();
@@ -199,11 +198,9 @@ export function ProviderSettings({
       });
       const body = await responseJson<{
         recovery_kit?: string;
-        confirmation?: RecoveryConfirmation;
         test: { latency_ms?: number; model_count?: number };
       }>(response);
       setRecoveryKit(body.recovery_kit);
-      setRecoveryConfirmation(body.confirmation);
       setNotice(
         message('settings.providers.connected')
           .replace('{latency}', String(body.test.latency_ms ?? 0))
@@ -450,21 +447,14 @@ export function ProviderSettings({
         ) : null}
       </div>
       <AnimatePresence>
-        {recoveryKit && recoveryConfirmation ? (
+        {recoveryKit ? (
           <motion.section
             className="recovery-inline"
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
           >
-            <RecoveryProof
-              recoveryKit={recoveryKit}
-              confirmation={recoveryConfirmation}
-              onConfirmed={() => {
-                setRecoveryKit(undefined);
-                setRecoveryConfirmation(undefined);
-              }}
-            />
+            <RecoveryProof recoveryKit={recoveryKit} onConfirmed={() => setRecoveryKit(undefined)} />
           </motion.section>
         ) : null}
       </AnimatePresence>
