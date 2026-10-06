@@ -37,6 +37,7 @@ import { loadRegistry, providerRouteStates, seedRegistry } from '../registry/sto
 import { refreshProviderPrices } from '../providers/service.js';
 import { route, type RouteConstraints } from '../registry/router.js';
 import { priceMaxAgeDays } from '../registry/price-age.js';
+import { purgeTrash } from '../library/assets.js';
 import { estimate as estimateRequest, withAuthoritativeEstimate } from '../registry/estimator.js';
 import type {
   AdapterContext,
@@ -63,7 +64,7 @@ interface QueuePayload {
 }
 
 interface MaintenancePayload {
-  op: 'price_refresh' | 'import_path';
+  op: 'price_refresh' | 'import_path' | 'trash_purge';
   path?: string;
 }
 
@@ -355,6 +356,17 @@ export class JobEngine {
             await this.#importPath(message.data.path);
             continue;
           }
+          if (message.data.op === 'trash_purge') {
+            // TRD-04 §5 invariant 2: nothing emptied Trash, so trash_days had no
+            // effect and trashed files accumulated forever (F-32).
+            const result = await purgeTrash(
+              this.#options.state,
+              this.#options.libraryRoot,
+              this.#options.now(),
+            );
+            if (result.purged > 0) this.#options.log('info', 'trash_purged', { count: result.purged });
+            continue;
+          }
           if (message.data.op !== 'price_refresh') {
             throw new Error(`Unknown maintenance operation: ${String(message.data.op)}`);
           }
@@ -395,6 +407,7 @@ export class JobEngine {
         },
       );
     }
+    await boss.schedule('maintenance', '30 3 * * *', { op: 'trash_purge' }, { key: 'trash-purge' });
     await boss.schedule('maintenance', '0 4 * * *', { op: 'price_refresh' }, { key: 'price-refresh' });
     this.#started = true;
   }

@@ -3,11 +3,11 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
-import { and, asc, desc, eq, isNull, like, or, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, isNotNull, isNull, like, lt, or, type SQL } from 'drizzle-orm';
 import { randomBytes } from 'node:crypto';
 import { mkdir, open, rename, rm, stat } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
-import { assets, auditEvents, type DatabaseState } from '@kilnry/db';
+import { dirname, join, resolve, sep } from 'node:path';
+import { assets, auditEvents, settings, type DatabaseState } from '@kilnry/db';
 import { KilnryError } from '../errors.js';
 import { resolveInRoot } from './containment.js';
 import { indexAsset } from './index.js';
@@ -356,4 +356,57 @@ export async function recoverAssetMetadata(
   await state.db.delete(assets).where(eq(assets.id, assetId));
   const result = await indexAsset(state, root, absolute, libraryId);
   return { recovered: result.recovered };
+}
+
+/**
+ * The nightly Trash purge (TRD-04 §5 invariant 2, TRD-08:342 `trash_purge` at
+ * 30 3 * * *): delete the asset row, its file and its sidecar once it has been
+ * in Trash longer than `settings.trash_days` (30, default; adjustable). The
+ * move-to-Trash half was built and this half was not, so nothing read
+ * trash_days and a user's Trash was never emptied (F-32).
+ */
+export const TRASH_DAYS_SETTING = 'trash_days';
+export const TRASH_DAYS_DEFAULT = 30;
+
+export async function trashDays(state: DatabaseState): Promise<number> {
+  const rows = await state.db
+    .select({ value: settings.value })
+    .from(settings)
+    .where(eq(settings.key, TRASH_DAYS_SETTING))
+    .limit(1);
+  const stored = Number(rows[0]?.value);
+  if (!Number.isFinite(stored)) return TRASH_DAYS_DEFAULT;
+  return Math.min(365, Math.max(1, Math.round(stored)));
+}
+
+export async function purgeTrash(
+  state: DatabaseState,
+  libraryRoot: string,
+  now: Date = new Date(),
+): Promise<{ purged: number }> {
+  const days = await trashDays(state);
+  const cutoff = new Date(now.getTime() - days * 86_400_000);
+  const rows = await state.db
+    .select({ id: assets.id, path: assets.path })
+    .from(assets)
+    .where(and(isNotNull(assets.trashedAt), lt(assets.trashedAt, cutoff)));
+  let purged = 0;
+  for (const row of rows) {
+    // These are Kilnry's own Trash paths, which resolveInRoot refuses as a
+    // reserved segment (it guards user input), so containment is checked here:
+    // the resolved file must sit under <root>/Trash and nowhere else.
+    const absolute = resolve(libraryRoot, row.path);
+    const trashRoot = resolve(libraryRoot, 'Trash');
+    if (absolute !== trashRoot && !absolute.startsWith(`${trashRoot}${sep}`)) {
+      throw new KilnryError(
+        'INVALID_INPUT',
+        `Refusing to purge ${row.path}: it is not inside the Library's Trash.`,
+      );
+    }
+    await rm(absolute, { force: true });
+    await rm(sidecarPath(absolute), { force: true });
+    await state.db.delete(assets).where(eq(assets.id, row.id));
+    purged += 1;
+  }
+  return { purged };
 }

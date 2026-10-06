@@ -7,15 +7,18 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { assets, closeDatabaseState, createDatabase } from '@kilnry/db';
+import { assets, closeDatabaseState, createDatabase, settings } from '@kilnry/db';
 import { eq } from 'drizzle-orm';
 import { prepareLibraryRoot } from './root.js';
 import { buildMinimalSidecar, indexAsset } from './index.js';
 import {
+  TRASH_DAYS_SETTING,
   deleteAssetToTrash,
   listAssets,
+  purgeTrash,
   recoverAssetMetadata,
   restoreAsset,
+  trashDays,
   updateAssetMetadata,
 } from './assets.js';
 import { sidecarPath, writeSidecar } from './sidecar.js';
@@ -116,6 +119,49 @@ describe('trash', () => {
       trash?: { original_path?: string };
     };
     expect(sidecar.trash?.original_path).toBe('inbox/asset.png');
+  });
+
+  // F-32: TRD-04 §5 invariant 2 promises a nightly purge after
+  // settings.trash_days (30, default; adjustable). The move-to-Trash half was
+  // built and this half was not — nothing read trash_days and Trash was never
+  // emptied, so a user's disk filled with files the TRD says are gone.
+  it('purges a trashed asset past trash_days and keeps one inside it', async () => {
+    const { state, library, libraryId, assetId } = await setup();
+    await deleteAssetToTrash(state, library, libraryId, assetId);
+    const [row] = await state.db.select().from(assets).where(eq(assets.id, assetId)).limit(1);
+    const trashedPath = join(library, row!.path);
+
+    // Twenty-nine days in Trash: still there.
+    const now = new Date('2026-11-01T00:00:00.000Z');
+    await state.db
+      .update(assets)
+      .set({ trashedAt: new Date(now.getTime() - 29 * 86_400_000) })
+      .where(eq(assets.id, assetId));
+    expect(await purgeTrash(state, library, now)).toEqual({ purged: 0 });
+    expect(existsSync(trashedPath)).toBe(true);
+
+    // Thirty-one days: the row, the file and the sidecar are gone.
+    await state.db
+      .update(assets)
+      .set({ trashedAt: new Date(now.getTime() - 31 * 86_400_000) })
+      .where(eq(assets.id, assetId));
+    expect(await purgeTrash(state, library, now)).toEqual({ purged: 1 });
+    expect(existsSync(trashedPath)).toBe(false);
+    expect(existsSync(`${trashedPath}.kilnry.json`)).toBe(false);
+    expect(await state.db.select().from(assets).where(eq(assets.id, assetId))).toHaveLength(0);
+  });
+
+  it('reads the stored trash_days instead of the default', async () => {
+    const { state, library, libraryId, assetId } = await setup();
+    await deleteAssetToTrash(state, library, libraryId, assetId);
+    const now = new Date('2026-11-01T00:00:00.000Z');
+    await state.db
+      .update(assets)
+      .set({ trashedAt: new Date(now.getTime() - 3 * 86_400_000) })
+      .where(eq(assets.id, assetId));
+    await state.db.insert(settings).values({ key: TRASH_DAYS_SETTING, value: 2 });
+    expect(await trashDays(state)).toBe(2);
+    expect(await purgeTrash(state, library, now)).toEqual({ purged: 1 });
   });
 
   it('restores a trashed asset to its original path', async () => {
