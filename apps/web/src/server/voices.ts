@@ -26,6 +26,7 @@ import {
   type VoiceCloner,
   type VoiceDeleter,
   type VoicePreviewer,
+  safeFetch,
 } from '@kilnry/core';
 import { synthesizeSpeech } from '@kilnry/providers';
 import { runtimeServices } from './runtime';
@@ -65,29 +66,48 @@ export async function voiceDesigner(): Promise<VoiceDesigner> {
           // without a preview rather than failing the whole design.
           ...(libraryRoot && marker
             ? {
-                storePreview: async ({ url, name }) => {
-                  const response = await fetch(url);
-                  if (!response.ok) return undefined;
-                  const bytes = Buffer.from(await response.arrayBuffer());
-                  const voicesDir = join(libraryRoot, 'Characters', '_voices');
-                  await mkdir(voicesDir, { recursive: true });
-                  const safe = name.replace(/[^a-zA-Z0-9_-]+/g, '-').slice(0, 40) || 'voice';
-                  const absolute = join(voicesDir, `${safe}-${ulid()}.mp3`);
-                  await writeFile(absolute, bytes);
-                  const indexed = await indexAsset(
-                    services.database,
+                storePreview: ({ url, name }) =>
+                  storeVoicePreview({
+                    database: services.database,
                     libraryRoot,
-                    absolute,
-                    marker.library_id,
-                  );
-                  return indexed.sidecar.asset_id;
-                },
+                    libraryId: marker.library_id,
+                    url,
+                    name,
+                  }),
               }
             : {}),
         },
         input,
       ),
   };
+}
+
+/**
+ * Save a provider's voice-design preview into the Library and return its asset
+ * id. The fetch goes through the SSRF guard with a 25 MB cap (F-24): a plain
+ * fetch had no address check, no size limit and no deadline, so a misbehaving
+ * provider could point Kilnry at a private or cloud-metadata address, or hang
+ * the request while writing an unbounded file.
+ */
+export async function storeVoicePreview(input: {
+  database: Parameters<typeof indexAsset>[0];
+  libraryRoot: string;
+  libraryId: string;
+  url: string;
+  name: string;
+  fetchImpl?: typeof safeFetch;
+}): Promise<string | undefined> {
+  const fetchImpl = input.fetchImpl ?? safeFetch;
+  const response = await fetchImpl(input.url, { max_bytes: 25 * 1024 * 1024 });
+  if (!response.ok) return undefined;
+  const bytes = Buffer.from(await response.arrayBuffer());
+  const voicesDir = join(input.libraryRoot, 'Characters', '_voices');
+  await mkdir(voicesDir, { recursive: true });
+  const safe = input.name.replace(/[^a-zA-Z0-9_-]+/g, '-').slice(0, 40) || 'voice';
+  const absolute = join(voicesDir, `${safe}-${ulid()}.mp3`);
+  await writeFile(absolute, bytes);
+  const indexed = await indexAsset(input.database, input.libraryRoot, absolute, input.libraryId);
+  return indexed.sidecar.asset_id;
 }
 
 export async function voicePreviewer(): Promise<VoicePreviewer> {

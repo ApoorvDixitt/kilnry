@@ -7,7 +7,13 @@ import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { mkdir, open, stat, truncate } from 'node:fs/promises';
 import { join } from 'node:path';
-import { KilnryError, type AdapterContext, type ProviderId, type ProviderResult } from '@kilnry/core';
+import {
+  KilnryError,
+  assertFetchableUrl,
+  type AdapterContext,
+  type ProviderId,
+  type ProviderResult,
+} from '@kilnry/core';
 import { providerHttpError, providerNetworkError } from './errors.js';
 
 const maxOutputBytes = 4 * 1024 * 1024 * 1024;
@@ -46,6 +52,10 @@ async function downloadUrl(
     try {
       const headers = new Headers(baseHeaders);
       if (received > 0 && canResume) headers.set('Range', `bytes=${received}-`);
+      // A provider's own result URL is still an address Kilnry must not be
+      // tricked into fetching: it is refused here if it resolves into a
+      // private, loopback, link-local or cloud-metadata address (F-23).
+      await assertFetchableUrl(url, context.lookup ? { lookup: context.lookup } : {});
       const response = await context.fetch(url, {
         headers,
         signal: AbortSignal.any([context.signal, AbortSignal.timeout(120_000)]),
@@ -124,6 +134,10 @@ async function downloadUrlToFile(
     try {
       const headers = new Headers(baseHeaders);
       if (received > 0 && canResume) headers.set('Range', `bytes=${received}-`);
+      // A provider's own result URL is still an address Kilnry must not be
+      // tricked into fetching: it is refused here if it resolves into a
+      // private, loopback, link-local or cloud-metadata address (F-23).
+      await assertFetchableUrl(url, context.lookup ? { lookup: context.lookup } : {});
       const response = await context.fetch(url, {
         headers,
         signal: AbortSignal.any([context.signal, AbortSignal.timeout(120_000)]),

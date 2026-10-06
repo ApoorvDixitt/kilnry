@@ -63,6 +63,12 @@ export interface AdapterContext {
   key: string;
   fetch: typeof fetch;
   signal: AbortSignal;
+  /**
+   * How a result URL's host is resolved before Kilnry connects to it (F-23).
+   * Production leaves it unset and the SSRF guard uses the system resolver; a
+   * test injects one beside its fetch mock so no unit test does DNS.
+   */
+  lookup?: (hostname: string) => Promise<Array<{ address: string; family: 4 | 6 }>>;
   temp_dir?: string;
   price?: PriceSnapshot;
   log: (level: 'debug' | 'info' | 'warn', event: string, meta?: Record<string, unknown>) => void;

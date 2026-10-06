@@ -58,6 +58,8 @@ describe('provider output download', () => {
       key: 'fixture',
       fetch: fetchMock,
       signal: new AbortController().signal,
+      // No DNS in a unit test: the fixture host resolves to a public address.
+      lookup: async () => [{ address: '93.184.216.34', family: 4 as const }],
       temp_dir: root,
       log: () => undefined,
     };
@@ -67,5 +69,34 @@ describe('provider output download', () => {
     expect(downloaded[0]?.bytes).toBeUndefined();
     expect(downloaded[0]?.path).toBe(join(root, 'output-0.part'));
     expect(readFileSync(downloaded[0]!.path!)).toEqual(Buffer.from(expected));
+  });
+
+  // F-23: a result URL is neither the provider's documented host nor a host the
+  // user typed (PRD-19:26), so a dishonest or breached provider could make
+  // Kilnry fetch a cloud-metadata or LAN address and write the answer into the
+  // Library as an asset. The address is classified before any connection.
+  it('refuses a result URL that points at a private or metadata address', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'kilnry-download-ssrf-'));
+    roots.push(root);
+    const fetchMock = vi.fn(() => Promise.resolve(new Response(new Uint8Array([1, 2, 3]))));
+    const context: AdapterContext = {
+      key: 'fixture',
+      fetch: fetchMock,
+      signal: new AbortController().signal,
+      temp_dir: root,
+      log: () => undefined,
+    };
+    for (const url of [
+      'http://169.254.169.254/latest/meta-data/iam/security-credentials/',
+      'http://127.0.0.1:9000/secret.png',
+      'http://10.0.0.5/private.png',
+    ]) {
+      const result: ProviderResult = { outputs: [{ kind: 'image', url, mime: 'image/png' }] };
+      await expect(downloadOutputs('fal', result, context)).rejects.toMatchObject({
+        code: 'INVALID_INPUT',
+      });
+    }
+    // Nothing was fetched and nothing was written.
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

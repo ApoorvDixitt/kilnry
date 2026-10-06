@@ -212,6 +212,38 @@ async function pinnedRequest(
   });
 }
 
+/**
+ * Refuse a URL that must not be fetched before any connection is made: a
+ * credentialed URL, a cloud-metadata host, a non-HTTPS scheme, an odd port, or a
+ * literal address in a private, loopback or link-local range. Provider result
+ * URLs go through this (F-23, F-24): they are neither "that provider's
+ * documented hosts" nor "hosts the user typed" (PRD-19:26), so a dishonest or
+ * breached provider could otherwise make Kilnry fetch 169.254.169.254 and write
+ * the answer into the Library as an asset.
+ */
+export async function assertFetchableUrl(input: string | URL, options: SafeFetchOptions = {}): Promise<URL> {
+  const url = validateUrl(input, options);
+  const hostname = url.hostname.replace(/^\[|\]$/g, '');
+  const literalFamily = isIP(hostname);
+  const lookup = options.lookup ?? defaultLookup;
+  const addresses = literalFamily
+    ? [{ address: hostname, family: literalFamily === 6 ? (6 as const) : (4 as const) }]
+    : await lookup(hostname);
+  if (addresses.length === 0) throw new KilnryError('NOT_FOUND', 'That host did not resolve.');
+  for (const address of addresses) {
+    const classification = classifyAddress(address.address);
+    const privateAllowed =
+      classification === 'private' && options.allow_private_network && options.allow_lan_http;
+    if (classification !== 'public' && !privateAllowed) {
+      throw new KilnryError(
+        'INVALID_INPUT',
+        `That address is not reachable from Kilnry (${classification}).`,
+      );
+    }
+  }
+  return url;
+}
+
 export async function safeFetch(input: string | URL, options: SafeFetchOptions = {}): Promise<Response> {
   const boundedOptions: SafeFetchOptions = {
     ...options,
