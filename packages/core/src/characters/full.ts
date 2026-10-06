@@ -338,6 +338,10 @@ export interface UsageAsset {
   kind: string;
   preview_url: string;
   created_at: string;
+  /** Which version of the Character made it, and how (PRD-07:580). */
+  version: number;
+  strategy: string;
+  actual_usd?: number;
 }
 
 export async function usageAssets(db: DatabaseState, handle: string, limit = 60): Promise<UsageAsset[]> {
@@ -349,6 +353,11 @@ export async function usageAssets(db: DatabaseState, handle: string, limit = 60)
       path: assets.path,
       kind: assets.kind,
       createdAt: assets.createdAt,
+      // PRD-07:580's header and filters: what each asset cost, which version of
+      // the Character made it and by which strategy (F-113).
+      actualUsd: assets.actualUsd,
+      version: assetCharacters.version,
+      strategy: assetCharacters.strategy,
     })
     .from(assetCharacters)
     .innerJoin(assets, eq(assets.id, assetCharacters.assetId))
@@ -361,5 +370,8 @@ export async function usageAssets(db: DatabaseState, handle: string, limit = 60)
     kind: r.kind,
     preview_url: thumbUrl(r.assetId),
     created_at: r.createdAt.toISOString(),
+    version: r.version,
+    strategy: r.strategy,
+    ...(r.actualUsd === null ? {} : { actual_usd: Number(r.actualUsd) }),
   }));
 }

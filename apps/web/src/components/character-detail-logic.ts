@@ -73,13 +73,72 @@ export interface FullCharacterView {
   references: Reference[];
   trained_identities: Array<{ id: string; provider: string; kind: string; status: string }>;
   voice?: { provider: string; voice_id: string };
-  stats: { usage_count: number };
+  stats: { usage_count: number; last_used_at?: string; avg_consistency?: number };
 }
 
 export interface UsageAsset {
   asset_id: string;
   preview_url: string;
   path: string;
+  kind?: string;
+  version?: number;
+  strategy?: string;
+  actual_usd?: number;
+}
+
+export interface UsageFilters {
+  version: string;
+  type: string;
+  strategy: string;
+}
+
+/**
+ * The Usage tab's header line and its filters (PRD-07:580). The tab rendered a
+ * thumbnail strip and nothing else, so a Character's own cost report did not
+ * exist (F-113).
+ */
+export function usageSummary(
+  assets: UsageAsset[],
+  avgConsistency?: number,
+): { count: number; spentUsd: number; consistency: 'high' | 'medium' | 'low' | null } {
+  const spentUsd =
+    Math.round(assets.reduce((sum, asset) => sum + (asset.actual_usd ?? 0), 0) * 1_000_000) / 1_000_000;
+  // PRD-07:580 words the average as a band, not a number.
+  const consistency =
+    avgConsistency === undefined
+      ? null
+      : avgConsistency >= 0.8
+        ? 'high'
+        : avgConsistency >= 0.6
+          ? 'medium'
+          : 'low';
+  return { count: assets.length, spentUsd, consistency };
+}
+
+export function filterUsage(assets: UsageAsset[], filters: UsageFilters): UsageAsset[] {
+  return assets.filter(
+    (asset) =>
+      (filters.version === 'all' || String(asset.version ?? '') === filters.version) &&
+      (filters.type === 'all' || (asset.kind ?? '') === filters.type) &&
+      (filters.strategy === 'all' || (asset.strategy ?? '') === filters.strategy),
+  );
+}
+
+/** The distinct values present, so a filter never offers an empty choice. */
+export function usageOptions(assets: UsageAsset[]): {
+  versions: string[];
+  types: string[];
+  strategies: string[];
+} {
+  const unique = (values: Array<string | undefined>): string[] =>
+    [...new Set(values.filter((value): value is string => Boolean(value)))].sort();
+  return {
+    versions: unique(
+      assets.map((asset) => (asset.version === undefined ? undefined : String(asset.version))),
+    ),
+    types: unique(assets.map((asset) => asset.kind)),
+    strategies: unique(assets.map((asset) => asset.strategy)),
+  };
 }
 
 // Partition references into the reference-sheet sections (F-CHR-03 §5.2).

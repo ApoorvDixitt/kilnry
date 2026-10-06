@@ -19,6 +19,10 @@ import {
   type SheetResponse,
   type SheetState,
   type UsageAsset,
+  type UsageFilters,
+  filterUsage,
+  usageOptions,
+  usageSummary,
 } from './character-detail-logic';
 import { VersionSwitcher } from './version-switcher';
 import { CloneVoiceDrawer } from './clone-voice';
@@ -36,6 +40,15 @@ export function CharacterDetail({ handle }: { handle: string }): React.ReactNode
   const [item, setItem] = useState<FullCharacterView | null>(null);
   const [tab, setTab] = useState<DetailTab>('sheet');
   const [usage, setUsage] = useState<UsageAsset[] | null>(null);
+  const [usageFilters, setUsageFilters] = useState<UsageFilters>({
+    version: 'all',
+    type: 'all',
+    strategy: 'all',
+  });
+  const usageAll = usage ?? [];
+  const usageShown = filterUsage(usageAll, usageFilters);
+  const usageChoices = usageOptions(usageAll);
+  const usageTotals = usageSummary(usageShown, item?.stats.avg_consistency);
   const [error, setError] = useState<string>();
   const [sheet, setSheet] = useState<SheetState>({ steps: [], runId: null, status: null });
   const [building, setBuilding] = useState(false);
@@ -586,17 +599,64 @@ export function CharacterDetail({ handle }: { handle: string }): React.ReactNode
           {usage && usage.length === 0 ? (
             <p className="muted">{message('characters.detail.usageEmpty')}</p>
           ) : (
-            <div className="character-usage-grid">
-              {(usage ?? []).map((asset) => (
-                <Link
-                  key={asset.asset_id}
-                  href={`/library/asset/${asset.asset_id}`}
-                  className="character-usage-cell"
-                >
-                  <img src={asset.preview_url} alt="" loading="lazy" />
+            <>
+              {/* PRD-07:580: the tab is the Character's cost and usage report —
+                  a header line, the three filters and a way into the Library.
+                  It rendered a thumbnail strip only (F-113). */}
+              <div className="character-usage-head">
+                <p className="character-usage-summary" data-money="true">
+                  {format(message('characters.detail.usageHeader'), {
+                    count: usageShown.length,
+                    spent: usageTotals.spentUsd.toFixed(2),
+                  })}
+                  {usageTotals.consistency
+                    ? format(message('characters.detail.usageConsistency'), {
+                        band: usageTotals.consistency,
+                      })
+                    : ''}
+                </p>
+                <Link className="character-usage-open" href={`/library?q=@${item.handle}`}>
+                  {message('characters.detail.usageOpenInLibrary')}
                 </Link>
-              ))}
-            </div>
+              </div>
+              <div className="character-usage-filters">
+                {(
+                  [
+                    ['version', usageChoices.versions, 'usageFilterVersion'],
+                    ['type', usageChoices.types, 'usageFilterType'],
+                    ['strategy', usageChoices.strategies, 'usageFilterStrategy'],
+                  ] as const
+                ).map(([key, options, label]) => (
+                  <label key={key}>
+                    <span>{message(`characters.detail.${label}`)}</span>
+                    <select
+                      value={usageFilters[key]}
+                      onChange={(event) =>
+                        setUsageFilters((current) => ({ ...current, [key]: event.target.value }))
+                      }
+                    >
+                      <option value="all">{message('characters.detail.usageFilterAll')}</option>
+                      {options.map((option) => (
+                        <option key={option} value={option}>
+                          {key === 'version' ? `v${option}` : option}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ))}
+              </div>
+              <div className="character-usage-grid">
+                {usageShown.map((asset) => (
+                  <Link
+                    key={asset.asset_id}
+                    href={`/library/asset/${asset.asset_id}`}
+                    className="character-usage-cell"
+                  >
+                    <img src={asset.preview_url} alt="" loading="lazy" />
+                  </Link>
+                ))}
+              </div>
+            </>
           )}
         </section>
       ) : null}

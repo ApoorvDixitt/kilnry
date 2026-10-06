@@ -4918,6 +4918,47 @@ html[data-motion='reduced'] *::after {
   color: var(--text-muted);
   font-size: 12px;
 }
+/* The Usage tab's report header and filters (PRD-07:580, F-113). */
+.character-usage-head {
+  align-items: baseline;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.character-usage-summary {
+  font-size: 13px;
+  margin: 0;
+}
+
+.character-usage-open {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.character-usage-filters {
+  display: flex;
+  gap: 12px;
+  margin: 10px 0 14px;
+}
+
+.character-usage-filters label {
+  align-items: center;
+  color: var(--text-muted);
+  display: inline-flex;
+  font-size: 12px;
+  gap: 6px;
+}
+
+.character-usage-filters select {
+  background: var(--background);
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 12px;
+  padding: 3px 6px;
+}
+
 .character-usage-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
