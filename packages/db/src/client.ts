@@ -10,22 +10,34 @@ import { PGlite } from '@electric-sql/pglite';
 import { NodeFS } from '@electric-sql/pglite/nodefs';
 import { drizzle } from 'drizzle-orm/pglite';
 import { schema } from './schema/index.js';
+import { acquireDataDirLock } from './lock.js';
 
 export interface DatabaseState {
   client: PGlite;
   db: ReturnType<typeof drizzle<typeof schema>>;
   dataDir: string;
   ready: Promise<void>;
+  // Lets go of the data-directory lock; set for a file-backed database only.
+  releaseLock?: () => void;
 }
 
 export function createDatabase(dataDir: string, options: { memory?: boolean } = {}): DatabaseState {
   const building = process.env.NEXT_PHASE === 'phase-production-build';
   const dbDir = `${dataDir}/kilnry.pglite`;
   if (!building && !options.memory) mkdirSync(dbDir, { recursive: true, mode: 0o700 });
-  const client =
-    building || options.memory
-      ? new PGlite()
-      : new PGlite({ fs: new NodeFS(dbDir), relaxedDurability: false });
+  // Refuse the directory before PGlite touches it when another process holds
+  // it (F-101): two openers silently lose each other's committed rows.
+  const releaseLock = building || options.memory ? undefined : acquireDataDirLock(dataDir);
+  let client: PGlite;
+  try {
+    client =
+      building || options.memory
+        ? new PGlite()
+        : new PGlite({ fs: new NodeFS(dbDir), relaxedDurability: false });
+  } catch (error) {
+    releaseLock?.();
+    throw error;
+  }
   const db = drizzle(client, { schema });
   const ready = client.waitReady.then(() => applyMigrations(client));
   // Neutralise the readiness chain's own rejection at creation. A boot that
@@ -36,7 +48,7 @@ export function createDatabase(dataDir: string, options: { memory?: boolean } = 
   // A caller that needs to know the boot failed still awaits `ready` and sees the
   // rejection; this only stops the unawaited copy from surfacing as unhandled.
   void ready.catch(() => undefined);
-  return { client, db, dataDir, ready };
+  return releaseLock ? { client, db, dataDir, ready, releaseLock } : { client, db, dataDir, ready };
 }
 
 // Closing while the instance is still serving a query aborts the embedded
@@ -51,7 +63,11 @@ export async function closeDatabaseState(state: DatabaseState): Promise<void> {
   if (closed.has(state.client)) return;
   closed.add(state.client);
   void state.ready.catch(() => undefined);
-  await state.client.close();
+  try {
+    await state.client.close();
+  } finally {
+    state.releaseLock?.();
+  }
 }
 
 type GlobalDatabase = typeof globalThis & { __kilnryDatabase?: DatabaseState };

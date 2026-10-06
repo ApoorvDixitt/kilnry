@@ -9,7 +9,7 @@ import * as z from 'zod';
 import { ulid } from '@kilnry/core';
 import { auditEvents, getSetting, putSetting } from '@kilnry/db';
 import { errorResponse, requireSession } from '../../../../server/http';
-import { auth } from '../../../../server/auth';
+import { getAuth } from '../../../../server/auth';
 import { createRecoveryChallenge, verifyRecoveryChallenge } from '../../../../server/recovery-challenge';
 import { ensureRuntimeEngine, runtimeServices } from '../../../../server/runtime';
 
@@ -49,7 +49,7 @@ export async function POST(request: Request): Promise<Response> {
     const input = Input.parse(await request.json());
     const services = await runtimeServices();
     if (input.action === 'view') {
-      await auth.api.verifyPassword({ body: { password: input.password }, headers: await headers() });
+      await getAuth().api.verifyPassword({ body: { password: input.password }, headers: await headers() });
       const recoveryKit = services.keyStore.recoveryKit();
       return NextResponse.json({
         recovery_kit: recoveryKit,

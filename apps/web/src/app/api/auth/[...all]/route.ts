@@ -10,14 +10,12 @@ import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 import { defaultDataDir } from '@kilnry/core';
 import { hasLocalUser, putSetting } from '@kilnry/db';
-import { auth } from '../../../../server/auth';
+import { getAuth } from '../../../../server/auth';
 import { startRuntime } from '../../../../server/runtime';
-
-const handlers = toNextJsHandler(auth);
 
 export async function GET(request: NextRequest): Promise<Response> {
   await startRuntime();
-  return handlers.GET(request);
+  return toNextJsHandler(getAuth()).GET(request);
 }
 
 export async function POST(request: NextRequest): Promise<Response> {
@@ -40,7 +38,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     }
   }
 
-  const response = await handlers.POST(request);
+  const response = await toNextJsHandler(getAuth()).POST(request);
   if (signup && response.ok) {
     rmSync(join(defaultDataDir(), 'first-run.token'), { force: true });
     await putSetting('onboarding_step', 2);

@@ -4,10 +4,12 @@
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
 import { headers } from 'next/headers';
-import { auth } from './auth';
+import { getAuth } from './auth';
 import { startRuntime } from './runtime';
 
-export async function currentSession(): Promise<Awaited<ReturnType<typeof auth.api.getSession>>> {
+export async function currentSession(): Promise<
+  Awaited<ReturnType<ReturnType<typeof getAuth>['api']['getSession']>>
+> {
   await startRuntime();
-  return auth.api.getSession({ headers: await headers() });
+  return getAuth().api.getSession({ headers: await headers() });
 }

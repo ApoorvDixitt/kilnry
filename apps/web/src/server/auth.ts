@@ -30,44 +30,58 @@ function authSecret(): string {
   return readFileSync(path, 'utf8').trim();
 }
 
-const dataDir = defaultDataDir();
-const state = database(dataDir);
-const port = Number(process.env.KILNRY_PORT ?? process.env.PORT ?? 3123);
-
-export const auth = betterAuth({
-  appName: 'Kilnry',
-  baseURL: `http://127.0.0.1:${port}`,
-  secret: authSecret(),
-  trustedOrigins: [`http://127.0.0.1:${port}`, `http://localhost:${port}`],
-  database: drizzleAdapter(state.db, {
-    provider: 'pg',
-    schema: { account: accounts, session: sessions, user: users, verification: verifications },
-  }),
-  emailAndPassword: {
-    autoSignIn: true,
-    enabled: true,
-    maxPasswordLength: 128,
-    minPasswordLength: 10,
-    requireEmailVerification: false,
-  },
-  advanced: {
-    database: { generateId: () => ulid() },
-    useSecureCookies: process.env.KILNRY_TLS === '1',
-  },
-  databaseHooks: {
-    user: {
-      create: {
-        before: async (user) => {
-          await state.ready;
-          const existing = await state.db.select({ id: users.id }).from(users).limit(1);
-          if (existing.length > 0) {
-            throw new APIError('BAD_REQUEST', {
-              message: 'This Kilnry install already has a local account.',
-            });
-          }
-          return { data: user };
+// Built on first use, never at import. Next's dev server evaluates a dynamic
+// route module (`/api/auth/[...all]`) in a separate jest-worker process to
+// look for static params (next/dist/server/dev/next-dev-server.js:115,
+// base-server.js:1433); a module-level `database()` there opened a second
+// PGlite on the live data directory, which the data-directory lock now
+// refuses (F-101). Only a request handler calls getAuth().
+function createAuth() {
+  const state = database(defaultDataDir());
+  const port = Number(process.env.KILNRY_PORT ?? process.env.PORT ?? 3123);
+  return betterAuth({
+    appName: 'Kilnry',
+    baseURL: `http://127.0.0.1:${port}`,
+    secret: authSecret(),
+    trustedOrigins: [`http://127.0.0.1:${port}`, `http://localhost:${port}`],
+    database: drizzleAdapter(state.db, {
+      provider: 'pg',
+      schema: { account: accounts, session: sessions, user: users, verification: verifications },
+    }),
+    emailAndPassword: {
+      autoSignIn: true,
+      enabled: true,
+      maxPasswordLength: 128,
+      minPasswordLength: 10,
+      requireEmailVerification: false,
+    },
+    advanced: {
+      database: { generateId: () => ulid() },
+      useSecureCookies: process.env.KILNRY_TLS === '1',
+    },
+    databaseHooks: {
+      user: {
+        create: {
+          before: async (user) => {
+            await state.ready;
+            const existing = await state.db.select({ id: users.id }).from(users).limit(1);
+            if (existing.length > 0) {
+              throw new APIError('BAD_REQUEST', {
+                message: 'This Kilnry install already has a local account.',
+              });
+            }
+            return { data: user };
+          },
         },
       },
     },
-  },
-});
+  });
+}
+
+type KilnryAuth = ReturnType<typeof createAuth>;
+let built: KilnryAuth | undefined;
+
+export function getAuth(): KilnryAuth {
+  built ??= createAuth();
+  return built;
+}

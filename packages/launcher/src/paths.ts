@@ -14,6 +14,8 @@ export function launcherConfigPath(): string {
   return join(launcherDataDir(), 'config.json');
 }
 
-export function launcherPidPath(): string {
-  return join(launcherDataDir(), 'kilnry.pid');
+// The server's data-directory lock (packages/db/src/lock.ts), which replaced
+// the launcher's own kilnry.pid (F-101, F-69).
+export function launcherLockPath(dataDir = launcherDataDir()): string {
+  return join(dataDir, 'kilnry.lock');
 }

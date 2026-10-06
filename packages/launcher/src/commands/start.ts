@@ -3,10 +3,11 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { join } from 'node:path';
-import { launcherDataDir, launcherPidPath } from '../paths.js';
+import { launcherDataDir } from '../paths.js';
+import { readServerLock } from '../server-lock.js';
 import { openBrowser } from '../browser.js';
 
 interface CurrentRelease {
@@ -27,23 +28,18 @@ function serverEntry(): string {
 
 export async function startServer(options: { port: number; noOpen: boolean }): Promise<number> {
   const dataDir = launcherDataDir();
-  const pidPath = launcherPidPath();
   mkdirSync(dataDir, { recursive: true, mode: 0o700 });
-  if (existsSync(pidPath)) {
-    const existing = JSON.parse(readFileSync(pidPath, 'utf8')) as { pid?: number; port?: number };
-    if (existing.pid) {
-      try {
-        process.kill(existing.pid, 0);
-        const port = existing.port ?? options.port;
-        process.stdout.write(`Kilnry is already running at http://127.0.0.1:${port}\n`);
-        if (!options.noOpen) openBrowser(`http://127.0.0.1:${port}`);
-        return 0;
-      } catch (error) {
-        const code = (error as NodeJS.ErrnoException).code;
-        if (code !== 'ESRCH') throw error;
-        rmSync(pidPath, { force: true });
-      }
-    }
+  // The server takes <dataDir>/kilnry.lock exclusively before it opens the
+  // database (@kilnry/db lock.ts, F-101), so the launcher reads that one lock
+  // instead of keeping a pidfile of its own written after spawn (F-69). A
+  // second start that races past this check is still refused by the lock
+  // before its server can touch the database.
+  const holder = readServerLock(dataDir);
+  if (holder) {
+    const port = holder.port ?? options.port;
+    process.stdout.write(`Kilnry is already running (pid ${holder.pid}) at http://127.0.0.1:${port}\n`);
+    if (!options.noOpen) openBrowser(`http://127.0.0.1:${port}`);
+    return 0;
   }
   const entry = serverEntry();
   const configPath = join(dataDir, 'config.json');
@@ -61,15 +57,6 @@ export async function startServer(options: { port: number; noOpen: boolean }): P
     },
     stdio: 'inherit',
   });
-  writeFileSync(
-    pidPath,
-    `${JSON.stringify({ pid: child.pid, port: options.port, started_at: new Date().toISOString() })}\n`,
-    {
-      encoding: 'utf8',
-      flag: 'wx',
-      mode: 0o600,
-    },
-  );
 
   const health = `http://127.0.0.1:${options.port}/api/health`;
   const deadline = Date.now() + 60_000;
@@ -90,20 +77,13 @@ export async function startServer(options: { port: number; noOpen: boolean }): P
   }
   if (Date.now() >= deadline) {
     child.kill('SIGTERM');
-    rmSync(pidPath, { force: true });
     throw new Error(
       `Kilnry did not become healthy within 60 seconds: ${lastHealthError}. Check ${join(launcherDataDir(), 'logs', 'kilnry.log')}.`,
     );
   }
   return new Promise((resolve, reject) => {
-    child.once('error', (error) => {
-      rmSync(pidPath, { force: true });
-      reject(error);
-    });
-    child.once('exit', (code) => {
-      rmSync(pidPath, { force: true });
-      resolve(code ?? 1);
-    });
+    child.once('error', reject);
+    child.once('exit', (code) => resolve(code ?? 1));
     process.once('SIGINT', () => child.kill('SIGTERM'));
     process.once('SIGTERM', () => child.kill('SIGTERM'));
   });

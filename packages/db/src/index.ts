@@ -4,5 +4,6 @@
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
 export * from './client.js';
+export * from './lock.js';
 export * from './queries.js';
 export * from './schema/index.js';

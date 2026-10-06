@@ -8,7 +8,7 @@ import { NextResponse } from 'next/server';
 import * as z from 'zod';
 import { loadConfig, saveConfig, ulid } from '@kilnry/core';
 import { auditEvents, putSetting } from '@kilnry/db';
-import { auth } from '../../../../server/auth';
+import { getAuth } from '../../../../server/auth';
 import { errorResponse, requireSession } from '../../../../server/http';
 import { runtimeServices } from '../../../../server/runtime';
 
@@ -39,7 +39,7 @@ export async function PUT(request: Request): Promise<Response> {
   try {
     const current = await requireSession();
     const input = Input.parse(await request.json());
-    await auth.api.verifyPassword({ body: { password: input.password }, headers: await headers() });
+    await getAuth().api.verifyPassword({ body: { password: input.password }, headers: await headers() });
     const config = loadConfig();
     const allowedHosts = input.enabled ? (input.allowed_hosts ?? config.allowed_hosts) : [];
     saveConfig({ ...config, lan_enabled: input.enabled, allowed_hosts: allowedHosts });
