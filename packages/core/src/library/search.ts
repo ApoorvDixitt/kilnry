@@ -18,11 +18,13 @@ import {
   lte,
   not,
   or,
+  sql,
   type SQL,
 } from 'drizzle-orm';
 import {
   assets,
   assetCharacters,
+  assetLineage,
   assetTags,
   characters,
   characterHandleAliases,
@@ -36,7 +38,7 @@ import type { AssetListItem, AssetSort } from './assets.js';
 export interface ParsedQuery {
   text: string[];
   phrases: string[];
-  handles: string[];
+  handles: Array<{ handle: string; version?: number }>;
   types: string[];
   models: string[];
   providers: string[];
@@ -48,6 +50,11 @@ export interface ParsedQuery {
   in: string[];
   costGt?: number;
   costLt?: number;
+  costEq?: number;
+  /** `ar:9:16` as a number, with the text the user typed for the message. */
+  aspect?: { ratio: number; label: string };
+  /** `res:4k` and friends: the minimum height of the tier. */
+  resolution?: { minHeight: number; label: string };
   ratingGt?: number;
   durGt?: number;
   durLt?: number;
@@ -113,6 +120,51 @@ function tokenize(input: string): string[] {
 
 const SORTS = new Set<AssetSort>(['newest', 'oldest', 'name', 'cost', 'duration']);
 
+/**
+ * The resolution tiers `res:` accepts, by the shortest side the tier needs.
+ * PRD-06:227 names the operator and gives `res:4k` as the example without
+ * fixing the vocabulary, so these are the common tiers (default; adjustable).
+ */
+const RESOLUTION_TIERS: Record<string, number> = {
+  sd: 0,
+  '720p': 720,
+  hd: 720,
+  '1080p': 1080,
+  fhd: 1080,
+  '2k': 1440,
+  '4k': 2160,
+  '8k': 4320,
+};
+
+/** `@maya@v2` → the handle and the pinned version (PRD-06:217). */
+function parseHandleToken(raw: string): { handle: string; version?: number } {
+  const match = /^(.*)@v(\d+)$/.exec(raw.toLowerCase());
+  if (!match) return { handle: raw.toLowerCase() };
+  return { handle: match[1]!, version: Number(match[2]) };
+}
+
+/** `9:16`, `16x9` or `1.777` as a number. */
+function parseAspect(value: string): number | undefined {
+  const pair = /^(\d+(?:\.\d+)?)[:x/](\d+(?:\.\d+)?)$/.exec(value);
+  if (pair) {
+    const height = Number(pair[2]);
+    if (height === 0) return undefined;
+    return Number(pair[1]) / height;
+  }
+  const single = Number(value);
+  return Number.isFinite(single) && single > 0 ? single : undefined;
+}
+
+/**
+ * ILIKE treats % and _ as wildcards, so a user who typed "100%" got every row
+ * containing "100" (https://www.postgresql.org/docs/current/functions-matching.html,
+ * read 2026-10-07). The search is specified as literal substring matching, so
+ * the needle escapes them (F-72).
+ */
+export function likeNeedle(word: string): string {
+  return `%${word.replace(/([\\%_])/g, '\\$1')}%`;
+}
+
 export function parseSearchQuery(input: string, now: Date = new Date()): ParsedQuery {
   const query = emptyQuery();
   for (const token of tokenize(input.trim())) {
@@ -124,13 +176,19 @@ export function parseSearchQuery(input: string, now: Date = new Date()): ParsedQ
       continue;
     }
     if (body.startsWith('@')) {
-      query.handles.push(body.slice(1).toLowerCase());
+      // `@maya@v2` pins the version (PRD-06:217, :245 acceptance 3). The whole
+      // string after the first @ became the handle, so the lookup searched for
+      // "maya@v2", found nothing and returned zero results (F-37).
+      query.handles.push(parseHandleToken(body.slice(1)));
       continue;
     }
 
     const colon = body.indexOf(':');
     const gt = /^(cost|dur|rating)>(.+)$/.exec(body);
     const lt = /^(cost|dur)<(.+)$/.exec(body);
+    // `cost=` is in the table beside cost> and cost< and had no branch, so an
+    // exact-cost search became a substring search and matched nothing (F-36).
+    const eqCost = /^cost=(.+)$/.exec(body);
 
     if (gt) {
       const value = numberOrThrow(gt[2]!, body);
@@ -143,6 +201,10 @@ export function parseSearchQuery(input: string, now: Date = new Date()): ParsedQ
       const value = numberOrThrow(lt[2]!, body);
       if (lt[1] === 'cost') query.costLt = value;
       else query.durLt = value;
+      continue;
+    }
+    if (eqCost) {
+      query.costEq = numberOrThrow(eqCost[1]!, body);
       continue;
     }
 
@@ -172,8 +234,27 @@ export function parseSearchQuery(input: string, now: Date = new Date()): ParsedQ
           query.folders.push(value);
           break;
         case 'character':
-          query.handles.push(value.replace(/^@/, ''));
+          query.handles.push(parseHandleToken(value.replace(/^@/, '')));
           break;
+        // `ar:` and `res:` were in the table and in no switch, so they fell
+        // through to free text and matched the literal string (F-35).
+        case 'ar': {
+          const ratio = parseAspect(value);
+          if (ratio === undefined) throw new KilnryError('INVALID_INPUT', `"${body}" isn't an aspect ratio.`);
+          query.aspect = { ratio, label: value };
+          break;
+        }
+        case 'res': {
+          const tier = RESOLUTION_TIERS[value];
+          if (tier === undefined) {
+            throw new KilnryError(
+              'INVALID_INPUT',
+              `"${body}" isn't a resolution tier. Try ${Object.keys(RESOLUTION_TIERS).join(', ')}.`,
+            );
+          }
+          query.resolution = { minHeight: tier, label: value };
+          break;
+        }
         case 'has':
           query.has.push(value);
           break;
@@ -211,7 +292,7 @@ export async function searchAssets(state: DatabaseState, parsed: ParsedQuery): P
   if (parsed.in.includes('inbox')) conditions.push(eq(assets.folderPath, 'inbox'));
 
   for (const word of [...parsed.text, ...parsed.phrases]) {
-    const needle = `%${word}%`;
+    const needle = likeNeedle(word);
     const clause = or(
       ilike(assets.prompt, needle),
       ilike(assets.resolvedPrompt, needle),
@@ -221,7 +302,7 @@ export async function searchAssets(state: DatabaseState, parsed: ParsedQuery): P
     if (clause) conditions.push(clause);
   }
   for (const word of parsed.negText) {
-    const needle = `%${word}%`;
+    const needle = likeNeedle(word);
     const clause = or(ilike(assets.prompt, needle), ilike(assets.path, needle));
     if (clause) conditions.push(not(clause));
   }
@@ -240,56 +321,100 @@ export async function searchAssets(state: DatabaseState, parsed: ParsedQuery): P
     const ids = tagged.map((row) => row.assetId);
     conditions.push(ids.length > 0 ? inArray(assets.id, ids) : eq(assets.id, '∅'));
   }
-  for (const model of parsed.models) conditions.push(ilike(assets.modelId, `%${model}%`));
-  for (const model of parsed.negModels) conditions.push(not(ilike(assets.modelId, `%${model}%`)));
+  for (const model of parsed.models) conditions.push(ilike(assets.modelId, likeNeedle(model)));
+  for (const model of parsed.negModels) conditions.push(not(ilike(assets.modelId, likeNeedle(model))));
   for (const folder of parsed.folders) {
-    const clause = or(eq(assets.folderPath, folder), ilike(assets.folderPath, `${folder}/%`));
+    const clause = or(
+      eq(assets.folderPath, folder),
+      ilike(assets.folderPath, `${folder.replace(/([\\%_])/g, '\\$1')}/%`),
+    );
     if (clause) conditions.push(clause);
   }
 
   // Filter by character (F-CHR-11, F-LIB-06): resolve each @handle to its id,
   // following one rename alias, then keep only assets with a lineage row for it.
-  if (parsed.handles.length > 0) {
+  for (const pin of parsed.handles) {
     const ids = new Set<string>();
-    for (const handle of parsed.handles) {
-      const direct = await state.db
-        .select({ id: characters.id })
-        .from(characters)
-        .where(eq(characters.handle, handle))
-        .limit(1);
-      if (direct[0]) {
-        ids.add(direct[0].id);
-        continue;
-      }
+    const direct = await state.db
+      .select({ id: characters.id })
+      .from(characters)
+      .where(eq(characters.handle, pin.handle))
+      .limit(1);
+    if (direct[0]) ids.add(direct[0].id);
+    else {
       const alias = await state.db
         .select({ id: characterHandleAliases.characterId })
         .from(characterHandleAliases)
-        .where(eq(characterHandleAliases.alias, handle))
+        .where(eq(characterHandleAliases.alias, pin.handle))
         .limit(1);
       if (alias[0]) ids.add(alias[0].id);
     }
+    // `@maya` matches any version, `@maya@v2` only that one (PRD-06:245).
+    const idClause =
+      ids.size > 0 ? inArray(assetCharacters.characterId, [...ids]) : eq(assetCharacters.characterId, '∅');
     const matching = await state.db
       .select({ assetId: assetCharacters.assetId })
       .from(assetCharacters)
-      .where(
-        ids.size > 0 ? inArray(assetCharacters.characterId, [...ids]) : eq(assetCharacters.characterId, '∅'),
-      );
+      .where(pin.version === undefined ? idClause : and(idClause, eq(assetCharacters.version, pin.version)));
     const assetIds = matching.map((row) => row.assetId);
     conditions.push(assetIds.length > 0 ? inArray(assets.id, assetIds) : eq(assets.id, '∅'));
   }
 
-  if (parsed.costGt !== undefined) conditions.push(gt(assets.actualUsd, String(parsed.costGt)));
-  if (parsed.costLt !== undefined) conditions.push(lt(assets.actualUsd, String(parsed.costLt)));
+  // "actual cost in USD (falls back to estimate)" (PRD-06:223): a job that has
+  // not settled yet is compared on its estimate rather than skipped.
+  const cost = sql`coalesce(${assets.actualUsd}, ${assets.estimateUsd})`;
+  if (parsed.costGt !== undefined) conditions.push(sql`${cost} > ${String(parsed.costGt)}`);
+  if (parsed.costLt !== undefined) conditions.push(sql`${cost} < ${String(parsed.costLt)}`);
+  if (parsed.costEq !== undefined) conditions.push(sql`${cost} = ${String(parsed.costEq)}`);
   if (parsed.ratingGt !== undefined) conditions.push(gt(assets.rating, parsed.ratingGt));
   if (parsed.durGt !== undefined) conditions.push(gt(assets.durationS, String(parsed.durGt)));
   if (parsed.durLt !== undefined) conditions.push(lt(assets.durationS, String(parsed.durLt)));
   if (parsed.since) conditions.push(gte(assets.createdAt, new Date(parsed.since)));
   if (parsed.until) conditions.push(lte(assets.createdAt, new Date(parsed.until)));
 
+  // `ar:` within one percent, so 1080×1920 and 720×1280 both answer ar:9:16.
+  if (parsed.aspect) {
+    const { ratio } = parsed.aspect;
+    conditions.push(
+      sql`${assets.width} is not null and ${assets.height} > 0
+        and abs((${assets.width}::numeric / ${assets.height}) - ${ratio}) <= ${ratio * 0.01}`,
+    );
+  }
+  if (parsed.resolution) {
+    conditions.push(
+      sql`least(coalesce(${assets.width}, 0), coalesce(${assets.height}, 0)) >= ${parsed.resolution.minHeight}`,
+    );
+  }
+
+  // Four of the seven documented flags had no branch, so has:demo and
+  // has:moderated returned the whole Library (F-38).
   for (const flag of parsed.has) {
     if (flag === 'nosidecar') conditions.push(eq(assets.sidecarOk, false));
     else if (flag === 'sidecar') conditions.push(eq(assets.sidecarOk, true));
     else if (flag === 'audio') conditions.push(eq(assets.hasAudio, true));
+    else if (flag === 'moderated') conditions.push(isNotNull(assets.moderation));
+    else if (flag === 'demo') {
+      const tagged = await state.db
+        .select({ assetId: assetTags.assetId })
+        .from(assetTags)
+        .where(eq(assetTags.tag, 'demo'));
+      const ids = tagged.map((row) => row.assetId);
+      conditions.push(ids.length > 0 ? inArray(assets.id, ids) : eq(assets.id, '∅'));
+    } else if (flag === 'lineage' || flag === 'mask') {
+      // A lineage row records what an asset was made from, with the input's
+      // role; `has:mask` is the subset whose input was a mask (TRD-04 §3).
+      const rows = await state.db
+        .select({ childId: assetLineage.childId })
+        .from(assetLineage)
+        .where(flag === 'mask' ? eq(assetLineage.role, 'mask') : sql`true`);
+      const ids = [...new Set(rows.map((row) => row.childId))];
+      conditions.push(ids.length > 0 ? inArray(assets.id, ids) : eq(assets.id, '∅'));
+    } else {
+      throw new KilnryError(
+        'INVALID_INPUT',
+        `"has:${flag}" isn't a flag. Try sidecar, nosidecar, audio, mask, lineage, demo or moderated.`,
+      );
+    }
   }
 
   const order =

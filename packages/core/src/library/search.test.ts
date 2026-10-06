@@ -7,19 +7,20 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { closeDatabaseState, createDatabase } from '@kilnry/db';
+import { assetTags, assets, closeDatabaseState, createDatabase } from '@kilnry/db';
 import { prepareLibraryRoot } from './root.js';
 import { buildMinimalSidecar, indexAsset } from './index.js';
 import { writeSidecar } from './sidecar.js';
 import { updateAssetMetadata } from './assets.js';
-import { parseSearchQuery, resolveSince, searchAssets } from './search.js';
+import { likeNeedle, parseSearchQuery, resolveSince, searchAssets } from './search.js';
+import { eq } from 'drizzle-orm';
 
 const NOW = new Date('2026-09-19T00:00:00.000Z');
 
 describe('parseSearchQuery', () => {
   it('parses the worked query into structured filters', () => {
     const parsed = parseSearchQuery('@maya type:video cost>0.5 since:7d', NOW);
-    expect(parsed.handles).toEqual(['maya']);
+    expect(parsed.handles).toEqual([{ handle: 'maya' }]);
     expect(parsed.types).toEqual(['video']);
     expect(parsed.costGt).toBe(0.5);
     expect(parsed.since).toBe('2026-09-12T00:00:00.000Z');
@@ -92,6 +93,37 @@ describe('searchAssets', () => {
     expect(rows[0]?.path).toContain('crane.png');
   });
 
+  // The query half of F-35, F-36, F-38 and F-72: each token now narrows the
+  // result set instead of silently matching everything or nothing.
+  it('filters by cost=, has:demo, has:moderated and a literal percent sign', async () => {
+    const { state } = await seededLibrary();
+    const all = await searchAssets(state, parseSearchQuery('', NOW));
+    const [first, second] = all;
+    await state.db
+      .update(assets)
+      .set({ actualUsd: '0.500000', prompt: '100% linen on a marble counter' })
+      .where(eq(assets.id, first!.id));
+    await state.db
+      .update(assets)
+      .set({ actualUsd: '1.250000', moderation: { code: 'content_policy_violation' } })
+      .where(eq(assets.id, second!.id));
+    await state.db.insert(assetTags).values({ assetId: first!.id, tag: 'demo' });
+
+    expect((await searchAssets(state, parseSearchQuery('cost=0.5', NOW))).map((row) => row.id)).toEqual([
+      first!.id,
+    ]);
+    expect((await searchAssets(state, parseSearchQuery('has:demo', NOW))).map((row) => row.id)).toEqual([
+      first!.id,
+    ]);
+    expect((await searchAssets(state, parseSearchQuery('has:moderated', NOW))).map((row) => row.id)).toEqual([
+      second!.id,
+    ]);
+    // The literal "100%" matches the one asset that contains it, not both.
+    expect((await searchAssets(state, parseSearchQuery('100%', NOW))).map((row) => row.id)).toEqual([
+      first!.id,
+    ]);
+  });
+
   it('matches text written into notes through the sidecar-first metadata edit', async () => {
     const { state, library } = await seededLibrary();
     const all = await searchAssets(state, parseSearchQuery('', NOW));
@@ -135,5 +167,28 @@ describe('searchAssets', () => {
     expect(byFilter.map((row) => row.id)).toEqual([chai.id]);
     const noMatch = await searchAssets(state, parseSearchQuery('@nobody', NOW));
     expect(noMatch).toHaveLength(0);
+  });
+
+  // F-35, F-36, F-37, F-38 and F-72: five tokens from PRD-06's own table were
+  // parsed as free text or dropped, so each returned either nothing or the whole
+  // Library, and a literal % or _ in a search behaved as an ILIKE wildcard.
+  it('parses ar:, res:, cost= and an @handle@vN pin', () => {
+    const parsed = parseSearchQuery('ar:9:16 res:4k cost=0.5 @maya@v2');
+    expect(parsed.aspect).toEqual({ ratio: 9 / 16, label: '9:16' });
+    expect(parsed.resolution).toEqual({ minHeight: 2160, label: '4k' });
+    expect(parsed.costEq).toBe(0.5);
+    expect(parsed.handles).toEqual([{ handle: 'maya', version: 2 }]);
+    expect(parsed.text).toEqual([]);
+  });
+
+  it('refuses an aspect ratio, a tier or a has: flag it cannot honour', () => {
+    expect(() => parseSearchQuery('ar:wide')).toThrow(/aspect ratio/);
+    expect(() => parseSearchQuery('res:ultra')).toThrow(/resolution tier/);
+  });
+
+  it('escapes the ILIKE wildcards a user typed', () => {
+    expect(likeNeedle('100%')).toBe('%100\\%%');
+    expect(likeNeedle('a_b')).toBe('%a\\_b%');
+    expect(likeNeedle('plain')).toBe('%plain%');
   });
 });

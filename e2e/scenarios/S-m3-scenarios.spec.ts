@@ -416,6 +416,27 @@ test('@m3 S-25 search syntax typed into the Library search box', async ({ page }
       { timeout: 10_000 },
     )
     .toBe(true);
+
+  // F-35 to F-38: five tokens from PRD-06's own table were parsed as free text
+  // or dropped, so each returned nothing or the whole Library. Typed here the
+  // way a user types them.
+  const results = async (query: string): Promise<number> =>
+    page.evaluate(async (q) => {
+      const response = await fetch(`/api/library/search?q=${encodeURIComponent(q)}`);
+      const body = (await response.json()) as { assets?: unknown[] };
+      return (body.assets ?? []).length;
+    }, query);
+  const everything = await results('');
+  // The demo asset S-02 made carries the demo tag; the rest do not.
+  expect(await results('has:demo')).toBeGreaterThan(0);
+  expect(await results('has:demo')).toBeLessThan(everything);
+  // A 1×1 fixture image is not 4k, and no asset is 9:16.
+  expect(await results('res:4k')).toBe(0);
+  expect(await results('ar:9:16')).toBeLessThan(everything);
+  // An unknown tier or flag is a syntax error, not a silent match-everything.
+  await box.fill('res:ultra');
+  await box.press('Enter');
+  await expect(page.locator('.library-empty, .library-error')).toBeVisible({ timeout: 10_000 });
 });
 
 test('@m3 M3-VID generate a video against the fal video fixture', async ({ page }) => {

@@ -18,7 +18,7 @@ export async function GET(request: Request): Promise<Response> {
     const parsed = parseSearchQuery(query);
     // The Library "by character" filter (F-CHR-11) may arrive as a dedicated
     // parameter as well as inline in the query.
-    if (character) parsed.handles.push(character.replace(/^@/, '').toLowerCase());
+    if (character) parsed.handles.push({ handle: character.replace(/^@/, '').toLowerCase() });
     const results = await searchAssets(services.database, parsed);
     return NextResponse.json({ assets: results });
   } catch (error) {
