@@ -15,6 +15,7 @@ import { randomUUID } from 'node:crypto';
 import {
   approvalPolicy,
   cachedPreEstimate,
+  defaultLlmRef,
   enginePreEstimate,
   meterStep,
   registerChatTools,
@@ -339,7 +340,45 @@ async function sessionModel(
     const value = stored as { provider: string; model: string };
     return { provider: value.provider as LlmProvider, model: value.model };
   }
-  return undefined;
+  // Neither the session nor the workspace names a model, which is the state of
+  // every fresh install: the first Chat message failed with NO_PROVIDER and told
+  // the user to connect a key they had already connected (F-13). PRD-16 §5 and
+  // TRD-11 §2 name the default — OpenRouter's Claude Sonnet when an OpenRouter
+  // key exists, else the first connected direct provider, else a local Ollama
+  // model — and Settings › Chat already shows exactly that as a fallback it never
+  // persisted. It is chosen here and written to chat.default_llm, so the
+  // selection the user is shown is the selection that runs (A.4).
+  const fallback = defaultLlmRef({
+    connected: await connectedLlmProviders(services),
+    ollamaModels: await localToolModels(services),
+  });
+  if (!fallback) return undefined;
+  await services.database.db
+    .insert(settings)
+    .values({ key: 'chat.default_llm', value: fallback })
+    .onConflictDoNothing({ target: settings.key });
+  return fallback;
+}
+
+const LLM_KEY_PROVIDERS = ['openrouter', 'anthropic', 'openai', 'google'] as const;
+
+async function connectedLlmProviders(
+  services: Awaited<ReturnType<typeof runtimeServices>>,
+): Promise<LlmProvider[]> {
+  const connected: LlmProvider[] = [];
+  for (const provider of LLM_KEY_PROVIDERS) {
+    // anthropic is a chat-only provider id, outside the media adapter union the
+    // key store is typed with (the settings route reads it the same way).
+    const key = await services.keyStore.get(provider as never).catch(() => undefined);
+    if (key) connected.push(provider);
+  }
+  return connected;
+}
+
+async function localToolModels(services: Awaited<ReturnType<typeof runtimeServices>>): Promise<string[]> {
+  const base = await readSetting(services, 'chat.ollama_base_url');
+  const detected = await detectOllama(typeof base === 'string' && base ? { base_url: base } : {});
+  return detected.models.filter((model) => model.tools).map((model) => model.name);
 }
 
 async function readSetting(

@@ -21,6 +21,12 @@ const Input = z.object({
   auto_approve_below_usd: z.number().min(0).max(1_000).nullable().optional(),
   autonomy: z.enum(['ask_first', 'run_automatically']).optional(),
   budget_usd: z.number().min(0).max(10_000).nullable().optional(),
+  // The Chat page's model select writes here (F-13, A.4): it used to change only
+  // local state, so picking a model changed nothing about the next turn.
+  llm: z
+    .object({ provider: z.string().min(1).max(40), model: z.string().min(1).max(200) })
+    .nullable()
+    .optional(),
 });
 
 export async function PUT(request: Request): Promise<Response> {
@@ -37,6 +43,10 @@ export async function PUT(request: Request): Promise<Response> {
     if (input.autonomy !== undefined) patch['autonomy'] = input.autonomy;
     if (input.budget_usd !== undefined) {
       patch['budgetUsd'] = input.budget_usd === null ? null : String(input.budget_usd);
+    }
+    if (input.llm !== undefined) {
+      patch['llmProvider'] = input.llm === null ? null : input.llm.provider;
+      patch['llmModel'] = input.llm === null ? null : input.llm.model;
     }
 
     // The Chat page can change autonomy or the budget before its first message
@@ -61,6 +71,7 @@ export async function PUT(request: Request): Promise<Response> {
         autonomy: row.autonomy,
         budget_usd: row.budgetUsd === null ? null : Number(row.budgetUsd),
         auto_approve_below_usd: row.autoApproveBelowUsd === null ? null : Number(row.autoApproveBelowUsd),
+        llm: row.llmProvider && row.llmModel ? { provider: row.llmProvider, model: row.llmModel } : null,
       },
     });
   } catch (error) {

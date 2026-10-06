@@ -368,4 +368,55 @@ describe('POST /api/chat — scripted OpenRouter tool rounds', () => {
       .poll(async () => (await database.db.select().from(chatMessages)).length, { timeout: 20_000 })
       .toBeGreaterThan(0);
   }, 30_000);
+
+  // F-13: the state of every fresh install — a connected OpenRouter key, no
+  // chat.default_llm row, no session row. The first message used to fail with
+  // NO_PROVIDER and tell the user to connect the key they had just connected.
+  it('answers the first message of a fresh install and stores the default model (F-CHT-01)', async () => {
+    const engine = fakeEngine(0.01);
+    routeHarness.engine = engine;
+    routeHarness.services = {
+      database,
+      keyStore: {
+        get: async (provider: string) => (provider === 'openrouter' ? 'sk-or-v1-fixture' : undefined),
+      },
+    };
+    await database.db.delete(settings).where(eq(settings.key, 'chat.default_llm'));
+    const response = await POST(
+      new Request('http://127.0.0.1:3123/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session_id: 'first-run-session',
+          messages: [{ id: 'user-1', role: 'user', parts: [{ type: 'text', text: 'hello' }] }],
+        }),
+      }),
+    );
+    expect(response.status).toBe(200);
+    await response.text();
+    // The default the user was already being shown is now the stored default
+    // (PRD-16 §5, TRD-11 §2).
+    const stored = (await database.db.select().from(settings).where(eq(settings.key, 'chat.default_llm')))[0];
+    expect(stored?.value).toEqual({ provider: 'openrouter', model: 'anthropic/claude-sonnet-5' });
+  }, 30_000);
+
+  it('refuses with NO_PROVIDER only when no provider is connected at all (F-CHT-01)', async () => {
+    routeHarness.engine = fakeEngine(0.01);
+    routeHarness.services = { database, keyStore: { get: async () => undefined } };
+    await database.db.delete(settings).where(eq(settings.key, 'chat.default_llm'));
+    const response = await POST(
+      new Request('http://127.0.0.1:3123/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session_id: 'no-provider-session',
+          messages: [{ id: 'user-1', role: 'user', parts: [{ type: 'text', text: 'hello' }] }],
+        }),
+      }),
+    );
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as { error?: { code?: string; message?: string } };
+    expect(body.error?.code).toBe('NO_PROVIDER');
+    expect(body.error?.message).toContain('Connect an OpenRouter');
+  }, 30_000);
 });

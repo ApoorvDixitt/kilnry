@@ -59,6 +59,7 @@ describe('PUT /api/chat/session (F-115, F-104)', () => {
         autonomy: 'run_automatically',
         budget_usd: 5,
         auto_approve_below_usd: 0.5,
+        llm: null,
       },
     });
     const listed = (await (
@@ -80,5 +81,22 @@ describe('PUT /api/chat/session (F-115, F-104)', () => {
       autonomy: 'run_automatically',
       budget_usd: 2,
     });
+  });
+
+  // F-13 (A.4): the Chat page's model select writes here, so the next turn runs
+  // the model the user picked.
+  it('stores the model the Chat page picked and reports it back', async () => {
+    const response = await put({
+      session_id: 'session-llm',
+      llm: { provider: 'openrouter', model: 'openai/gpt-5.6-luna' },
+    });
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      session: { llm: { provider: string; model: string } | null };
+    };
+    expect(body.session.llm).toEqual({ provider: 'openrouter', model: 'openai/gpt-5.6-luna' });
+    const row = (await database.db.select().from(chatSessions).where(eq(chatSessions.id, 'session-llm')))[0];
+    expect(row?.llmProvider).toBe('openrouter');
+    expect(row?.llmModel).toBe('openai/gpt-5.6-luna');
   });
 });

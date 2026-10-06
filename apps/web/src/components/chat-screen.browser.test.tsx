@@ -144,6 +144,34 @@ describe('ChatScreen (F-CHT-04)', () => {
     vi.unstubAllGlobals();
   });
 
+  // F-13 (A.4): picking a model used to change local state only, so the next
+  // turn still ran whatever the server had.
+  it('sends the chosen model to the session so the next turn uses it', async () => {
+    const sent: Array<Record<string, unknown>> = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).includes('/api/chat/session') && init?.body) {
+          sent.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+        }
+        return Response.json({});
+      }),
+    );
+    const host = await render(<ChatScreen sessionId="session-1" models={models} />);
+    const select = host.querySelector<HTMLSelectElement>('.chat-model select')!;
+    await act(async () => {
+      select.value = 'openrouter:openai/gpt-5.6-luna';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(sent).toEqual([
+      {
+        session_id: 'session-1',
+        llm: { provider: 'openrouter', model: 'openai/gpt-5.6-luna' },
+      },
+    ]);
+    vi.unstubAllGlobals();
+  });
+
   it('restores the divider position the user last chose', async () => {
     window.localStorage.setItem('kilnry.chat.ratio', '0.55');
     const host = await render(<ChatScreen sessionId="session-1" models={models} />);

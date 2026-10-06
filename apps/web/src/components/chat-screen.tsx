@@ -385,9 +385,11 @@ export function ChatScreen({
   async function updateSession(patch: {
     autonomy?: 'ask_first' | 'run_automatically';
     budget_usd?: number;
+    llm?: { provider: string; model: string };
   }): Promise<void> {
     setControlError(undefined);
-    const field: 'autonomy' | 'budget_usd' = patch.autonomy !== undefined ? 'autonomy' : 'budget_usd';
+    const field: 'autonomy' | 'budget_usd' =
+      patch.autonomy !== undefined || patch.llm !== undefined ? 'autonomy' : 'budget_usd';
     const ticket = ++sessionRequest.current[field];
     if (patch.autonomy) setAutonomy(patch.autonomy);
     if (typeof patch.budget_usd === 'number') setBudgetUsd(patch.budget_usd);
@@ -470,7 +472,18 @@ export function ChatScreen({
         </div>
         <label className="chat-model">
           <span>{message('chat.modelLabel')}</span>
-          <select value={selected} onChange={(event) => setSelected(event.target.value)}>
+          {/* F-13 (A.4): the choice is sent to the session, so the next turn
+              runs the model the user picked; it used to change local state only. */}
+          <select
+            value={selected}
+            onChange={(event) => {
+              const value = event.target.value;
+              setSelected(value);
+              const [provider, ...rest] = value.split(':');
+              const model = rest.join(':');
+              if (provider && model) void updateSession({ llm: { provider, model } });
+            }}
+          >
             {models.map((model) => (
               <option key={`${model.provider}:${model.model}`} value={`${model.provider}:${model.model}`}>
                 {model.model} · {model.price_label}
@@ -559,8 +572,12 @@ export function ChatScreen({
               ))
             )}
             {error ? (
+              // The server says what happened and what to do (design contract
+              // rule 8); the generic sentence hid it (F-13).
               <p className="chat-error" role="alert">
-                {message('chat.failed')}
+                {error.message && error.message !== 'Failed to fetch'
+                  ? error.message
+                  : message('chat.failed')}
               </p>
             ) : null}
           </div>
