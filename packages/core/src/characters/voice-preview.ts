@@ -25,6 +25,7 @@ import {
 import { estimate as priceEstimate } from '../registry/estimator.js';
 import { loadRegistry } from '../registry/store.js';
 import type { CanonicalRequest, Estimate, ProviderId } from '../types.js';
+import { recordStaleOverride } from '../budget/enforcer.js';
 
 // The fixed preview sample. It is short, so a preview costs a fraction of a cent.
 export const PREVIEW_SAMPLE = 'Hello from Kilnry. This is how this voice sounds.';
@@ -99,6 +100,13 @@ export async function previewVoice(
   const text = input.text && input.text.trim() !== '' ? input.text : PREVIEW_SAMPLE;
   const estimate = await pricePreview(services.db, input.provider, text, services.now?.() ?? new Date());
   assertFreshPrice(estimate, input.allow_stale_price, await priceMaxAgeDays(services.db));
+  if (input.allow_stale_price === true && estimate.adjustments?.includes('stale_price')) {
+    await recordStaleOverride(services.db, {
+      actor: 'user',
+      target: `${input.provider}:voice_preview`,
+      estimate,
+    });
+  }
   assertCostConfirmation(estimate, estimate.estimate_usd);
   // Hold the estimate before the synthesis call (F-01, D-60): the cap check and
   // a pending ledger row are one locked transaction, so two concurrent previews

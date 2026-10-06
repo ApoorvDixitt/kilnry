@@ -15,6 +15,7 @@ import {
 import { adapters } from '@kilnry/providers';
 import { errorResponse, requireSession } from '../../../../../server/http';
 import { ensureRuntimeEngine, runtimeServices } from '../../../../../server/runtime';
+import { recordAudit } from '../../../../../server/audit';
 
 const Input = z.object({
   key: z.string().min(8).max(512),
@@ -56,6 +57,10 @@ export async function PUT(request: Request, context: { params: Promise<{ id: str
       save_anyway: input.save_anyway,
       accept_tos: input.accept_tos,
     });
+    await recordAudit('provider_key.add', provider, {
+      ...(input.label === undefined ? {} : { label: input.label }),
+      saved_anyway: input.save_anyway === true,
+    });
     // The kit comes back only in machine-derived-key mode now (D-63), and it is
     // acknowledged with one checkbox, so no challenge is attached.
     return NextResponse.json(result);
@@ -74,6 +79,7 @@ export async function DELETE(
     const services = await runtimeServices();
     await services.keyStore.initialize();
     await disconnectProvider({ keyStore: services.keyStore, provider });
+    await recordAudit('provider_key.remove', provider);
     return NextResponse.json({ ok: true });
   } catch (error) {
     return errorResponse(error);

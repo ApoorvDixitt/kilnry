@@ -9,6 +9,7 @@ import { budgetStatus } from '@kilnry/core';
 import { budgets } from '@kilnry/db';
 import { errorResponse, requireSession } from '../../../server/http';
 import { runtimeServices } from '../../../server/runtime';
+import { recordAudit } from '../../../server/audit';
 
 const SetCap = z.object({
   scope: z.string().min(1).max(120),
@@ -47,6 +48,9 @@ export async function PUT(request: Request): Promise<Response> {
           updatedAt: new Date(),
         },
       });
+    // PRD-16:293: a cap change is one of the six audited classes and wrote
+    // nothing, so the log could not answer who changed a spend cap (F-33).
+    await recordAudit('budget.set', input.scope, { cap_usd: input.cap_usd, behavior: input.behavior });
     const lines = await budgetStatus(services.database.db);
     return NextResponse.json({ budgets: lines });
   } catch (error) {

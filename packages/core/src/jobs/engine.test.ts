@@ -559,6 +559,27 @@ describe('pg-boss job engine', () => {
     markNetworkOnline();
   }, 90_000);
 
+  // F-33 with D-71a: paying on a stale price leaves an audit row on every path.
+  // Only /api/generate wrote one, so a chat or MCP job — or a training, clone,
+  // design, preview or analyze call — took the override with no trace.
+  it('audits a stale-price override taken by the job engine', async () => {
+    const late = await harness(fakeAdapter().adapter, true, { now: seedPinnedClock(31 * 86_400_000) });
+    const priced = await late.engine.estimate(imageRequest());
+    expect(priced.estimate.adjustments).toContain('stale_price');
+    await late.engine.createJob({
+      request: imageRequest(),
+      confirmed_cost_usd: priced.estimate.estimate_usd,
+      confirmed_by: 'user',
+      allow_stale_price: true,
+    });
+    const rows = await late.state.db
+      .select()
+      .from(auditEvents)
+      .where(eq(auditEvents.action, 'price.stale_override'));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ actor: 'ui', target: priced.estimate.route.model });
+  }, 60_000);
+
   it('writes a zero ledger entry for moderation', async () => {
     const fake = fakeAdapter({
       submitFailures: [

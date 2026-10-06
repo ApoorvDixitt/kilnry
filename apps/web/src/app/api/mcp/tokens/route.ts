@@ -13,6 +13,7 @@ import * as z from 'zod';
 import { createMcpToken, listMcpTokens, revokeMcpToken } from '@kilnry/core';
 import { errorResponse, requireSession } from '../../../../server/http';
 import { runtimeServices } from '../../../../server/runtime';
+import { recordAudit } from '../../../../server/audit';
 
 const CreateToken = z.object({
   name: z.string().min(1).max(64),
@@ -38,6 +39,10 @@ export async function POST(request: Request): Promise<Response> {
     const input = CreateToken.parse(await request.json());
     const services = await runtimeServices();
     const created = await createMcpToken(services.database, input);
+    await recordAudit('mcp_token.create', created.row.id, {
+      name: input.name,
+      scope: input.scope,
+    });
     // The secret is returned once here and never stored in the clear.
     return NextResponse.json({ token: created.token, row: created.row });
   } catch (error) {
@@ -51,6 +56,7 @@ export async function DELETE(request: Request): Promise<Response> {
     const input = RevokeToken.parse(await request.json());
     const services = await runtimeServices();
     await revokeMcpToken(services.database, input.id);
+    await recordAudit('mcp_token.revoke', input.id);
     return NextResponse.json({ ok: true });
   } catch (error) {
     return errorResponse(error);

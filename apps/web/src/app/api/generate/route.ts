@@ -28,19 +28,8 @@ export async function POST(request: Request): Promise<Response> {
         meta: { confirmed_cost_usd: input.confirmed_cost_usd ?? null },
       });
     }
-    // Overriding the price-staleness guard — settings.price_max_age_days, 30 by
-    // default (F-PRV-07, D-73a) — is recorded too, so
-    // a spend priced on stale data is always traceable in the audit log.
-    if (input.allow_stale_price) {
-      const services = await runtimeServices();
-      await services.database.db.insert(auditEvents).values({
-        id: ulid(),
-        actor: `user:${session.user.id}`,
-        action: 'price.stale_override',
-        target: input.model ?? 'auto',
-        meta: { confirmed_cost_usd: input.confirmed_cost_usd ?? null },
-      });
-    }
+    // The stale-price override is audited inside the engine now, so every paid
+    // path leaves the same row rather than only this one (F-33, D-71a).
     const result = await engine.createJob({
       request: canonical.request,
       constraints: canonical.constraints,

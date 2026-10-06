@@ -29,6 +29,7 @@ import { assertConsentForTraining } from './consent.js';
 import { lookupHandle } from './store.js';
 import { bindVoice, recordClonedVoice } from './voices.js';
 import { FalQueueTimeout, submitAndPollFalQueue } from './fal-queue.js';
+import { recordStaleOverride } from '../budget/enforcer.js';
 
 // The clone options a user can pick (PRD-08 §B2). 'kling' is Kling's own voice
 // creation reached through fal (fal-ai/kling-video/create-voice) and is the only
@@ -208,6 +209,13 @@ export async function cloneVoice(services: CloneServices, input: CloneInput): Pr
   // clone (ElevenLabs instant voice cloning) still records one ledger row at $0.
   const cloneEstimate = await priceClone(services.db, input.provider, services.now?.() ?? new Date());
   assertFreshPrice(cloneEstimate, input.allow_stale_price, await priceMaxAgeDays(services.db));
+  if (input.allow_stale_price === true && cloneEstimate.adjustments?.includes('stale_price')) {
+    await recordStaleOverride(services.db, {
+      actor: 'user',
+      target: `${input.provider}:voice_clone`,
+      estimate: cloneEstimate,
+    });
+  }
   assertCostConfirmation(cloneEstimate, input.confirmed_cost_usd);
   const chargedUsd = cloneEstimate.authoritative_usd ?? cloneEstimate.estimate_usd;
   // The ledger row is keyed by the voice's own id so a clone is charged at most

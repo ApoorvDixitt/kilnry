@@ -18,6 +18,7 @@ import {
   BUDGET_LOCK_ID,
   assertCostConfirmation,
   assertFreshPrice,
+  recordStaleOverride,
   reserveBudget,
 } from '../budget/enforcer.js';
 import { normalizeConfirmedBy } from '../budget/confirmation.js';
@@ -609,6 +610,16 @@ export class JobEngine {
     // CONFIRMATION_REQUIRED with reason stale_price, lifted only by this call's
     // allow_stale_price.
     assertFreshPrice(prepared.estimate, input.allow_stale_price, await priceMaxAgeDays(this.#options.state));
+    // D-71a: every path that pays on a stale price leaves the same audit row;
+    // only /api/generate wrote one, so a chat or MCP job took the override
+    // silently (F-33).
+    if (input.allow_stale_price === true && prepared.estimate.adjustments?.includes('stale_price')) {
+      await recordStaleOverride(this.#options.state, {
+        actor: input.request.source,
+        target: prepared.estimate.route.model,
+        estimate: prepared.estimate,
+      });
+    }
     assertCostConfirmation(prepared.estimate, input.confirmed_cost_usd);
     const id = ulid();
     const row: typeof jobs.$inferInsert = {

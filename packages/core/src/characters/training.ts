@@ -40,6 +40,7 @@ import { loadRegistry } from '../registry/store.js';
 import type { CanonicalRequest, Estimate } from '../types.js';
 import { assertConsentForTraining } from './consent.js';
 import { loadVersion } from './store.js';
+import { recordStaleOverride } from '../budget/enforcer.js';
 
 // The trainers Kilnry offers (PRD-07 §8). The price is not on the card: each
 // trainer's cost is priced from its registry row through the estimator, so the
@@ -262,6 +263,13 @@ export async function startTraining(
     services.now?.() ?? new Date(),
   );
   assertFreshPrice(trainingEstimate, input.allow_stale_price, await priceMaxAgeDays(services.db));
+  if (input.allow_stale_price === true && trainingEstimate.adjustments?.includes('stale_price')) {
+    await recordStaleOverride(services.db, {
+      actor: 'user',
+      target: `${input.trainer}:train`,
+      estimate: trainingEstimate,
+    });
+  }
   assertCostConfirmation(trainingEstimate, input.confirmed_cost_usd);
   const chargedUsd = trainingEstimate.authoritative_usd ?? trainingEstimate.estimate_usd;
 

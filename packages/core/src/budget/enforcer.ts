@@ -6,8 +6,9 @@
 import { and, eq, gte, inArray, like, lt, or, sql, type SQL } from 'drizzle-orm';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import type { DatabaseState } from '@kilnry/db';
-import { budgets, jobs, providers, spendLedger } from '@kilnry/db';
+import { auditEvents, budgets, jobs, providers, spendLedger } from '@kilnry/db';
 import { KilnryError } from '../errors.js';
+import { ulid } from '../ids.js';
 import type { Estimate, ProviderId } from '../types.js';
 import { PRICE_MAX_AGE_DAYS_DEFAULT } from '../registry/price-age.js';
 
@@ -54,6 +55,31 @@ export function assertFreshPrice(
     `This price snapshot is older than ${maxAgeDays} ${maxAgeDays === 1 ? 'day' : 'days'}. Refresh provider prices before paying for this, or explicitly allow the stale estimate.`,
     { details: { reason: 'stale_price', stale_price: true, price_max_age_days: maxAgeDays, estimate } },
   );
+}
+
+/**
+ * The audit row D-71a requires whenever a caller pays on a stale price. Only
+ * /api/generate wrote one, so training, cloning, designing, previewing,
+ * analysing and the chat and MCP job paths took the override with no trace
+ * (F-33, the gap task 11a recorded).
+ */
+export async function recordStaleOverride(
+  state: DatabaseState,
+  input: { actor: string; target: string; estimate: Estimate },
+): Promise<void> {
+  await state.db.insert(auditEvents).values({
+    id: ulid(),
+    actor: input.actor,
+    action: 'price.stale_override',
+    target: input.target,
+    meta: {
+      estimate_usd: input.estimate.estimate_usd,
+      ...(input.estimate.authoritative_usd === undefined
+        ? {}
+        : { authoritative_usd: input.estimate.authoritative_usd }),
+      fetched_at: input.estimate.unit_price?.fetched_at ?? null,
+    },
+  });
 }
 
 export type BudgetDatabase = Pick<DatabaseState['db'], 'select'>;

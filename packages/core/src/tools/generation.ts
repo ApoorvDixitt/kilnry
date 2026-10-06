@@ -16,7 +16,14 @@ import { FFMPEG_OPS, ffmpegExtension, isSupportedFfmpegOp, runFfmpegOp } from '@
 import { probeMedia } from '@kilnry/media';
 import { auditEvents } from '@kilnry/db';
 import { confirmationDecision } from '../budget/confirmation.js';
-import { assertFreshPrice, holdSpend, releaseHold, settleHold, type SpendHold } from '../budget/enforcer.js';
+import {
+  assertFreshPrice,
+  holdSpend,
+  recordStaleOverride,
+  releaseHold,
+  settleHold,
+  type SpendHold,
+} from '../budget/enforcer.js';
 import { priceMaxAgeDays } from '../registry/price-age.js';
 import {
   ANALYZE_TASKS,
@@ -498,6 +505,13 @@ export const analyzeTool: KilnryTool = {
         input.allow_stale_price === true,
         await priceMaxAgeDays(services.db),
       );
+      if (input.allow_stale_price === true && prepared.estimate.adjustments?.includes('stale_price')) {
+        await recordStaleOverride(services.db, {
+          actor: 'chat',
+          target: prepared.estimate.route.model,
+          estimate: prepared.estimate,
+        });
+      }
     } catch (error) {
       return toolError(
         'CONFIRMATION_REQUIRED',

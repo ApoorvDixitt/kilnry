@@ -11,6 +11,7 @@ import { auditEvents, getSetting, putSetting } from '@kilnry/db';
 import { errorResponse, requireSession } from '../../../../server/http';
 import { getAuth } from '../../../../server/auth';
 import { ensureRuntimeEngine, runtimeServices } from '../../../../server/runtime';
+import { recordAudit } from '../../../../server/audit';
 
 const Input = z.discriminatedUnion('action', [
   z.object({ action: z.literal('view'), password: z.string().min(1) }),
@@ -45,6 +46,9 @@ export async function POST(request: Request): Promise<Response> {
     const services = await runtimeServices();
     if (input.action === 'view') {
       await getAuth().api.verifyPassword({ body: { password: input.password }, headers: await headers() });
+      // PRD-16:293 audits a kit view; looking at the kit left no trace, so the
+      // log could not answer who had seen it (F-33).
+      await recordAudit('recovery_kit.view', 'recovery_kit', {}, `user:${session.user.id}`);
       return NextResponse.json({ recovery_kit: services.keyStore.recoveryKit() });
     }
     if (input.action === 'simulate_key_loss') {

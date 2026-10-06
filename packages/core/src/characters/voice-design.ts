@@ -28,6 +28,7 @@ import type { CanonicalRequest, Estimate } from '../types.js';
 import { lookupHandle } from './store.js';
 import { bindVoice, recordDesignedVoice } from './voices.js';
 import { FalQueueTimeout, submitAndPollFalQueue } from './fal-queue.js';
+import { recordStaleOverride } from '../budget/enforcer.js';
 
 export type DesignProvider = 'minimax' | 'fal';
 
@@ -151,6 +152,13 @@ export async function designVoice(services: DesignServices, input: DesignInput):
   // most once.
   const designEstimate = await priceDesign(services.db, input.provider, services.now?.() ?? new Date());
   assertFreshPrice(designEstimate, input.allow_stale_price, await priceMaxAgeDays(services.db));
+  if (input.allow_stale_price === true && designEstimate.adjustments?.includes('stale_price')) {
+    await recordStaleOverride(services.db, {
+      actor: 'user',
+      target: `${input.provider}:voice_design`,
+      estimate: designEstimate,
+    });
+  }
   assertCostConfirmation(designEstimate, input.confirmed_cost_usd);
   const chargedUsd = designEstimate.authoritative_usd ?? designEstimate.estimate_usd;
   const voiceUlid = ulid();
