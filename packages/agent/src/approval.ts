@@ -28,6 +28,9 @@ import type { Autonomy } from './instructions.js';
 /** The default auto-approve threshold for Ask-me-first (PRD-11 §3). */
 export const AUTO_APPROVE_BELOW_USD_DEFAULT = 0.5;
 
+/** The default per-session budget for Run automatically (PRD-14:173). */
+export const SESSION_BUDGET_USD_DEFAULT = 5;
+
 /** Tools that can spend money (TRD-11 §5). */
 export const SPEND_TOOLS = new Set([
   'kilnry_generate',
@@ -159,14 +162,15 @@ export function approvalPolicy(
         return estimate.estimate_usd > threshold ? 'user-approval' : undefined;
       }
 
-      // Run automatically: ask only when the session budget would be passed.
-      if (
-        typeof session.budget_usd === 'number' &&
-        session.spent_usd + estimate.estimate_usd > session.budget_usd
-      ) {
+      // Run automatically: ask only when the session budget would be passed. A
+      // session without a stored budget runs under the default, never without
+      // a cap (F-104, PRD-14:173). spent_usd is read at decision time, so a
+      // spend earlier in the same turn counts.
+      const budget = session.budget_usd ?? SESSION_BUDGET_USD_DEFAULT;
+      if (session.spent_usd + estimate.estimate_usd > budget) {
         return {
           type: 'user-approval',
-          reason: `session-budget:${session.budget_usd.toFixed(2)}`,
+          reason: `session-budget:${budget.toFixed(2)}`,
         };
       }
       return undefined;

@@ -68,6 +68,7 @@ export {
   withConfirmedCost,
   deniedResult,
   AUTO_APPROVE_BELOW_USD_DEFAULT,
+  SESSION_BUDGET_USD_DEFAULT,
   SPEND_TOOLS,
   type ApprovalSession,
   type ApprovalPolicyInput,
@@ -75,6 +76,8 @@ export {
   type Confirmer,
   type PreEstimate,
 } from './approval.js';
+
+export { toolSpendUsd } from './session-spend.js';
 
 export {
   meterStep,

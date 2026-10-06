@@ -257,3 +257,26 @@ describe('session metering (F-CHT-02, TRD-11 §9)', () => {
     );
   });
 });
+
+// F-104: a Run-automatically session with no stored budget ran with no cap.
+describe('the session budget without a stored figure (F-104, PRD-14:173)', () => {
+  it('asks at the $5.00 default when the session row carries no budget', async () => {
+    const noBudget: ApprovalSession = { autonomy: 'run_automatically', spent_usd: 4 };
+    await expect(
+      verdict(noBudget, 'kilnry_generate', { requests: [{ kind: 'video', prompt: 'x' }] }, 1.26),
+    ).resolves.toEqual({ type: 'user-approval', reason: 'session-budget:5.00' });
+    await expect(
+      verdict(noBudget, 'kilnry_generate', { requests: [{ kind: 'video', prompt: 'x' }] }, 0.9),
+    ).resolves.toBeUndefined();
+  });
+
+  it('reads spent_usd when it decides, so a spend earlier in the turn counts', async () => {
+    const live: ApprovalSession = { autonomy: 'run_automatically', spent_usd: 0, budget_usd: 3 };
+    const policy = policyFor(live, 1.26);
+    const decide = policy['kilnry_generate']!;
+    const input = { requests: [{ kind: 'video', prompt: 'x' }] };
+    await expect(decide(input)).resolves.toBeUndefined();
+    live.spent_usd = 2.52;
+    await expect(decide(input)).resolves.toEqual({ type: 'user-approval', reason: 'session-budget:3.00' });
+  });
+});

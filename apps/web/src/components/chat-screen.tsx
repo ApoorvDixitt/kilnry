@@ -487,11 +487,16 @@ export function ChatScreen({
           <select
             aria-label={message('chat.sessionAutonomy')}
             value={autonomy}
-            onChange={(event) =>
-              void updateSession({
-                autonomy: event.target.value as 'ask_first' | 'run_automatically',
-              })
-            }
+            onChange={(event) => {
+              const next = event.target.value as 'ask_first' | 'run_automatically';
+              // PRD-16 §6: switching to Run automatically asks first, on the
+              // Chat page as in Settings › Chat (F-115). Declining keeps the
+              // current mode; the select is controlled, so it snaps back.
+              if (next === 'run_automatically' && !window.confirm(message('settings.chat.autonomyConfirm'))) {
+                return;
+              }
+              void updateSession({ autonomy: next });
+            }}
           >
             <option value="ask_first">{message('settings.chat.autonomyAskFirst')}</option>
             <option value="run_automatically">{message('settings.chat.autonomyAutomatic')}</option>

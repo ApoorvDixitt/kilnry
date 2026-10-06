@@ -8,7 +8,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { setupServer } from 'msw/node';
-import { chatMessages, chatSessions, closeDatabaseState, createDatabase, jobs } from '@kilnry/db';
+import { chatMessages, chatSessions, closeDatabaseState, createDatabase, jobs, settings } from '@kilnry/db';
+import { eq } from 'drizzle-orm';
 import { seedRegistry } from '@kilnry/core';
 import { chatCompletionHandler, CHAI_VIDEO_MODEL } from '../../../test/chat-openrouter-fixture';
 
@@ -269,6 +270,100 @@ describe('POST /api/chat — scripted OpenRouter tool rounds', () => {
     });
     // Wait for the turn's persisted messages before the disposer closes the
     // database, for the same reason as the case above.
+    await expect
+      .poll(async () => (await database.db.select().from(chatMessages)).length, { timeout: 20_000 })
+      .toBeGreaterThan(0);
+  }, 30_000);
+
+  // F-104: Run automatically's session budget counted only the language model's
+  // tokens, never the generations it started, so plans ran past it unasked.
+  it('Run automatically: three $1.26 plans against a $3.00 session budget — the third asks', async () => {
+    await database.db.insert(chatSessions).values({
+      id: 'chai-budget-session',
+      llmProvider: 'openrouter',
+      llmModel: 'anthropic/claude-sonnet-5',
+      autonomy: 'run_automatically',
+      budgetUsd: '3.000000',
+      spentUsd: '0',
+      autoApproveBelowUsd: '0.500000',
+    });
+    const engine = fakeEngine();
+    routeHarness.engine = engine;
+    routeHarness.services = {
+      database,
+      keyStore: {
+        get: async (provider: string) => (provider === 'openrouter' ? 'sk-or-v1-fixture' : undefined),
+      },
+    };
+    const turn = async (n: number): Promise<Chunk[]> => {
+      const response = await POST(
+        new Request('http://127.0.0.1:3123/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            session_id: 'chai-budget-session',
+            messages: [{ id: `user-${n}`, role: 'user', parts: [{ type: 'text', text: 'do it again' }] }],
+          }),
+        }),
+      );
+      expect(response.status).toBe(200);
+      return chunksFrom(await response.text());
+    };
+    const first = await turn(1);
+    expect(first.some((chunk) => chunk.type === 'tool-approval-request')).toBe(false);
+    const second = await turn(2);
+    expect(second.some((chunk) => chunk.type === 'tool-approval-request')).toBe(false);
+    // Two plans ran: six video jobs, and the session has spent their $2.52.
+    expect(engine.createJob).toHaveBeenCalledTimes(6);
+    const spent = async () =>
+      Number(
+        (await database.db.select().from(chatSessions).where(eq(chatSessions.id, 'chai-budget-session')))[0]
+          ?.spentUsd,
+      );
+    expect(await spent()).toBeGreaterThanOrEqual(2.52);
+    // The third would take the session to $3.78, past its $3.00 budget.
+    const third = await turn(3);
+    const approval = third.find((chunk) => chunk.type === 'tool-approval-request');
+    expect(JSON.stringify(approval)).toContain('session-budget:3.00');
+    expect(engine.createJob).toHaveBeenCalledTimes(6);
+    await expect
+      .poll(async () => (await database.db.select().from(chatMessages)).length, { timeout: 20_000 })
+      .toBeGreaterThan(0);
+  }, 60_000);
+
+  it('a new session row carries the $5.00 default budget and the $0.50 threshold', async () => {
+    const engine = fakeEngine(0.01);
+    routeHarness.engine = engine;
+    routeHarness.services = {
+      database,
+      keyStore: {
+        get: async (provider: string) => (provider === 'openrouter' ? 'sk-or-v1-fixture' : undefined),
+      },
+    };
+    await database.db
+      .insert(settings)
+      .values({
+        key: 'chat.default_llm',
+        value: { provider: 'openrouter', model: 'anthropic/claude-sonnet-5' },
+      })
+      .onConflictDoNothing();
+    const response = await POST(
+      new Request('http://127.0.0.1:3123/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session_id: 'fresh-session',
+          messages: [{ id: 'user-1', role: 'user', parts: [{ type: 'text', text: 'Make one chai poster' }] }],
+        }),
+      }),
+    );
+    expect(response.status).toBe(200);
+    await response.text();
+    const row = (
+      await database.db.select().from(chatSessions).where(eq(chatSessions.id, 'fresh-session'))
+    )[0];
+    expect(Number(row?.budgetUsd)).toBe(5);
+    expect(Number(row?.autoApproveBelowUsd)).toBe(0.5);
     await expect
       .poll(async () => (await database.db.select().from(chatMessages)).length, { timeout: 20_000 })
       .toBeGreaterThan(0);

@@ -21,6 +21,7 @@ import {
   resolveModel,
   streamChatTurn,
   toFileParts,
+  toolSpendUsd,
   trackApprovals,
   type LlmProvider,
   type LlmRef,
@@ -40,6 +41,7 @@ import { ensureRuntimeEngine, runtimeServices } from '../../../server/runtime';
 import { projectMemoryBody } from '../../../server/project-memory';
 import { firstMessageText } from '../../../server/chat-transcript';
 import { skillRoots } from '../../../server/skills';
+import { chatSessionDefaults, sessionRowDefaults } from '../../../server/chat-session';
 
 export const maxDuration = 300;
 
@@ -120,17 +122,30 @@ export async function POST(request: Request): Promise<Response> {
       planned.set(planKey(name, value), plan);
       return plan;
     });
-    const toolApproval = approvalPolicy({
-      session: {
-        autonomy: session.autonomy,
-        spent_usd: session.spent_usd,
-        ...(typeof session.budget_usd === 'number' ? { budget_usd: session.budget_usd } : {}),
-        ...(typeof session.auto_approve_below_usd === 'number'
-          ? { auto_approve_below_usd: session.auto_approve_below_usd }
-          : {}),
-      },
-      preEstimate,
-    });
+    // One live object: the policy reads spent_usd when it decides, and every
+    // spend this turn (a tool's confirmed estimate, the language model's
+    // tokens) is added to it as it happens, so a later call in the same turn
+    // sees the earlier ones (F-104).
+    const policySession = {
+      autonomy: session.autonomy,
+      spent_usd: session.spent_usd,
+      ...(typeof session.budget_usd === 'number' ? { budget_usd: session.budget_usd } : {}),
+      ...(typeof session.auto_approve_below_usd === 'number'
+        ? { auto_approve_below_usd: session.auto_approve_below_usd }
+        : {}),
+    };
+    const addSessionSpend = async (delta: number): Promise<void> => {
+      if (!(delta > 0)) return;
+      policySession.spent_usd += delta;
+      await services.database.db
+        .update(chatSessions)
+        .set({ spentUsd: sql`spent_usd + ${String(delta)}`, updatedAt: new Date() })
+        .where(eq(chatSessions.id, session.id));
+    };
+    // The spend writes a tool result starts; the turn waits for them before it
+    // persists its messages, so the next turn reads the new total.
+    const pendingSpends: Array<Promise<void>> = [];
+    const toolApproval = approvalPolicy({ session: policySession, preEstimate });
     // Remember which calls the card answered and which the policy let through,
     // so each job records who confirmed it (TRD-04's confirmed_by).
     const approvals = trackApprovals(toolApproval);
@@ -155,6 +170,12 @@ export async function POST(request: Request): Promise<Response> {
       },
       chatSessionId: session.id,
       offline: llm.local === true,
+      // A spend tool that proceeded adds its confirmed estimate (or settled
+      // actual) to the session, so Run automatically's session budget counts
+      // the generations it pays for, not only the tokens (F-104, PRD-14:173).
+      onToolResult: (event) => {
+        pendingSpends.push(addSessionSpend(toolSpendUsd(event.name, event.structured)));
+      },
     });
 
     // Attachments arrive as ids; the agent reads them through the Library and,
@@ -198,6 +219,7 @@ export async function POST(request: Request): Promise<Response> {
       ...(attached.parts.length > 0 ? { attachmentParts: attached.parts } : {}),
       generateMessageId: () => randomUUID(),
       onMessages: async (turnMessages) => {
+        await Promise.all(pendingSpends);
         // Persist the thread so the session survives a reload and can be exported
         // (F-CHT-12). Each UIMessage is stored with its parts as-is, upserted by
         // id so a regenerated message replaces its row.
@@ -242,11 +264,8 @@ export async function POST(request: Request): Promise<Response> {
                 currencyNote: entry.currency_note,
               });
             },
-            recordSpend: async (sessionId, delta) => {
-              await services.database.db
-                .update(chatSessions)
-                .set({ spentUsd: sql`spent_usd + ${String(delta)}`, updatedAt: new Date() })
-                .where(eq(chatSessions.id, sessionId));
+            recordSpend: async (_sessionId, delta) => {
+              await addSessionSpend(delta);
             },
           },
           usage as never,
@@ -285,15 +304,20 @@ async function loadOrCreateSession(
       ...(row.autoApproveBelowUsd ? { auto_approve_below_usd: Number(row.autoApproveBelowUsd) } : {}),
     };
   }
-  const stored = await readSetting(services, 'chat.autonomy');
-  const budget = await readSetting(services, 'chat.session_budget_usd');
-  const autonomy = stored === 'run_automatically' ? 'run_automatically' : 'ask_first';
-  await services.database.db.insert(chatSessions).values({
+  // A new session always carries a numeric budget and threshold, from
+  // Settings › Chat or the canon defaults (F-104).
+  const defaults = await chatSessionDefaults(services.database);
+  await services.database.db
+    .insert(chatSessions)
+    .values({ id, ...sessionRowDefaults(defaults) })
+    .onConflictDoNothing({ target: chatSessions.id });
+  return {
     id,
-    autonomy,
-    ...(typeof budget === 'number' ? { budgetUsd: String(budget) } : {}),
-  });
-  return { id, autonomy, spent_usd: 0, ...(typeof budget === 'number' ? { budget_usd: budget } : {}) };
+    autonomy: defaults.autonomy,
+    spent_usd: 0,
+    budget_usd: defaults.budget_usd,
+    auto_approve_below_usd: defaults.auto_approve_below_usd,
+  };
 }
 
 // The session's model, or the saved default when the session has none.

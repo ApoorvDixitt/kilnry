@@ -1051,7 +1051,17 @@ test('@m5 S-24 asks for the three-video spend, then pauses at the session cap', 
 
   // Switch this session to Run automatically and lower its cap through the Chat
   // controls, then ask for the same three-request plan again.
+  // Switching asks first, as PRD-16 §6 words it (F-115); the scenario accepts.
+  const confirmed = page.waitForEvent('dialog').then(async (dialog) => {
+    expect(dialog.type()).toBe('confirm');
+    expect(dialog.message()).toBe(
+      'Run automatically lets the agent spend up to the session budget without asking. Continue?',
+    );
+    await dialog.accept();
+  });
   await page.getByLabel('Session autonomy').selectOption('run_automatically');
+  await confirmed;
+  await expect(page.getByLabel('Session autonomy')).toHaveValue('run_automatically');
   await page.getByLabel('Session budget').fill('1');
   await expect(page.locator('.chat-budget')).toContainText('$1.00');
   const jobsAtCap = await jobCount(page);

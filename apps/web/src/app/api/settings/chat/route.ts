@@ -19,6 +19,7 @@ import {
   type LlmRegistryRow,
 } from '@kilnry/agent';
 import { loadRegistry } from '@kilnry/core';
+import { SESSION_BUDGET_USD_DEFAULT } from '@kilnry/agent';
 import { settings } from '@kilnry/db';
 import { detectOllama } from '@kilnry/providers';
 import { eq } from 'drizzle-orm';
@@ -93,7 +94,11 @@ export async function GET(): Promise<Response> {
       chat: {
         default_llm: stored['chat.default_llm'] ?? fallback ?? null,
         autonomy: stored['chat.autonomy'] ?? 'ask_first',
-        session_budget_usd: stored['chat.session_budget_usd'] ?? null,
+        // An unset budget is the $5.00 default, never "no cap" (F-104).
+        session_budget_usd:
+          typeof stored['chat.session_budget_usd'] === 'number'
+            ? stored['chat.session_budget_usd']
+            : SESSION_BUDGET_USD_DEFAULT,
         ollama_base_url: ollamaBaseUrl ?? ollama.base_url,
       },
       models,
@@ -110,13 +115,22 @@ export async function PUT(request: Request): Promise<Response> {
     const input = Input.parse(await request.json());
     const services = await runtimeServices();
     const writes: Array<[string, unknown]> = [];
-    if (input.default_llm !== undefined) writes.push(['chat.default_llm', input.default_llm]);
+    // A null value clears the setting back to its default; settings.value is
+    // NOT NULL, so writing a null failed the whole save with a 500 (F-121).
+    const clears: string[] = [];
+    if (input.default_llm !== undefined) {
+      if (input.default_llm === null) clears.push('chat.default_llm');
+      else writes.push(['chat.default_llm', input.default_llm]);
+    }
     if (input.autonomy !== undefined) writes.push(['chat.autonomy', input.autonomy]);
-    if (input.session_budget_usd !== undefined)
-      writes.push(['chat.session_budget_usd', input.session_budget_usd]);
+    if (input.session_budget_usd !== undefined) {
+      if (input.session_budget_usd === null) clears.push('chat.session_budget_usd');
+      else writes.push(['chat.session_budget_usd', input.session_budget_usd]);
+    }
     if (input.ollama_base_url !== undefined) writes.push(['chat.ollama_base_url', input.ollama_base_url]);
 
     await services.database.db.transaction(async (transaction) => {
+      for (const key of clears) await transaction.delete(settings).where(eq(settings.key, key));
       for (const [key, value] of writes) {
         await transaction
           .insert(settings)
@@ -124,7 +138,9 @@ export async function PUT(request: Request): Promise<Response> {
           .onConflictDoUpdate({ target: settings.key, set: { value, updatedAt: new Date() } });
       }
     });
-    return NextResponse.json({ chat: Object.fromEntries(writes) });
+    return NextResponse.json({
+      chat: { ...Object.fromEntries(clears.map((key) => [key, null])), ...Object.fromEntries(writes) },
+    });
   } catch (error) {
     return errorResponse(error);
   }

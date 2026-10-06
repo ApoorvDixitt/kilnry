@@ -13,6 +13,7 @@ import { eq } from 'drizzle-orm';
 import { NextResponse } from 'next/server';
 import * as z from 'zod';
 import { errorResponse, requireSession } from '../../../../server/http';
+import { chatSessionDefaults, sessionRowDefaults } from '../../../../server/chat-session';
 import { runtimeServices } from '../../../../server/runtime';
 
 const Input = z.object({
@@ -38,9 +39,30 @@ export async function PUT(request: Request): Promise<Response> {
       patch['budgetUsd'] = input.budget_usd === null ? null : String(input.budget_usd);
     }
 
-    await services.database.db.update(chatSessions).set(patch).where(eq(chatSessions.id, input.session_id));
+    // The Chat page can change autonomy or the budget before its first message
+    // has created the session row. An UPDATE of no row reported success while
+    // the change was lost (F-115), so the row is created here from the
+    // workspace defaults with the patch applied, or the patch updates it.
+    const defaults = await chatSessionDefaults(services.database);
+    await services.database.db
+      .insert(chatSessions)
+      .values({ id: input.session_id, ...sessionRowDefaults(defaults), ...patch })
+      .onConflictDoUpdate({ target: chatSessions.id, set: patch });
+    const rows = await services.database.db
+      .select()
+      .from(chatSessions)
+      .where(eq(chatSessions.id, input.session_id))
+      .limit(1);
+    const row = rows[0]!;
 
-    return NextResponse.json({ session: { id: input.session_id, ...patch } });
+    return NextResponse.json({
+      session: {
+        id: row.id,
+        autonomy: row.autonomy,
+        budget_usd: row.budgetUsd === null ? null : Number(row.budgetUsd),
+        auto_approve_below_usd: row.autoApproveBelowUsd === null ? null : Number(row.autoApproveBelowUsd),
+      },
+    });
   } catch (error) {
     return errorResponse(error);
   }
