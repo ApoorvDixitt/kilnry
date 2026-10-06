@@ -275,6 +275,25 @@ export interface BudgetStatusLine {
   spent_usd: number;
   reserved_usd: number;
   behavior: string;
+  /** When this cap frees up again, in the words the error uses (F-19). */
+  reset: string;
+  /** The spend as a whole percentage of the cap, for the 80 % warning (F-18). */
+  used_percent: number;
+}
+
+/** PRD-14 §5: the share of a cap at which the user is warned once a day. */
+export const BUDGET_WARN_PERCENT = 80;
+
+export function budgetReset(scope: BudgetStatusLine['scope']): string {
+  switch (scope) {
+    case 'daily':
+      return 'midnight';
+    case 'monthly':
+    case 'provider':
+      return 'the first of next month';
+    case 'folder':
+      return 'you raise the cap';
+  }
 }
 
 // The current caps and how much of each is spent (ledger) and reserved
@@ -285,7 +304,7 @@ export async function budgetStatus(
   now: Date = new Date(),
 ): Promise<BudgetStatusLine[]> {
   const capRows = await database.select().from(budgets);
-  const lines: BudgetStatusLine[] = [];
+  const lines: Array<Omit<BudgetStatusLine, 'reset' | 'used_percent'>> = [];
   const capMap = new Map(capRows.map((row) => [row.scope, row]));
 
   const daily = capMap.get('daily');
@@ -322,5 +341,12 @@ export async function budgetStatus(
       behavior: row.behavior,
     });
   }
-  return lines;
+  // The reset wording and the percentage are derived once here, so the meter,
+  // the strip and the 80 % banner all say the same thing (F-18, F-19).
+  return lines.map((line) => ({
+    ...line,
+    reset: budgetReset(line.scope),
+    used_percent:
+      line.cap_usd > 0 ? Math.floor(((line.spent_usd + line.reserved_usd) / line.cap_usd) * 100) : 0,
+  }));
 }

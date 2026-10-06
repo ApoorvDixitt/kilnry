@@ -320,6 +320,7 @@ kbd {
 }
 
 .budget-meter {
+  position: relative;
   align-items: center;
   color: var(--accent-text);
   display: flex;
@@ -7020,6 +7021,36 @@ html[data-motion='reduced'] *::after {
 .run-progress-count {
   color: var(--text-muted);
   font-size: 13px;
+}
+
+.budget-meter.is-warning i b {
+  background: var(--warn, #c98a2b);
+}
+
+.budget-warning {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin: 6px 0 0;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--sand-100, #f6efe3);
+  color: var(--text);
+  font-size: 13px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  white-space: nowrap;
+  z-index: 20;
+}
+
+.budget-warning-dismiss {
+  border: 1px solid var(--border-control);
+  background: var(--surface-1);
+  border-radius: 7px;
+  padding: 2px 8px;
+  font-size: 12px;
 }
 
 .cost-strip-stale-text {

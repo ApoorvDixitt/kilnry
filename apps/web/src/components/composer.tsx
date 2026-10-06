@@ -10,7 +10,7 @@ import { apiFetch } from '../lib/api-client';
 import { message } from '../lib/messages';
 import { ModelPicker, type ComposerMode, type PickerModel } from './model-picker';
 import { ParamChips, type ComposerParams, type ParamsSchema } from './param-chips';
-import { CostStrip, type BudgetLine, type CostEstimate } from './cost-strip';
+import { CostStrip, capReset, capScopeLabel, money, type BudgetLine, type CostEstimate } from './cost-strip';
 import {
   acceptMention,
   activeMentionQuery,
@@ -58,6 +58,8 @@ export interface GenerateContext {
   hasModelForMode: boolean;
   estimate: CostEstimate | null;
   overBudget: boolean;
+  /** The cap that was hit, so the reason names its scope and reset (F-19). */
+  overBudgetLine?: BudgetLine | null;
 }
 
 // The single source of truth for whether Generate may fire and, if not, the exact
@@ -68,7 +70,15 @@ export function generateState(context: GenerateContext): { disabled: boolean; re
     return { disabled: true, reason: message('create.generateDisabledReason.noModel') };
   if (context.promptEmpty) return { disabled: true, reason: message('create.generateDisabledReason.empty') };
   if (!context.estimate) return { disabled: true, reason: message('create.generateDisabledReason.unpriced') };
-  if (context.overBudget) return { disabled: true, reason: message('create.generateDisabledReason.budget') };
+  if (context.overBudget) {
+    const line = context.overBudgetLine;
+    const reason = message('create.generateDisabledReason.budget')
+      .replace('{scope}', line ? capScopeLabel(line) : 'Daily')
+      .replace('{cap}', line ? money(line.cap_usd) : '')
+      .replace('{spent}', line ? money(line.spent_usd) : '')
+      .replace('{reset}', line ? capReset(line) : 'midnight');
+    return { disabled: true, reason };
+  }
   return { disabled: false, reason: null };
 }
 
@@ -263,6 +273,7 @@ export function Composer({
     hasModelForMode,
     estimate,
     overBudget,
+    overBudgetLine,
   });
 
   // Switching mode keeps the prompt text; only the footer controls change.

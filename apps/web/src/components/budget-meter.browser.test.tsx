@@ -69,4 +69,35 @@ describe('the budget meter (F-17, F-PRV-04)', () => {
     await act(async () => root!.render(<BudgetMeter refreshKey={1} />));
     expect(urls.filter((url) => url === '/api/budget')).toHaveLength(2);
   });
+
+  // F-18: PRD-14:150 warns at 80 % of any cap, once per day — nothing warned at
+  // all before this; the first signal was the hard stop at 100 %.
+  it('warns once a day at 80 % of a cap and turns the meter amber', async () => {
+    window.localStorage.clear();
+    stubBudget([{ scope: 'daily', label: 'Today', cap_usd: 10, spent_usd: 8.2, used_percent: 82 }] as never);
+    const host = await render(<BudgetMeter now={new Date('2026-10-06T10:00:00')} />);
+    expect(host.querySelector('.budget-meter')?.getAttribute('data-warning')).toBe('true');
+    expect(host.querySelector('[data-testid="budget-warning"]')?.textContent).toContain(
+      "You've used 82 % of Today's budget ($8.20 of $10.00).",
+    );
+    // Dismissed, it does not come back on the same day.
+    await act(async () => host.querySelector<HTMLButtonElement>('.budget-warning-dismiss')!.click());
+    expect(host.querySelector('[data-testid="budget-warning"]')).toBeNull();
+    await act(async () => root?.unmount());
+    const again = await render(<BudgetMeter now={new Date('2026-10-06T22:00:00')} />);
+    expect(again.querySelector('[data-testid="budget-warning"]')).toBeNull();
+    await act(async () => root?.unmount());
+    // The next day it shows again.
+    const tomorrow = await render(<BudgetMeter now={new Date('2026-10-07T09:00:00')} />);
+    expect(tomorrow.querySelector('[data-testid="budget-warning"]')).not.toBeNull();
+    window.localStorage.clear();
+  });
+
+  it('does not warn below the threshold', async () => {
+    window.localStorage.clear();
+    stubBudget([{ scope: 'daily', label: 'Today', cap_usd: 10, spent_usd: 7.9, used_percent: 79 }] as never);
+    const host = await render(<BudgetMeter now={new Date('2026-10-06T10:00:00')} />);
+    expect(host.querySelector('.budget-meter')?.getAttribute('data-warning')).toBe('false');
+    expect(host.querySelector('[data-testid="budget-warning"]')).toBeNull();
+  });
 });

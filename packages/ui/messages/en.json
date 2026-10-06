@@ -32,7 +32,9 @@
     "shortcutModels": "Open the model picker",
     "shortcutGenerate": "Generate and keep the prompt",
     "shortcutInspector": "Toggle the inspector",
-    "shortcutCollapse": "Collapse the sidebar"
+    "shortcutCollapse": "Collapse the sidebar",
+    "budgetWarning": "You've used {percent} % of {label}'s budget ({spent} of {cap}).",
+    "budgetWarningDismiss": "Got it"
   },
   "welcome": {
     "eyebrow": "Local setup",
@@ -136,7 +138,7 @@
       "empty": "Type a prompt first.",
       "noModel": "Add a fal or OpenRouter key for this mode.",
       "unpriced": "Kilnry can't price this yet. Refresh prices in Settings › Providers.",
-      "budget": "Daily cap reached. Raise the cap or wait until midnight."
+      "budget": "{scope} cap {cap} reached ({spent} spent). Raise the cap or wait until {reset}."
     },
     "budgetAsk": {
       "title": "Over budget",
@@ -197,7 +199,7 @@
       "providerEstimate": "Provider estimate {amount}",
       "priceAge": "Price fetched {days} days ago",
       "budgetLine": "{label} {spent} of {cap}",
-      "overBudget": "Daily cap {cap} reached ({spent} spent). Raise the cap or wait until midnight.",
+      "overBudget": "{scope} cap {cap} reached ({spent} spent). Raise the cap or wait until {reset}.",
       "noPrompt": "Type a prompt to see the price.",
       "pricing": "Pricing…",
       "staleDetail": "Price data for {model} is {days} days old.",

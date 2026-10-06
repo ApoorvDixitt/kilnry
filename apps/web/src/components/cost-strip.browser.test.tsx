@@ -214,4 +214,44 @@ describe('CostStrip', () => {
     expect(outputSize('second', { count: 1, duration_s: 8 }, 0, 3)).toBe('8 s');
     expect(outputSize('second', { count: 2, duration_s: 5 }, 0)).toBe('10 s');
   });
+
+  // F-19: the strip said "Daily cap … wait until midnight." for every scope, so a
+  // monthly or folder cap was misreported — the engine's own error varies both.
+  it('names the cap that was hit and when it frees up', async () => {
+    const host = await render({
+      estimate: estimate(),
+      params: { count: 1 },
+      promptChars: 12,
+      now: NOW,
+      budgets: [{ scope: 'monthly', label: 'This month', cap_usd: 100, spent_usd: 99.9, behavior: 'block' }],
+    });
+    expect(host.querySelector('.cost-strip-block')?.textContent).toBe(
+      'Monthly cap $100.00 reached ($99.90 spent). Raise the cap or wait until the first of next month.',
+    );
+    await act(async () => root?.unmount());
+    const folder = await render({
+      estimate: estimate(),
+      params: { count: 1 },
+      promptChars: 12,
+      now: NOW,
+      budgets: [{ scope: 'folder', label: 'Client_A', cap_usd: 5, spent_usd: 4.99, behavior: 'block' }],
+    });
+    expect(folder.querySelector('.cost-strip-block')?.textContent).toBe(
+      'Client_A cap $5.00 reached ($4.99 spent). Raise the cap or wait until you raise the cap.',
+    );
+  });
+
+  // F-19 as amended by A.4: the cap-stop sentence formats money PRD-14's way.
+  it('writes a one-cent cap as $0.01, not $0.010', async () => {
+    const host = await render({
+      estimate: estimate({ estimate_usd: 0.01 }),
+      params: { count: 1 },
+      promptChars: 12,
+      now: NOW,
+      budgets: [{ scope: 'daily', label: 'Today', cap_usd: 0.01, spent_usd: 0.01, behavior: 'block' }],
+    });
+    expect(host.querySelector('.cost-strip-block')?.textContent).toBe(
+      'Daily cap $0.01 reached ($0.01 spent). Raise the cap or wait until midnight.',
+    );
+  });
 });

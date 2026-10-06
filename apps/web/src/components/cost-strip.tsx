@@ -24,6 +24,36 @@ export interface BudgetLine {
   cap_usd: number;
   spent_usd: number;
   behavior?: 'block' | 'ask' | undefined;
+  /** When the cap frees up, in the engine's words (F-19). */
+  reset?: string | undefined;
+  used_percent?: number | undefined;
+}
+
+/** The scope word and the reset the over-budget sentence names (F-19). */
+export function capScopeLabel(line: BudgetLine): string {
+  switch (line.scope) {
+    case 'daily':
+      return 'Daily';
+    case 'monthly':
+      return 'Monthly';
+    case 'provider':
+      return `${line.label} monthly`;
+    case 'folder':
+      return line.label || 'Folder';
+  }
+}
+
+export function capReset(line: BudgetLine): string {
+  if (line.reset) return line.reset;
+  switch (line.scope) {
+    case 'daily':
+      return 'midnight';
+    case 'monthly':
+    case 'provider':
+      return 'the first of next month';
+    case 'folder':
+      return 'you raise the cap';
+  }
 }
 
 const STALE_PRICE_DAYS = 30;
@@ -31,6 +61,14 @@ const STALE_PRICE_DAYS = 30;
 export function formatUsd(amount: number): string {
   const digits = amount < 0.01 ? 4 : amount < 1 ? 3 : 2;
   return `$${amount.toFixed(digits)}`;
+}
+
+/**
+ * Money in a sentence, PRD-14's way: two decimals, so a cap reads "$0.01" and
+ * "$10.00" — the cap-stop sentence said "$0.010" (F-19 as amended by A.4).
+ */
+export function money(amount: number): string {
+  return `$${amount.toFixed(2)}`;
 }
 
 // How many fraction digits Kilnry shows for a given amount. NumberFlow is given
@@ -241,9 +279,13 @@ export function CostStrip({
       <span className="cost-strip-eta">{formatEta(estimate.eta_s)}</span>
       {state.overBudget ? (
         <span className="cost-strip-block">
+          {/* The scope and the reset vary (PRD-05:191, F-19): a monthly cap does
+              not reset at midnight and a folder cap resets when it is raised. */}
           {message('create.cost.overBudget')
-            .replace('{cap}', formatUsd(state.overBudget.cap_usd))
-            .replace('{spent}', formatUsd(state.overBudget.spent_usd))}
+            .replace('{scope}', capScopeLabel(state.overBudget))
+            .replace('{cap}', money(state.overBudget.cap_usd))
+            .replace('{spent}', money(state.overBudget.spent_usd))
+            .replace('{reset}', capReset(state.overBudget))}
         </span>
       ) : null}
     </span>

@@ -11,8 +11,28 @@ import { message } from '../lib/messages';
 
 interface BudgetLine {
   scope: string;
+  label?: string;
   cap_usd: number;
   spent_usd: number;
+  used_percent?: number;
+}
+
+/** PRD-14 §5 warns at 80 % of any cap, once a day. */
+export const WARN_PERCENT = 80;
+
+export function usedPercent(line: Pick<BudgetLine, 'cap_usd' | 'spent_usd' | 'used_percent'>): number {
+  if (typeof line.used_percent === 'number') return line.used_percent;
+  return line.cap_usd > 0 ? Math.floor((line.spent_usd / line.cap_usd) * 100) : 0;
+}
+
+/** The first cap at or past the warning share, if any (F-18). */
+export function warningLine(lines: BudgetLine[] | undefined): BudgetLine | undefined {
+  return lines?.find((line) => line.cap_usd > 0 && usedPercent(line) >= WARN_PERCENT);
+}
+
+/** The local day, so the banner is shown once per day per cap. */
+export function localDay(now: Date = new Date()): string {
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 }
 
 // PRD-14 writes budget figures with two decimals ("Today $3.10 / $10.00").
@@ -41,8 +61,15 @@ export function todayText(line: Pick<BudgetLine, 'cap_usd' | 'spent_usd'>): stri
 // The budget meter in the top bar (F-PRV-04, F-17; D-67 places it there): today's
 // spend against the daily cap from /api/budget, refreshed whenever the shell's
 // event stream reports a change (refreshKey); hover shows the month.
-export function BudgetMeter({ refreshKey = 0 }: { refreshKey?: number }): React.ReactNode {
+export function BudgetMeter({
+  refreshKey = 0,
+  now = new Date(),
+}: {
+  refreshKey?: number;
+  now?: Date;
+}): React.ReactNode {
   const [lines, setLines] = useState<BudgetLine[]>();
+  const [bannerDay, setBannerDay] = useState<string>();
 
   useEffect(() => {
     let cancelled = false;
@@ -57,6 +84,21 @@ export function BudgetMeter({ refreshKey = 0 }: { refreshKey?: number }): React.
     };
   }, [refreshKey]);
 
+  // The 80 % warning (PRD-14:150, F-18): a sand banner, once a day, naming the
+  // cap, the share and both figures. The day it was last shown is remembered in
+  // this browser, so a reload does not repeat it.
+  const warning = warningLine(lines);
+  const day = localDay(now);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    setBannerDay(window.localStorage.getItem('kilnry.budget-warning-day') ?? undefined);
+  }, []);
+  const showBanner = Boolean(warning) && bannerDay !== day;
+  function dismissBanner(): void {
+    setBannerDay(day);
+    if (typeof window !== 'undefined') window.localStorage.setItem('kilnry.budget-warning-day', day);
+  }
+
   const daily = lines?.find((line) => line.scope === 'daily');
   const monthly = lines?.find((line) => line.scope === 'monthly');
   const title = monthly
@@ -66,7 +108,12 @@ export function BudgetMeter({ refreshKey = 0 }: { refreshKey?: number }): React.
     : undefined;
 
   return (
-    <div className="budget-meter" data-money="true" title={title}>
+    <div
+      className={`budget-meter${warning ? ' is-warning' : ''}`}
+      data-money="true"
+      data-warning={warning ? 'true' : 'false'}
+      title={title}
+    >
       {daily ? (
         <span className="budget-meter-label">
           {/* The rolled figure is decoration; the sentence beside it is what a
@@ -84,6 +131,18 @@ export function BudgetMeter({ refreshKey = 0 }: { refreshKey?: number }): React.
       <i>
         <b style={{ width: `${Math.round(meterRatio(daily) * 100)}%` }} />
       </i>
+      {showBanner && warning ? (
+        <p className="budget-warning" role="status" data-testid="budget-warning">
+          {message('shell.budgetWarning')
+            .replace('{percent}', String(usedPercent(warning)))
+            .replace('{label}', warning.label ?? warning.scope)
+            .replace('{spent}', money(warning.spent_usd))
+            .replace('{cap}', money(warning.cap_usd))}
+          <button type="button" className="budget-warning-dismiss" onClick={dismissBanner}>
+            {message('shell.budgetWarningDismiss')}
+          </button>
+        </p>
+      ) : null}
     </div>
   );
 }
