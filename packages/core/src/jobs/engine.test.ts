@@ -19,6 +19,7 @@ import {
   createDatabase,
   jobs,
   priceSnapshots,
+  settings,
   spendLedger,
 } from '@kilnry/db';
 import { readEmbeddedMetadata } from '@kilnry/media';
@@ -32,6 +33,7 @@ import { prepareLibraryRoot } from '../library/root.js';
 import { readSidecar } from '../library/sidecar.js';
 import { canonicalQueueName, JobEngine, type JobEngineOptions } from './engine.js';
 import { seedPinnedClock } from '../registry/seed/test-clock.js';
+import { PRICE_MAX_AGE_SETTING } from '../registry/price-age.js';
 
 const tinyPng = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
@@ -451,6 +453,55 @@ describe('pg-boss job engine', () => {
     ).rejects.toMatchObject({
       code: 'CONFIRMATION_REQUIRED',
       options: { details: { reason: 'stale_price' } },
+    });
+  });
+
+  // D-73a: the threshold is `settings.price_max_age_days` (PRD-14 §8: 30,
+  // default; adjustable), read on every estimate. It was a hard-coded 30 in the
+  // estimator and the enforcer, so the setting the PRD names could not be
+  // changed — and every acceptance shard priced the bundled seed against the
+  // real clock, so CI went red 30 days after `seeded_at` with no code change.
+  // Writes the stored threshold the way the settings route does.
+  async function putAge(state: Awaited<ReturnType<typeof harness>>['state'], days: number) {
+    await state.db
+      .insert(settings)
+      .values({ key: PRICE_MAX_AGE_SETTING, value: days })
+      .onConflictDoUpdate({ target: settings.key, set: { value: days, updatedAt: new Date() } });
+  }
+
+  it('reads the stored price_max_age_days on every estimate', async () => {
+    const late = await harness(fakeAdapter().adapter, true, { now: seedPinnedClock(31 * 86_400_000) });
+    // At the default 30 the 31-day-old seed is stale.
+    expect((await late.engine.estimate(imageRequest())).estimate.adjustments).toContain('stale_price');
+
+    // The harness's own setting — 3650 — makes it fresh again, and the job is
+    // accepted without an override.
+    await putAge(late.state, 3650);
+    const relaxed = await late.engine.estimate(imageRequest());
+    expect(relaxed.estimate.adjustments).not.toContain('stale_price');
+    const created = await late.engine.createJob({
+      request: imageRequest(),
+      confirmed_cost_usd: relaxed.estimate.estimate_usd,
+      confirmed_by: 'user',
+    });
+    expect(created.job_id).toBeTruthy();
+
+    // One day makes the pinned-clock seed stale even on the fresh harness, and
+    // the refusal sentence carries the figure the setting holds.
+    const early = await harness(fakeAdapter().adapter);
+    await putAge(early.state, 1);
+    const priced = await early.engine.estimate(imageRequest());
+    expect(priced.estimate.adjustments).toContain('stale_price');
+    await expect(
+      early.engine.createJob({
+        request: imageRequest(),
+        confirmed_cost_usd: priced.estimate.estimate_usd,
+        confirmed_by: 'user',
+      }),
+    ).rejects.toMatchObject({
+      code: 'CONFIRMATION_REQUIRED',
+      message: expect.stringContaining('older than 1 day'),
+      options: { details: { reason: 'stale_price', price_max_age_days: 1 } },
     });
   });
 

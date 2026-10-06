@@ -76,13 +76,19 @@ describe('costStripState', () => {
     expect(state.overBudget?.scope).toBe('daily');
   });
 
-  it('marks a price older than thirty days as stale but does not block', () => {
+  // D-73a: the engine judges the age against the stored
+  // settings.price_max_age_days and reports `stale_price`; the strip used to
+  // recompute it against a hard-coded 30, so with the setting at any other
+  // figure the user saw a fresh price and the server refused the submit.
+  it("marks the engine's stale_price adjustment as stale but does not block", () => {
     const state = costStripState({
       estimate: estimate({
+        adjustments: ['stale_price'],
         unit_price: {
           unit: 'second',
           amount_usd: 0.1,
-          fetched_at: '2026-07-01T00:00:00.000Z',
+          // Two days old: stale only because the stored threshold says so.
+          fetched_at: '2026-09-16T00:00:00.000Z',
           source_url: 'https://example.com/price',
         },
       }),
@@ -185,10 +191,11 @@ describe('CostStrip', () => {
     const overrides: number[] = [];
     const host = await render({
       estimate: estimate({
+        adjustments: ['stale_price'],
         unit_price: {
           unit: 'image',
           amount_usd: 0.04,
-          fetched_at: '2026-08-01T00:00:00.000Z',
+          fetched_at: '2026-09-16T00:00:00.000Z',
           source_url: 'https://example.com/price',
         },
       }),
@@ -200,7 +207,7 @@ describe('CostStrip', () => {
     });
     expect(host.querySelector('.cost-strip')?.getAttribute('data-status')).toBe('stale');
     expect(host.querySelector('[data-testid="cost-strip-stale"]')?.textContent).toBe(
-      'Price data for fal-ai/example is 49 days old.',
+      'Price data for fal-ai/example is 3 days old.',
     );
     await act(async () => host.querySelector<HTMLButtonElement>('.cost-strip-refresh')!.click());
     await act(async () => host.querySelector<HTMLButtonElement>('.cost-strip-use-stale')!.click());

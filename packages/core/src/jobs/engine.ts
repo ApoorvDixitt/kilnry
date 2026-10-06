@@ -30,6 +30,7 @@ import { redact, redactString } from '../security/redact.js';
 import { loadRegistry, providerRouteStates, seedRegistry } from '../registry/store.js';
 import { refreshProviderPrices } from '../providers/service.js';
 import { route, type RouteConstraints } from '../registry/router.js';
+import { priceMaxAgeDays } from '../registry/price-age.js';
 import { estimate as estimateRequest, withAuthoritativeEstimate } from '../registry/estimator.js';
 import type {
   AdapterContext,
@@ -429,12 +430,16 @@ export class JobEngine {
       // text2video the caller asked for.
       ...(mentionsPossible(request) ? { identity_mention: true } : {}),
     };
+    // D-73a: the staleness threshold is the stored setting, not a hard-coded 30,
+    // so Settings › Providers and the acceptance harness can both change it.
+    const maxAgeDays = await priceMaxAgeDays(this.#options.state);
     const selected = route(request, inferred, {
       models: registry.models,
       snapshots: registry.snapshots,
       providers: providersState,
       now: this.#options.now(),
       price_now: this.#options.now(),
+      price_max_age_days: maxAgeDays,
     });
     // One resolver for every surface (TRD-14 §1): @mentions become provider
     // inputs here, once, against the routed model. The resolver's own ladder
@@ -581,7 +586,7 @@ export class JobEngine {
     // The same refusal as every job-less paid path (D-71a, TRD-07 §6 rule 3):
     // CONFIRMATION_REQUIRED with reason stale_price, lifted only by this call's
     // allow_stale_price.
-    assertFreshPrice(prepared.estimate, input.allow_stale_price);
+    assertFreshPrice(prepared.estimate, input.allow_stale_price, await priceMaxAgeDays(this.#options.state));
     assertCostConfirmation(prepared.estimate, input.confirmed_cost_usd);
     const id = ulid();
     const row: typeof jobs.$inferInsert = {

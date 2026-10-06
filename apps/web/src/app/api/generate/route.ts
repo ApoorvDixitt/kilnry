@@ -28,7 +28,8 @@ export async function POST(request: Request): Promise<Response> {
         meta: { confirmed_cost_usd: input.confirmed_cost_usd ?? null },
       });
     }
-    // Overriding the 30-day price-staleness guard (F-PRV-07) is recorded too, so
+    // Overriding the price-staleness guard — settings.price_max_age_days, 30 by
+    // default (F-PRV-07, D-73a) — is recorded too, so
     // a spend priced on stale data is always traceable in the audit log.
     if (input.allow_stale_price) {
       const services = await runtimeServices();

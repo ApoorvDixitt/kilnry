@@ -257,6 +257,16 @@ test('@smoke @m3 S-01 AS-01 first run creates a protected local account and Libr
   await page.getByRole('button', { name: 'Test and save' }).click();
   const pollinationsCard = page.locator('.provider-card').filter({ hasText: 'Pollinations' });
   await expect(pollinationsCard).toContainText('Connected');
+  // D-73a: the harness's own price-age threshold. Every shard prices from the
+  // bundled registry seed against the server's real clock — the clock is never
+  // pinned in end-to-end, because a pinned now() would split the ledger's
+  // created_at from the cap windows — so 30 days after `seeded_at` every priced
+  // scenario would refuse with `stale_price` and CI would go red with no code
+  // change. The acceptance workspace treats prices as fresh for ten years; the
+  // stale path has its own scenario (S-m3 price-age), which sets it to 1.
+  await page.getByTestId('price-max-age').fill('3650');
+  await page.getByRole('button', { name: 'Save price age' }).click();
+  await expect(page.locator('.inline-feedback')).toContainText('3650');
   await openRouterCard.getByRole('button', { name: 'Remove' }).click();
   await expect(openRouterCard).toContainText('Not connected');
   await page.goto('/create');

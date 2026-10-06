@@ -13,6 +13,7 @@
 import type { DatabaseState } from '@kilnry/db';
 import { auditEvents } from '@kilnry/db';
 import { KilnryError } from '../errors.js';
+import { priceMaxAgeDays } from '../registry/price-age.js';
 import { ulid } from '../ids.js';
 import {
   assertCostConfirmation,
@@ -110,7 +111,7 @@ export async function priceClone(
     target_folder: 'inbox',
     source: 'ui',
   };
-  return priceEstimate({ model, snapshot, request, now });
+  return priceEstimate({ model, snapshot, request, now, price_max_age_days: await priceMaxAgeDays(db) });
 }
 
 export interface CloneInput {
@@ -200,7 +201,7 @@ export async function cloneVoice(services: CloneServices, input: CloneInput): Pr
   // concurrent clones against a cap with room for one admit exactly one. A free
   // clone (ElevenLabs instant voice cloning) still records one ledger row at $0.
   const cloneEstimate = await priceClone(services.db, input.provider, services.now?.() ?? new Date());
-  assertFreshPrice(cloneEstimate, input.allow_stale_price);
+  assertFreshPrice(cloneEstimate, input.allow_stale_price, await priceMaxAgeDays(services.db));
   assertCostConfirmation(cloneEstimate, input.confirmed_cost_usd);
   const chargedUsd = cloneEstimate.authoritative_usd ?? cloneEstimate.estimate_usd;
   // The ledger row is keyed by the voice's own id so a clone is charged at most

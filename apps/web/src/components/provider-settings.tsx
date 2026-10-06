@@ -96,6 +96,7 @@ export function ProviderSettings({
   const [restoreError, setRestoreError] = useState<string>();
   const [higgsfieldAccepted, setHiggsfieldAccepted] = useState(false);
   const [noticeExpanded, setNoticeExpanded] = useState(false);
+  const [priceMaxAge, setPriceMaxAge] = useState('30');
   // Once the training clause is acknowledged the full notice collapses to one line
   // with a Show link, and a later key for the same provider saves without re-ticking.
   const higgsfieldAcknowledgedAt = providers.find((item) => item.id === 'higgsfield')?.accepted_tos_at;
@@ -128,6 +129,22 @@ export function ProviderSettings({
     setProviders(
       body.providers.filter((item) => ['fal', 'openrouter', 'pollinations', 'higgsfield'].includes(item.id)),
     );
+  }, []);
+
+  // The stored staleness threshold (D-73a); 30 until the first read answers.
+  useEffect(() => {
+    let cancelled = false;
+    void fetch('/api/settings/providers')
+      .then((response) => (response.ok ? response.json() : undefined))
+      .then((body: { providers?: { price_max_age_days?: number } } | undefined) => {
+        if (!cancelled && typeof body?.providers?.price_max_age_days === 'number') {
+          setPriceMaxAge(String(body.providers.price_max_age_days));
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Check whether the master key is missing from this machine's keychain. When
@@ -239,6 +256,32 @@ export function ProviderSettings({
     try {
       await responseJson(await apiFetch(`/api/providers/${id}/key`, { method: 'DELETE' }));
       setNotice(message('settings.providers.removed'));
+      await load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : message('settings.providers.requestFailed'));
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function savePriceMaxAge(): Promise<void> {
+    setError(undefined);
+    setPending(true);
+    try {
+      const body = await responseJson<{ providers: { price_max_age_days: number } }>(
+        await apiFetch('/api/settings/providers', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ price_max_age_days: Number(priceMaxAge) }),
+        }),
+      );
+      setPriceMaxAge(String(body.providers.price_max_age_days));
+      setNotice(
+        message('settings.providers.priceMaxAgeSaved').replace(
+          '{days}',
+          String(body.providers.price_max_age_days),
+        ),
+      );
       await load();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : message('settings.providers.requestFailed'));
@@ -458,6 +501,25 @@ export function ProviderSettings({
           </motion.section>
         ) : null}
       </AnimatePresence>
+      {/* The workspace-wide staleness threshold PRD-14 §8 names (D-73a). It sits
+          with the per-provider price-age lines because it is what makes them
+          amber. */}
+      <label className="provider-price-age">
+        <span>{message('settings.providers.priceMaxAge').replace('{days}', '')}</span>
+        <input
+          type="number"
+          min={1}
+          max={3650}
+          step={1}
+          aria-label={message('settings.providers.priceMaxAge').replace('{days}', 'N')}
+          data-testid="price-max-age"
+          value={priceMaxAge}
+          onChange={(event) => setPriceMaxAge(event.target.value)}
+        />
+        <button type="button" disabled={pending} onClick={() => void savePriceMaxAge()}>
+          {message('settings.providers.priceMaxAgeSave')}
+        </button>
+      </label>
       <div className="provider-grid">
         {providers.map((item) => (
           <section className="provider-card" key={item.id}>

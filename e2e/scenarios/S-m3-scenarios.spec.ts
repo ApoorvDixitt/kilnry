@@ -221,6 +221,57 @@ test('@m3 S-08 budget cap with Ask, then Allow this once', async ({ page }) => {
   await setDailyCap(page, null, 'block');
 });
 
+// D-73a: the stale-price path, proved by the setting rather than by a pinned
+// clock. `settings.price_max_age_days` is the threshold PRD-14 §8 names; the
+// acceptance workspace keeps it at 3650 (AS-01), and this scenario drops it to 1
+// so the bundled seed reads stale, then puts it back.
+async function setPriceMaxAge(page: Page, days: number): Promise<void> {
+  const token = await csrf(page);
+  const status = await page.evaluate(
+    async ({ token, days }) =>
+      (
+        await fetch('/api/settings/providers', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', 'X-Kilnry-CSRF': token },
+          body: JSON.stringify({ price_max_age_days: days }),
+        })
+      ).status,
+    { token, days },
+  );
+  expect(status).toBe(200);
+}
+
+test('@m3 S-26 a stale price says so, refreshes, or is used once on purpose', async ({ page }) => {
+  await ensureProvider(page, 'openrouter', OPENROUTER_KEY);
+  await ensureSignedIn(page, '/create');
+  await setPriceMaxAge(page, 1);
+  try {
+    await page.goto('/create');
+    await pickModel(page, /Auto/);
+    await page
+      .getByRole('textbox', { name: 'Describe what you want to make…' })
+      .fill('a brass compass on a paper map');
+    await expect(page.locator('.cost-strip')).toHaveAttribute('data-status', 'stale', {
+      timeout: 15_000,
+    });
+    // PRD-14 §8 as amended: the model, the age, and both actions.
+    await expect(page.getByTestId('cost-strip-stale')).toContainText(/is \d+ days old/);
+    await expect(page.getByRole('button', { name: 'Refresh prices to continue' })).toBeVisible();
+    const before = inboxFiles('.png').length;
+    // The per-action acknowledgement submits this one estimate.
+    await page.getByRole('button', { name: 'Use this price anyway' }).click();
+    await expect(page.getByText(/^Saved · \$/)).toBeVisible({ timeout: 25_000 });
+    await expect.poll(() => inboxFiles('.png').length, { timeout: 10_000 }).toBeGreaterThan(before);
+    // D-71a: the override is audited on the path that took it.
+    await page.goto('/settings/security');
+    await expect(page.locator('.audit-table [data-action="price.stale_override"]').first()).toBeVisible({
+      timeout: 15_000,
+    });
+  } finally {
+    await setPriceMaxAge(page, 3650);
+  }
+});
+
 test('@m3 S-09 moderation rejection is free and recoverable', async ({ page }) => {
   await ensureOnlyProvider(page, 'fal', FAL_KEY);
   await ensureSignedIn(page, '/create');

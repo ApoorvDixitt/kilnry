@@ -3113,6 +3113,24 @@ kbd {
   margin-top: 22px;
 }
 
+/* The workspace-wide price-age threshold (PRD-14 §8, D-73a). */
+.provider-price-age {
+  align-items: center;
+  display: flex;
+  font-size: 13px;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.provider-price-age input {
+  background: var(--background);
+  border: 1px solid var(--border-control);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 5px 7px;
+  width: 86px;
+}
+
 .provider-card {
   border: 1px solid var(--border);
   border-radius: 10px;

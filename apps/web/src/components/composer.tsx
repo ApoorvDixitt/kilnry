@@ -129,6 +129,7 @@ export function Composer({
   estimate = null,
   now = Date.now(),
   onGenerate,
+  onRefreshPrices,
   onStateChange,
   seed,
   initialMode,
@@ -145,8 +146,12 @@ export function Composer({
     model: string;
     params: ComposerParams;
     override_budget?: boolean;
+    /** The user acknowledged this one stale estimate (PRD-14 §8, D-71a). */
+    allow_stale_price?: boolean;
     batch_text?: string;
   }) => void;
+  /** Refresh the routed provider's prices, the first PRD-14 §8 action. */
+  onRefreshPrices?: (() => void) | undefined;
   onStateChange?: (state: {
     mode: ComposerMode;
     prompt: string;
@@ -167,7 +172,7 @@ export function Composer({
   const [selectedModel, setSelectedModel] = useState<string | 'auto'>('auto');
   const [params, setParams] = useState<ComposerParams>({ count: 1 });
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [likenessConfirm, setLikenessConfirm] = useState<{ override: boolean }>();
+  const [likenessConfirm, setLikenessConfirm] = useState<{ override: boolean; allowStale: boolean }>();
   const [budgetAskDismissed, setBudgetAskDismissed] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -381,7 +386,7 @@ export function Composer({
       ? message('create.picker.auto')
       : (available.find((m) => m.model_id === selectedModel)?.display_name ?? selectedModel);
 
-  function submit(override = false): void {
+  function submit(override = false, allowStale = false): void {
     if (state.disabled) return;
     // Generate closes the picker: nothing should run behind an open panel
     // (UX-05).
@@ -392,19 +397,20 @@ export function Composer({
       model: selectedModel,
       params,
       override_budget: override,
+      ...(allowStale ? { allow_stale_price: true } : {}),
       ...(batch ? { batch_text: batchText } : {}),
     });
   }
 
   // A real person's likeness never leaves for a training-on-inputs provider
   // without one explicit confirmation (F-CHR-06 with F-PRV-06).
-  function fire(override = false): void {
+  function fire(override = false, allowStale = false): void {
     if (state.disabled) return;
     if (likenessHandles.length > 0) {
-      setLikenessConfirm({ override });
+      setLikenessConfirm({ override, allowStale });
       return;
     }
-    submit(override);
+    submit(override, allowStale);
   }
 
   const batchParse = batch ? parseBatch(batchText) : null;
@@ -556,6 +562,8 @@ export function Composer({
           budgets={budgets}
           now={now}
           promptEmpty={prompt.trim().length === 0}
+          {...(onRefreshPrices ? { onRefreshPrices } : {})}
+          onUseStalePrice={() => fire(false, true)}
         />
         {overBudgetAsks && overBudgetLine && !budgetAskDismissed ? (
           <div className="budget-approval" role="alertdialog" aria-label={message('create.budgetAsk.title')}>
@@ -597,9 +605,9 @@ export function Composer({
                 type="button"
                 className="likeness-confirm-continue"
                 onClick={() => {
-                  const override = likenessConfirm.override;
+                  const { override, allowStale } = likenessConfirm;
                   setLikenessConfirm(undefined);
-                  submit(override);
+                  submit(override, allowStale);
                 }}
               >
                 {message('create.likeness.continue')}

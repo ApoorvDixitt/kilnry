@@ -17,6 +17,7 @@ import { probeMedia } from '@kilnry/media';
 import { auditEvents } from '@kilnry/db';
 import { confirmationDecision } from '../budget/confirmation.js';
 import { assertFreshPrice, holdSpend, releaseHold, settleHold, type SpendHold } from '../budget/enforcer.js';
+import { priceMaxAgeDays } from '../registry/price-age.js';
 import {
   ANALYZE_TASKS,
   DEFAULT_ANALYZE_MODEL,
@@ -492,7 +493,11 @@ export const analyzeTool: KilnryTool = {
     const requiredUsd = prepared.estimate.authoritative_usd ?? estimateUsd;
     // A stale price is refused before any confirmation or hold (F-21).
     try {
-      assertFreshPrice(prepared.estimate, input.allow_stale_price === true);
+      assertFreshPrice(
+        prepared.estimate,
+        input.allow_stale_price === true,
+        await priceMaxAgeDays(services.db),
+      );
     } catch (error) {
       return toolError(
         'CONFIRMATION_REQUIRED',

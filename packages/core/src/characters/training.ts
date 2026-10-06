@@ -25,6 +25,7 @@ import {
 } from '@kilnry/db';
 import type { AdapterContext, ProviderAdapter, SubmitHandle } from '../providers/adapter.js';
 import { KilnryError } from '../errors.js';
+import { priceMaxAgeDays } from '../registry/price-age.js';
 import { ulid } from '../ids.js';
 import {
   assertCostConfirmation,
@@ -127,7 +128,14 @@ export async function priceTraining(
     target_folder: 'inbox',
     source: 'ui',
   };
-  return priceEstimate({ model, snapshot, request, steps, now });
+  return priceEstimate({
+    model,
+    snapshot,
+    request,
+    steps,
+    now,
+    price_max_age_days: await priceMaxAgeDays(db),
+  });
 }
 
 // The trigger word a LoRA is trained with (PRD-07 §8): the handle stripped to
@@ -253,7 +261,7 @@ export async function startTraining(
     steps,
     services.now?.() ?? new Date(),
   );
-  assertFreshPrice(trainingEstimate, input.allow_stale_price);
+  assertFreshPrice(trainingEstimate, input.allow_stale_price, await priceMaxAgeDays(services.db));
   assertCostConfirmation(trainingEstimate, input.confirmed_cost_usd);
   const chargedUsd = trainingEstimate.authoritative_usd ?? trainingEstimate.estimate_usd;
 

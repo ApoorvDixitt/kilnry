@@ -13,6 +13,7 @@
 import type { DatabaseState } from '@kilnry/db';
 import { auditEvents } from '@kilnry/db';
 import { KilnryError } from '../errors.js';
+import { priceMaxAgeDays } from '../registry/price-age.js';
 import { ulid } from '../ids.js';
 import {
   assertCostConfirmation,
@@ -80,7 +81,7 @@ export async function priceDesign(
     target_folder: 'inbox',
     source: 'ui',
   };
-  return priceEstimate({ model, snapshot, request, now });
+  return priceEstimate({ model, snapshot, request, now, price_max_age_days: await priceMaxAgeDays(db) });
 }
 
 export interface DesignInput {
@@ -149,7 +150,7 @@ export async function designVoice(services: DesignServices, input: DesignInput):
   // one locked transaction, keyed by the voice's own id so a design is charged at
   // most once.
   const designEstimate = await priceDesign(services.db, input.provider, services.now?.() ?? new Date());
-  assertFreshPrice(designEstimate, input.allow_stale_price);
+  assertFreshPrice(designEstimate, input.allow_stale_price, await priceMaxAgeDays(services.db));
   assertCostConfirmation(designEstimate, input.confirmed_cost_usd);
   const chargedUsd = designEstimate.authoritative_usd ?? designEstimate.estimate_usd;
   const voiceUlid = ulid();

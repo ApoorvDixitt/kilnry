@@ -233,7 +233,40 @@ export function CreateComposer({
     }
   }
 
-  async function generate(overrideBudget = false): Promise<void> {
+  // The first PRD-14 §8 action on a stale price: refresh the routed provider's
+  // prices and re-price, so "Refresh prices to continue" continues (D-73a).
+  async function refreshPrices(): Promise<void> {
+    const provider = estimate?.route.provider;
+    if (!provider) return;
+    try {
+      await apiFetch('/api/models/refresh', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider }),
+      });
+    } catch {
+      // The strip keeps the stale state; the refusal still explains itself.
+    }
+    // Re-price the request that is on screen, so the strip answers from the
+    // refreshed snapshot.
+    const payload = lastState.current;
+    if (!payload) return;
+    try {
+      setEstimate(
+        await json<ApiEstimate>(
+          await apiFetch('/api/estimate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          }),
+        ),
+      );
+    } catch {
+      setEstimate(null);
+    }
+  }
+
+  async function generate(overrideBudget = false, allowStalePrice = false): Promise<void> {
     const payload = lastState.current;
     const priced = estimate;
     if (!payload || !priced) return;
@@ -261,6 +294,7 @@ export function CreateComposer({
             confirmed_cost_usd: priced.authoritative_usd ?? priced.estimate_usd,
             client_request_id: crypto.randomUUID(),
             ...(overrideBudget ? { override_budget: true } : {}),
+            ...(allowStalePrice ? { allow_stale_price: true } : {}),
           }),
         }),
       );
@@ -476,8 +510,9 @@ export function CreateComposer({
         onStateChange={onStateChange}
         onGenerate={(payload) => {
           if (payload.batch_text) void generateBatch(payload.batch_text, payload.model);
-          else void generate(payload.override_budget);
+          else void generate(payload.override_budget, payload.allow_stale_price);
         }}
+        onRefreshPrices={() => void refreshPrices()}
         seed={seed}
         {...(prefillMode ? { initialMode: prefillMode } : {})}
         {...(edit ? { edit } : {})}

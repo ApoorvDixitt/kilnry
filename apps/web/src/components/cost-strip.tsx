@@ -56,8 +56,6 @@ export function capReset(line: BudgetLine): string {
   }
 }
 
-const STALE_PRICE_DAYS = 30;
-
 export function formatUsd(amount: number): string {
   const digits = amount < 0.01 ? 4 : amount < 1 ? 3 : 2;
   return `$${amount.toFixed(digits)}`;
@@ -120,10 +118,10 @@ export function outputSize(
 export function costStripState({
   estimate,
   budgets = [],
-  now = Date.now(),
 }: {
   estimate: CostEstimate | null;
   budgets?: BudgetLine[];
+  /** Accepted by the callers; the staleness verdict no longer depends on it. */
   now?: number;
 }): {
   status: 'unpriced' | 'over-budget' | 'stale' | 'ok';
@@ -141,7 +139,11 @@ export function costStripState({
   if (overBudget) {
     return { status: 'over-budget', blocked: true, amount, authoritative, overBudget };
   }
-  const stale = priceAgeDays(estimate.unit_price.fetched_at, now) > STALE_PRICE_DAYS;
+  // The engine decides staleness against the stored settings.price_max_age_days
+  // (PRD-14 §8, D-73a) and says so in the estimate's adjustments. The strip had
+  // its own hard-coded 30, so with the setting at anything else the user saw a
+  // fresh price and the server refused the submit.
+  const stale = Array.isArray(estimate.adjustments) && estimate.adjustments.includes('stale_price');
   return { status: stale ? 'stale' : 'ok', blocked: false, amount, authoritative, overBudget: null };
 }
 

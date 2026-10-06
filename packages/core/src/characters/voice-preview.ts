@@ -13,6 +13,7 @@
 import { and, eq } from 'drizzle-orm';
 import { auditEvents, characterVoices, voices, type DatabaseState } from '@kilnry/db';
 import { KilnryError } from '../errors.js';
+import { priceMaxAgeDays } from '../registry/price-age.js';
 import { ulid } from '../ids.js';
 import {
   assertCostConfirmation,
@@ -66,7 +67,14 @@ export async function pricePreview(
     target_folder: 'inbox',
     source: 'ui',
   };
-  return priceEstimate({ model, snapshot, request, text_chars: text.length, now });
+  return priceEstimate({
+    model,
+    snapshot,
+    request,
+    text_chars: text.length,
+    now,
+    price_max_age_days: await priceMaxAgeDays(db),
+  });
 }
 
 export interface PreviewServices {
@@ -90,7 +98,7 @@ export async function previewVoice(
   const now = services.now ?? (() => new Date());
   const text = input.text && input.text.trim() !== '' ? input.text : PREVIEW_SAMPLE;
   const estimate = await pricePreview(services.db, input.provider, text, services.now?.() ?? new Date());
-  assertFreshPrice(estimate, input.allow_stale_price);
+  assertFreshPrice(estimate, input.allow_stale_price, await priceMaxAgeDays(services.db));
   assertCostConfirmation(estimate, estimate.estimate_usd);
   // Hold the estimate before the synthesis call (F-01, D-60): the cap check and
   // a pending ledger row are one locked transaction, so two concurrent previews

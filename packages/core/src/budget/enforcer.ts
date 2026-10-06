@@ -9,6 +9,7 @@ import type { DatabaseState } from '@kilnry/db';
 import { budgets, jobs, providers, spendLedger } from '@kilnry/db';
 import { KilnryError } from '../errors.js';
 import type { Estimate, ProviderId } from '../types.js';
+import { PRICE_MAX_AGE_DAYS_DEFAULT } from '../registry/price-age.js';
 
 function number(value: string | number | null | undefined): number {
   if (value === null || value === undefined) return 0;
@@ -32,21 +33,26 @@ export function assertCostConfirmation(estimate: Estimate, confirmedCostUsd: num
 }
 
 /**
- * Refuse a spend priced from a snapshot older than price_max_age_days (30)
+ * Refuse a spend priced from a snapshot older than the stored
+ * price_max_age_days (30, default; adjustable — D-73a)
  * unless the caller explicitly allows the stale estimate (PRD-14 §8 "Stale
  * prices cannot be used without the override"; TRD-07 §6.3: CONFIRMATION_REQUIRED
  * with reason stale_price). The job engine applies the same rule in createJob;
  * this is the check for the paid paths that do not go through a job (F-21).
  */
-export function assertFreshPrice(estimate: Estimate, allowStale: boolean | undefined): void {
+export function assertFreshPrice(
+  estimate: Estimate,
+  allowStale: boolean | undefined,
+  maxAgeDays: number = PRICE_MAX_AGE_DAYS_DEFAULT,
+): void {
   // An injected engine (the analyze tool's) may hand back an estimate without
   // adjustments; only a named stale_price refuses.
   const stale = Array.isArray(estimate.adjustments) && estimate.adjustments.includes('stale_price');
   if (allowStale === true || !stale) return;
   throw new KilnryError(
     'CONFIRMATION_REQUIRED',
-    'This price snapshot is older than 30 days. Refresh provider prices before paying for this, or explicitly allow the stale estimate.',
-    { details: { reason: 'stale_price', stale_price: true, estimate } },
+    `This price snapshot is older than ${maxAgeDays} ${maxAgeDays === 1 ? 'day' : 'days'}. Refresh provider prices before paying for this, or explicitly allow the stale estimate.`,
+    { details: { reason: 'stale_price', stale_price: true, price_max_age_days: maxAgeDays, estimate } },
   );
 }
 

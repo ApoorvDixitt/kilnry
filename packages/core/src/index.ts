@@ -71,6 +71,7 @@ export * from './providers/adapter.js';
 export * from './providers/service.js';
 export * from './registry/estimator.js';
 export * from './registry/manifest.js';
+export * from './registry/price-age.js';
 export * from './registry/router.js';
 export * from './registry/seed/index.js';
 export * from './registry/store.js';
