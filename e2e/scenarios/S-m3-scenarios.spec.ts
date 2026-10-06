@@ -286,6 +286,12 @@ test('@m3 S-09 moderation rejection is free and recoverable', async ({ page }) =
   const moderated = page.locator('.moderated-tile');
   await expect(moderated).toBeVisible({ timeout: 20_000 });
   await expect(moderated).toContainText('Not charged');
+  // F-110: "Try another model" opens the picker filtered to looser moderation,
+  // rather than re-seeding the prompt the way Edit prompt does (PRD-05:371).
+  await moderated.getByRole('button', { name: 'Try another model' }).click();
+  await expect(page.locator('.model-picker')).toBeVisible({ timeout: 10_000 });
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.model-picker')).toHaveCount(0);
   // Recovery is offered on the same tile: Edit prompt restores the text.
   await moderated.getByRole('button', { name: 'Edit prompt' }).click();
   await expect(page.getByRole('textbox', { name: 'Describe what you want to make…' })).toHaveValue(/TRIGGER/);

@@ -138,6 +138,36 @@ function toRow(model: PickerModel, now: number): ModelRow | null {
   };
 }
 
+/**
+ * How strict a model's moderation is, read from the refusal behaviour the
+ * registry already records (PRD-05:371 "models with a moderation behaviour
+ * tagged less strict in the registry"). There is no strictness field to read, so
+ * the band is derived from the shape of the refusal each provider documents:
+ * a prompt-level HTTP refusal before any work (OpenAI's 400 moderation_blocked,
+ * Google's filtered count) is the strictest; a 422 content-policy refusal at
+ * submit is the middle; a model that refuses nothing up front and only labels
+ * the output (`http: null`, shape `nsfw`) is the loosest (F-110).
+ */
+export function moderationStrictness(model: {
+  moderation?: { http: number | null; shape: string };
+}): 'strict' | 'standard' | 'permissive' {
+  const http = model.moderation?.http ?? null;
+  if (http === null) return 'permissive';
+  if (http === 400 || http === 200) return 'strict';
+  return 'standard';
+}
+
+const STRICTNESS_ORDER = { strict: 2, standard: 1, permissive: 0 } as const;
+
+/** The models whose moderation is looser than the one that just refused. */
+export function looserThan(models: PickerModel[], modelId: string): PickerModel[] {
+  const refused = models.find((model) => model.model_id === modelId);
+  const bar = STRICTNESS_ORDER[moderationStrictness(refused ?? {})];
+  return models.filter(
+    (model) => model.model_id !== modelId && STRICTNESS_ORDER[moderationStrictness(model)] < bar,
+  );
+}
+
 export function ModelPicker({
   mode,
   models,
@@ -145,6 +175,7 @@ export function ModelPicker({
   autoWhy,
   onSelect,
   now = Date.now(),
+  moderationLooserThan,
 }: {
   mode: ComposerMode;
   models: PickerModel[];
@@ -152,15 +183,21 @@ export function ModelPicker({
   autoWhy: string;
   onSelect: (modelId: string | 'auto') => void;
   now?: number;
+  /**
+   * Opened from a moderated tile's "Try another model": only models with looser
+   * moderation than the one that refused are listed (PRD-05:371, F-110).
+   */
+  moderationLooserThan?: string | undefined;
 }): React.ReactNode {
   const [query, setQuery] = useState('');
 
   const forMode = useMemo(() => {
     const capabilities = new Set(MODE_CAPABILITIES[mode]);
-    return models
+    const pool = moderationLooserThan ? looserThan(models, moderationLooserThan) : models;
+    return pool
       .filter(isOfferable)
       .filter((model) => model.capabilities.some((capability) => capabilities.has(capability)));
-  }, [mode, models]);
+  }, [mode, models, moderationLooserThan]);
 
   const searched = useMemo(() => {
     const needle = query.trim().toLowerCase();

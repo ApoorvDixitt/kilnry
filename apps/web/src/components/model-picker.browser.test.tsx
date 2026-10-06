@@ -6,7 +6,15 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it } from 'vitest';
-import { ModelPicker, formatPrice, isOfferable, priceAgeDays, type PickerModel } from './model-picker';
+import {
+  ModelPicker,
+  formatPrice,
+  isOfferable,
+  priceAgeDays,
+  type PickerModel,
+  looserThan,
+  moderationStrictness,
+} from './model-picker';
 import { makeModel } from '../test/composer-fixtures';
 
 let root: Root | undefined;
@@ -256,5 +264,54 @@ describe('ModelPicker', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]?.textContent).toContain('Nano Banana 2');
     expect(rows[0]?.textContent).toContain('$0.067/img');
+  });
+
+  // F-110: "Try another model" on a moderated tile re-seeded the prompt, exactly
+  // like "Edit prompt". PRD-05:371 says it lists only models whose moderation
+  // behaviour is less strict than the one that refused.
+  it('lists only looser-moderation models when opened from a moderated tile', async () => {
+    const models = [
+      makeModel({
+        model_id: 'openai/gpt-image-2.5',
+        display_name: 'GPT Image 2.5',
+        provider: 'openai',
+        moderation: { http: 400, shape: 'moderation_blocked', billed: 'no' },
+      }),
+      makeModel({
+        model_id: 'fal-ai/flux-2/klein',
+        display_name: 'FLUX.2 klein',
+        moderation: { http: 422, shape: 'content_policy_violation', billed: 'maybe' },
+      }),
+      makeModel({
+        model_id: 'higgsfield/soul-2',
+        display_name: 'Soul 2',
+        provider: 'higgsfield',
+        moderation: { http: null, shape: 'nsfw', billed: 'no' },
+      }),
+    ];
+    expect(moderationStrictness(models[0]!)).toBe('strict');
+    expect(moderationStrictness(models[1]!)).toBe('standard');
+    expect(moderationStrictness(models[2]!)).toBe('permissive');
+    expect(looserThan(models, 'openai/gpt-image-2.5').map((model) => model.model_id)).toEqual([
+      'fal-ai/flux-2/klein',
+      'higgsfield/soul-2',
+    ]);
+    // The loosest model has nothing looser to offer.
+    expect(looserThan(models, 'higgsfield/soul-2')).toEqual([]);
+
+    const host = await render({
+      mode: 'image',
+      models,
+      selectedId: 'auto',
+      autoWhy: 'Auto',
+      onSelect: () => {},
+      moderationLooserThan: 'openai/gpt-image-2.5',
+    });
+    const rows = [...host.querySelectorAll('.model-row:not(.model-row-auto)')]
+      .map((row) => row.textContent ?? '')
+      .join(' | ');
+    expect(rows).toContain('FLUX.2 klein');
+    expect(rows).toContain('Soul 2');
+    expect(rows).not.toContain('GPT Image 2.5');
   });
 });

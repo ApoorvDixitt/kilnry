@@ -132,6 +132,7 @@ export function Composer({
   onRefreshPrices,
   onStateChange,
   seed,
+  pickerSeed,
   initialMode,
   edit,
   onExitEdit,
@@ -160,6 +161,11 @@ export function Composer({
     ready: boolean;
   }) => void;
   seed?: { token: number; prompt: string } | undefined;
+  /**
+   * "Try another model" on a moderated tile: open the picker showing only the
+   * models whose moderation is looser than the one that refused (F-110).
+   */
+  pickerSeed?: { token: number; looserThan: string } | undefined;
   /** The mode the composer opens in; Create's default is Image. */
   initialMode?: ComposerMode | undefined;
   edit?: EditSource | undefined;
@@ -172,6 +178,9 @@ export function Composer({
   const [selectedModel, setSelectedModel] = useState<string | 'auto'>('auto');
   const [params, setParams] = useState<ComposerParams>({ count: 1 });
   const [pickerOpen, setPickerOpen] = useState(false);
+  // Which model's moderation the picker is filtering against, set by the
+  // moderated tile's "Try another model" (F-110).
+  const [looserFilter, setLooserFilter] = useState<string>();
   const [likenessConfirm, setLikenessConfirm] = useState<{ override: boolean; allowStale: boolean }>();
   const [budgetAskDismissed, setBudgetAskDismissed] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -244,6 +253,17 @@ export function Composer({
       setPrompt(seed.prompt);
     }
   }, [seed]);
+
+  // "Try another model" opens the picker filtered to looser moderation; it used
+  // to re-seed the prompt, which is what "Edit prompt" already does (F-110).
+  const appliedPickerSeed = useRef(0);
+  useEffect(() => {
+    if (pickerSeed && pickerSeed.token !== appliedPickerSeed.current) {
+      appliedPickerSeed.current = pickerSeed.token;
+      setLooserFilter(pickerSeed.looserThan);
+      setPickerOpen(true);
+    }
+  }, [pickerSeed]);
 
   // Entering edit mode from a Library asset switches the composer to the source's
   // kind (F-CRE-10 AC 1) and turns batch off — an edit refines one source.
@@ -545,9 +565,11 @@ export function Composer({
                 selectedId={selectedModel}
                 autoWhy={autoSubtitle}
                 now={now}
+                {...(looserFilter ? { moderationLooserThan: looserFilter } : {})}
                 onSelect={(id) => {
                   setSelectedModel(id);
                   setPickerOpen(false);
+                  setLooserFilter(undefined);
                 }}
               />
             </div>

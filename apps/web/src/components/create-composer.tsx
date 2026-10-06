@@ -29,6 +29,8 @@ interface ResultTile {
   status: string;
   stepLabel: string;
   provider: string;
+  /** The routed model, so "Try another model" can filter against it (F-110). */
+  model?: string | undefined;
   prompt: string;
   assetId?: string | undefined;
   actualUsd?: string | null | undefined;
@@ -91,6 +93,7 @@ export function CreateComposer({
   const [loadError, setLoadError] = useState<string>();
   const [capabilities, setCapabilities] = useState<TileCapabilities>({ reveal: false });
   const [budgets, setBudgets] = useState<BudgetLine[]>([]);
+  const [pickerSeed, setPickerSeed] = useState<{ token: number; looserThan: string }>();
   const [seed, setSeed] = useState<{ token: number; prompt: string } | undefined>(
     prefillPrompt ? { token: 0, prompt: prefillPrompt } : undefined,
   );
@@ -281,6 +284,7 @@ export function CreateComposer({
         status: 'queued',
         stepLabel: stepFor('queued', provider),
         provider,
+        model: priced.route.model,
         prompt: lastPrompt.current,
       },
       ...prior,
@@ -434,7 +438,7 @@ export function CreateComposer({
                         computeUsd: tile.actualUsd ? Number(tile.actualUsd) : 0,
                       }}
                       onEditPrompt={() => setSeed({ token: Date.now(), prompt: tile.prompt })}
-                      onTryAnother={() => setSeed({ token: Date.now(), prompt: tile.prompt })}
+                      onTryAnother={() => setPickerSeed({ token: Date.now(), looserThan: tile.model ?? '' })}
                       onDismiss={() => setTiles((prior) => prior.filter((t) => t.id !== tile.id))}
                     />
                   ) : tile.error ? (
@@ -521,6 +525,7 @@ export function CreateComposer({
         }}
         onRefreshPrices={() => void refreshPrices()}
         seed={seed}
+        {...(pickerSeed ? { pickerSeed } : {})}
         {...(prefillMode ? { initialMode: prefillMode } : {})}
         {...(edit ? { edit } : {})}
         onExitEdit={() => {
