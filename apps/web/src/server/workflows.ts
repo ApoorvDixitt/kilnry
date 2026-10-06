@@ -73,6 +73,7 @@ import {
   type PlanContext,
   type RunState,
   type RunStep,
+  type SwapApproval,
   type Scope,
   type Step,
   type StepResult,
@@ -958,6 +959,7 @@ async function rebuildRunState(
     if (row.inputs) node.inputs = row.inputs;
     if (row.actualUsd) node.actual_usd = Number(row.actualUsd);
     if (Array.isArray(row.adjustments)) node.adjustments = row.adjustments as string[];
+    if (row.pendingSwap) node.pending_swap = row.pendingSwap as unknown as SwapApproval;
     node.attempts = row.attempts ?? 0;
     // A decided checkpoint carries its approval time. For a step that only had an
     // approval gate in front of its own work, that is what tells the run loop the
@@ -1433,6 +1435,22 @@ export function runEffects(db: DatabaseState, engine: JobEngine, run: RunContext
     },
     persist: async (state: RunState): Promise<void> => {
       for (const node of state.steps) await upsertStep(db, run.runId, node, node.status);
+    },
+    // D-61: a model swap is priced against the figure the approved plan gave the
+    // step; more than 10 % over it pauses the run for the owner.
+    planned: (node: RunStep) => {
+      const planStep = run.plan.steps.find((step) => step.step_id === node.step_id);
+      if (!planStep || typeof planStep.estimate_usd !== 'number') return undefined;
+      return { step_usd: planStep.estimate_usd, run_total_usd: run.plan.total_estimate_usd };
+    },
+    estimate: async (_node: RunStep, rendered: Step, scope: Scope): Promise<number | undefined> => {
+      try {
+        const canonical = canonicalRequestForStep(rendered, scope);
+        const prepared = await engine.estimate(canonical.request, canonical.constraints);
+        return prepared.estimate.authoritative_usd ?? prepared.estimate.estimate_usd;
+      } catch {
+        return undefined;
+      }
     },
     runStep: async (
       node: RunStep,
@@ -1999,6 +2017,7 @@ async function upsertStep(db: DatabaseState, runId: string, node: RunStep, statu
     actualUsd: node.actual_usd.toFixed(6),
     outputs: node.outputs,
     adjustments: node.adjustments,
+    pendingSwap: (node.pending_swap ?? null) as Record<string, unknown> | null,
     ...(node.model === undefined ? {} : { modelId: node.model }),
     ...(node.provider === undefined ? {} : { provider: node.provider }),
     ...(node.job_id === undefined ? {} : { jobId: node.job_id }),
@@ -2135,6 +2154,7 @@ export async function getRun(
     outputs: { assets: string[] } | null;
     logs: string | null;
     unit_price: Record<string, unknown> | null;
+    pending_swap: SwapApproval | null;
   }>;
 }> {
   const [run] = await db.db.select().from(runs).where(eq(runs.id, runId)).limit(1);
@@ -2181,6 +2201,7 @@ export async function getRun(
           string,
           unknown
         > | null,
+        pending_swap: (step.pendingSwap as unknown as SwapApproval | null) ?? null,
       })),
   };
 }

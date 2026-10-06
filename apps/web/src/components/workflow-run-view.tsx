@@ -418,6 +418,15 @@ export function ApprovalCard({
         {message('workflows.approval.title')}
         {waiting ? ` · ${waiting.name}` : ''}
       </h2>
+      {waiting?.pending_swap ? (
+        <p className="approval-card-swap" data-testid="approval-swap">
+          {message('workflows.approval.swap')
+            .replace('{to}', waiting.pending_swap.to)
+            .replace('{planned}', `$${waiting.pending_swap.planned_usd.toFixed(2)}`)
+            .replace('{estimate}', `$${waiting.pending_swap.estimate_usd.toFixed(2)}`)
+            .replace('{total}', `$${waiting.pending_swap.run_total_usd.toFixed(2)}`)}
+        </p>
+      ) : null}
       {waitingAssets.length > 0 ? (
         <ul className="approval-card-outputs" aria-label={message('workflows.approval.outputs')}>
           {waitingAssets.map((assetId) => (

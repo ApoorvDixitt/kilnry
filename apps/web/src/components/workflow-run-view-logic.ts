@@ -23,6 +23,15 @@ export interface RunStepView {
   outputs?: { assets: string[] } | null;
   logs?: string | null;
   unit_price?: Record<string, unknown> | null;
+  // A model swap waiting for approval because it raises the step's price
+  // more than 10 % over the plan (D-61).
+  pending_swap?: {
+    from?: string;
+    to: string;
+    planned_usd: number;
+    estimate_usd: number;
+    run_total_usd: number;
+  } | null;
 }
 
 export interface RunView {

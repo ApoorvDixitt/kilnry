@@ -656,3 +656,83 @@ steps:
     });
   });
 });
+
+// D-61 (TRD-12 §5): a model swap that raises a step's estimate more than 10 %
+// above the planned figure pauses with both figures and the new run total, in
+// every autonomy mode; at or below the threshold it proceeds and notes the delta.
+describe('a price-raising model swap asks first (D-61, F-WFL-05)', () => {
+  const scope = { inputs: {}, defaults: {}, vars: {} };
+  const SWAP_WF = `
+id: kilnry-swap-price
+name: Swap price
+version: 1.0.0
+category: video
+steps:
+  - id: edit
+    kind: generate
+    capability: video2video
+    model: cheap/model
+    alternates: [dear/model]
+    prompt: "x"
+    outputs: { asset: "a1" }
+`;
+  function swapEffects(alternateUsd: number, decide?: Effects['decide']) {
+    const ran: Array<string | undefined> = [];
+    const effects: Effects = {
+      runStep: async (_node: RunStep, rendered: Step | ExpandedExportStep): Promise<StepResult> => {
+        const model = (rendered as { model?: string }).model;
+        ran.push(model);
+        if (model === 'cheap/model')
+          return { outputs: {}, status: 'failed', error: 'PROVIDER_ERROR', retryable: true };
+        return {
+          outputs: { asset: 'a1' },
+          actual_usd: alternateUsd,
+          ...(model ? { model } : {}),
+          status: 'completed',
+        };
+      },
+      planned: () => ({ step_usd: 0.15, run_total_usd: 0.3 }),
+      estimate: async (_node, rendered) =>
+        (rendered as { model?: string }).model === 'dear/model' ? alternateUsd : 0.15,
+      ...(decide ? { decide } : {}),
+    };
+    return { effects, ran };
+  }
+
+  it('pauses before the alternate runs when it costs more than 10 % over the plan, even automatically', async () => {
+    const wf = parseWorkflow(SWAP_WF);
+    const { effects, ran } = swapEffects(0.75, () => 'wait');
+    const state = await execute(wf, scope, effects, { automatic: true, skipApprovals: true });
+    expect(state.status).toBe('awaiting_approval');
+    const edit = state.steps.find((step) => step.step_id === 'edit')!;
+    expect(edit.status).toBe('waiting');
+    expect(edit.pending_swap).toEqual({
+      from: 'cheap/model',
+      to: 'dear/model',
+      planned_usd: 0.15,
+      estimate_usd: 0.75,
+      run_total_usd: 0.9,
+    });
+    expect(edit.model).toBe('dear/model');
+    expect(ran).toEqual(['cheap/model']); // the dear model was never called
+  });
+
+  it('runs the swapped model once the owner approves it', async () => {
+    const wf = parseWorkflow(SWAP_WF);
+    const { effects, ran } = swapEffects(0.75, () => 'approve');
+    const state = await execute(wf, scope, effects, {});
+    expect(state.status).toBe('completed');
+    expect(ran).toEqual(['cheap/model', 'dear/model']);
+    expect(state.steps[0]!.pending_swap).toBeUndefined();
+  });
+
+  it('proceeds at or below 10 % and writes the delta into adjustments', async () => {
+    const wf = parseWorkflow(SWAP_WF);
+    const { effects, ran } = swapEffects(0.16, () => 'wait');
+    const state = await execute(wf, scope, effects, {});
+    expect(state.status).toBe('completed');
+    expect(ran).toEqual(['cheap/model', 'dear/model']);
+    const notes = state.steps[0]!.adjustments.join(' | ');
+    expect(notes).toContain('model swap to dear/model within 10 %: step ≈ $0.15 → ≈ $0.16 (+$0.01)');
+  });
+});

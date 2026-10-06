@@ -1123,7 +1123,8 @@
       "regenerate": "Regenerate",
       "stop": "Stop run",
       "outputs": "Awaiting approval",
-      "zoom": "Zoom"
+      "zoom": "Zoom",
+      "swap": "Switching to {to} raises this step from ≈ {planned} to ≈ {estimate}. New run total ≈ {total}."
     },
     "category": {
       "all": "All",

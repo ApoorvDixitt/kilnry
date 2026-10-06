@@ -72,6 +72,8 @@ export {
   type RunOptions,
   type ExpandedExportStep,
   type ExpandedExportFile,
+  type SwapApproval,
+  SWAP_APPROVAL_THRESHOLD,
 } from './executor.js';
 
 export {

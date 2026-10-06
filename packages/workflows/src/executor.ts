@@ -68,7 +68,25 @@ export interface RunStep {
    * (lazy foreach expansion). Absent on every ordinary node.
    */
   deferred_prefix?: string;
+  /**
+   * A model swap waiting for the owner because it raises this step's price more
+   * than 10 % above the approved plan (D-61, TRD-12 §5): both figures and the
+   * run total it would make. Cleared once the step runs.
+   */
+  pending_swap?: SwapApproval;
 }
+
+/** What a price-raising model swap asks the owner to approve (D-61). */
+export interface SwapApproval {
+  from?: string;
+  to: string;
+  planned_usd: number;
+  estimate_usd: number;
+  run_total_usd: number;
+}
+
+/** A swap above this share of the planned step price pauses for approval (D-61). */
+export const SWAP_APPROVAL_THRESHOLD = 0.1;
 
 export interface RunState {
   status: RunStatus;
@@ -117,6 +135,13 @@ export interface Effects {
     step: RunStep,
     scope: Scope,
   ) => Promise<'approve' | 'deny' | 'wait'> | 'approve' | 'deny' | 'wait';
+  /**
+   * Price a step as rendered — on an alternate model during a swap — without
+   * spending; undefined when it cannot be priced (D-61).
+   */
+  estimate?: (step: RunStep, rendered: Step, scope: Scope) => Promise<number | undefined>;
+  /** The figure the approved plan gave this step, and the plan's run total (D-61). */
+  planned?: (step: RunStep) => { step_usd: number; run_total_usd: number } | undefined;
 }
 
 // ── expansion ────────────────────────────────────────────────────────────────
@@ -701,7 +726,44 @@ export async function execute(
       // analyze step's task and instructions. Read from the rendered step so the
       // manifest shows the resolved values, not the templates.
       node.inputs = renderedInputs(rendered);
-      const result = await runWithRetry(node, rendered, scope, effects);
+      let result: StepResult;
+      const outcome = await runWithRetry(node, rendered, scope, effects);
+      if ('swap' in outcome) {
+        // D-61: the alternate costs more than 10 % over the planned step, so the
+        // run asks before it spends — in every autonomy mode, with no soft
+        // shortcut. The swapped model is kept on the node so an approval runs it.
+        const swap = outcome.swap;
+        node.model = swap.to;
+        node.pending_swap = swap;
+        node.adjustments.push(
+          `model swap to ${swap.to} needs approval: step ≈ $${swap.planned_usd.toFixed(2)} → ≈ $${swap.estimate_usd.toFixed(2)}, run total ≈ $${swap.run_total_usd.toFixed(2)}`,
+        );
+        const decision = (await effects.decide?.(node, scope)) ?? 'wait';
+        if (decision === 'wait') {
+          node.status = 'waiting';
+          state.status = 'awaiting_approval';
+          await checkpoint();
+          return state;
+        }
+        if (decision === 'deny') {
+          node.status = 'denied';
+          node.error = `model swap to ${swap.to} denied`;
+          delete node.pending_swap;
+          progressed = true;
+          await checkpoint();
+          if (node.step.on_fail === 'fail') {
+            state.status = 'cancelled';
+            await checkpoint();
+            return state;
+          }
+          continue;
+        }
+        delete node.pending_swap;
+        result = await attempt(node, { ...rendered, model: swap.to } as Step, scope, effects);
+      } else {
+        result = outcome;
+      }
+      delete node.pending_swap;
       if (result.job_id !== undefined) node.job_id = result.job_id;
       // The step's declared `outputs` are templates over its result (e.g.
       // `ok: '{{ result.structured.ok }}'`, `transcript: '{{ result.assets[0] }}'`).
@@ -756,12 +818,14 @@ export async function execute(
 }
 
 // Retry a spending step up to retry.max, then try alternates as a model swap.
+// A swap that raises the step's price more than 10 % above the plan returns
+// `{ swap }` instead of running, so the loop can pause for approval (D-61).
 async function runWithRetry(
   node: RunStep,
   rendered: Step | ExpandedExportStep,
   scope: Scope,
   effects: Effects,
-): Promise<StepResult> {
+): Promise<StepResult | { swap: SwapApproval }> {
   const retry = 'retry' in node.step ? node.step.retry : undefined;
   const maxRetries = retry?.max ?? 0;
   let result = await attempt(node, rendered, scope, effects);
@@ -777,13 +841,49 @@ async function runWithRetry(
   if (result.status !== 'completed' && node.step.kind === 'generate') {
     const alternates = Array.isArray(node.step.alternates) ? node.step.alternates : [];
     for (const alternate of alternates) {
+      const from = node.model ?? (rendered as { model?: string }).model;
       node.adjustments.push(`model swapped to ${alternate}: ${result.error ?? 'previous model failed'}`);
+      const swapped = { ...rendered, model: alternate } as Step;
+      const gate = await swapGate(node, swapped, scope, effects, alternate, from);
+      if (gate) return { swap: gate };
       node.model = alternate;
-      result = await attempt(node, { ...rendered, model: alternate } as Step, scope, effects);
+      result = await attempt(node, swapped, scope, effects);
       if (result.status === 'completed') break;
     }
   }
   return result;
+}
+
+// Price the swapped step against the plan (D-61). Above the threshold it is a
+// question for the owner; at or below it the swap proceeds with the delta noted.
+// With no planned figure or no price the swap proceeds as before.
+async function swapGate(
+  node: RunStep,
+  swapped: Step,
+  scope: Scope,
+  effects: Effects,
+  alternate: string,
+  from: string | undefined,
+): Promise<SwapApproval | undefined> {
+  const planned = effects.planned?.(node);
+  if (!planned || !(planned.step_usd > 0) || !effects.estimate) return undefined;
+  const estimate = await effects.estimate(node, swapped, scope);
+  if (estimate === undefined) return undefined;
+  const runTotal = Math.round((planned.run_total_usd - planned.step_usd + estimate) * 1_000_000) / 1_000_000;
+  if (estimate > planned.step_usd * (1 + SWAP_APPROVAL_THRESHOLD)) {
+    return {
+      ...(from === undefined ? {} : { from }),
+      to: alternate,
+      planned_usd: planned.step_usd,
+      estimate_usd: estimate,
+      run_total_usd: runTotal,
+    };
+  }
+  const delta = estimate - planned.step_usd;
+  node.adjustments.push(
+    `model swap to ${alternate} within 10 %: step ≈ $${planned.step_usd.toFixed(2)} → ≈ $${estimate.toFixed(2)} (${delta >= 0 ? '+' : '−'}$${Math.abs(delta).toFixed(2)})`,
+  );
+  return undefined;
 }
 
 async function attempt(

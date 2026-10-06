@@ -54,6 +54,10 @@ export const runSteps = pgTable(
     logs: text('logs'),
     attempts: integer('attempts').notNull().default(0),
     adjustments: jsonb('adjustments').$type<string[]>().notNull().default([]),
+    // A model swap waiting for approval because it raises the step's price more
+    // than 10 % over the plan (D-61): { from?, to, planned_usd, estimate_usd,
+    // run_total_usd }. Null once the step runs.
+    pendingSwap: jsonb('pending_swap').$type<Record<string, unknown>>(),
     error: text('error'),
     approvalRequired: boolean('approval_required').notNull().default(false),
     approvedAt: timestamp('approved_at', { withTimezone: true, mode: 'date' }),

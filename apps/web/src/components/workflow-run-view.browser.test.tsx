@@ -176,6 +176,35 @@ describe('workflow run view (F-WFL-03)', () => {
     expect(host.querySelector('.approval-card-total-amount')?.textContent).toContain('1.50');
   });
 
+  it('names both prices and the new run total when a model swap waits for approval (D-61)', async () => {
+    const waiting: RunView = {
+      ...RUN,
+      status: 'awaiting_approval',
+      steps: [
+        {
+          step_id: 'edit',
+          name: 'Edit the ad',
+          kind: 'generate',
+          status: 'waiting',
+          model: 'fal-ai/wan/v2.7/edit-video',
+          estimate_usd: 0.15,
+          actual_usd: null,
+          pending_swap: {
+            from: 'black-forest-labs/flux-video-edit',
+            to: 'fal-ai/wan/v2.7/edit-video',
+            planned_usd: 0.15,
+            estimate_usd: 0.75,
+            run_total_usd: 0.9,
+          },
+        },
+      ],
+    };
+    const host = await render(<ApprovalCard run={waiting} onApprove={() => {}} onDeny={() => {}} />);
+    expect(host.querySelector('[data-testid="approval-swap"]')?.textContent).toBe(
+      'Switching to fal-ai/wan/v2.7/edit-video raises this step from ≈ $0.15 to ≈ $0.75. New run total ≈ $0.90.',
+    );
+  });
+
   it('renders the waiting step outputs and Edit, Regenerate, Stop actions (F-WFL-04)', async () => {
     const waiting: RunView = {
       ...RUN,
