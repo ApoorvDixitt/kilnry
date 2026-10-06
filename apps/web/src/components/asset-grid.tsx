@@ -122,6 +122,21 @@ function AssetTile({
   );
 }
 
+/**
+ * The toolbar count. It read the length of whatever the grid held and called it
+ * "{n} items", so a search that matched nothing still said "22 items" and one
+ * match said "1 items" (UX-14).
+ */
+export function assetCount(shown: number, total?: number): string {
+  if (total !== undefined && total !== shown) {
+    if (shown === 0) return message('library.grid.countNone');
+    return message('library.grid.countOf').replace('{n}', String(shown)).replace('{m}', String(total));
+  }
+  if (shown === 0) return message('library.grid.countNone');
+  if (shown === 1) return message('library.grid.countOne');
+  return message('library.grid.count').replace('{n}', String(shown));
+}
+
 export function AssetGrid({
   assets,
   sort,
@@ -132,6 +147,7 @@ export function AssetGrid({
   onOpen,
   onToggleSelect,
   showConsistency,
+  total,
 }: {
   assets: AssetListItem[];
   sort: AssetSort;
@@ -143,6 +159,8 @@ export function AssetGrid({
   onToggleSelect?: (id: string) => void;
   // Badges show only while the consistency check is on (F-CHR-12 acceptance 3).
   showConsistency?: boolean;
+  /** The folder's own count while a search narrows the grid (UX-14). */
+  total?: number | undefined;
 }): React.ReactNode {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
@@ -177,9 +195,7 @@ export function AssetGrid({
             <option value="duration">{message('library.grid.sortDuration')}</option>
           </select>
         </label>
-        <span className="asset-count">
-          {message('library.grid.count').replace('{n}', String(assets.length))}
-        </span>
+        <span className="asset-count">{assetCount(assets.length, total)}</span>
         <div className="asset-view-toggle" role="group">
           <button
             type="button"

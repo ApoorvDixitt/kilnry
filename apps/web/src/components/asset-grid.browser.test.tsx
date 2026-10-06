@@ -6,7 +6,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { AssetGrid, columnsForWidth } from './asset-grid';
+import { AssetGrid, assetCount, columnsForWidth } from './asset-grid';
 import type { AssetListItem } from '../lib/composer-types';
 
 let root: Root | undefined;
@@ -72,6 +72,18 @@ describe('AssetGrid', () => {
     const host = await render(base);
     expect(host.querySelector('.asset-count')?.textContent).toBe('2 items');
     expect(host.querySelector('.asset-sort select')).not.toBeNull();
+  });
+
+  // UX-14: the count was the length of whatever the grid held, so a search that
+  // matched nothing still read "22 items" and one match read "1 items".
+  it('counts the results against the folder while a search narrows the grid', async () => {
+    expect(assetCount(2)).toBe('2 items');
+    expect(assetCount(1)).toBe('1 item');
+    expect(assetCount(0)).toBe('No matches');
+    expect(assetCount(1, 22)).toBe('1 of 22 items');
+    expect(assetCount(0, 22)).toBe('No matches');
+    const host = await render({ ...base, total: 22 });
+    expect(host.querySelector('.asset-count')?.textContent).toBe('2 of 22 items');
   });
 
   it('switches to list columns through the view toggle', async () => {

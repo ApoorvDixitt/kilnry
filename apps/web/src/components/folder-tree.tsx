@@ -6,13 +6,21 @@
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
 import { useState } from 'react';
-import { FolderClosed, FolderPlus, Inbox, Trash2 } from 'lucide-react';
+import { Diamond, FolderClosed, FolderPlus, Inbox, Trash2 } from 'lucide-react';
 import { message } from '../lib/messages';
 
 export interface FolderNode {
   name: string;
   path: string;
   pinned?: 'inbox' | 'trash';
+}
+
+/** A saved search shown under the "Smart" divider (PRD-06 §8, F-LIB-07). */
+export interface SmartFolderNode {
+  id: string;
+  name: string;
+  query: string;
+  builtin: boolean;
 }
 
 function iconFor(node: FolderNode): React.ReactNode {
@@ -28,6 +36,9 @@ export function FolderTree({
   onCreate,
   onRename,
   onDelete,
+  smartFolders = [],
+  selectedSmart,
+  onSelectSmart,
 }: {
   folders: FolderNode[];
   selected: string;
@@ -35,6 +46,10 @@ export function FolderTree({
   onCreate?: (name: string) => void;
   onRename?: (path: string, name: string) => void;
   onDelete?: (path: string) => void;
+  /** The saved searches; they hold no files, so they never take a folder path. */
+  smartFolders?: SmartFolderNode[];
+  selectedSmart?: string | undefined;
+  onSelectSmart?: ((folder: SmartFolderNode) => void) | undefined;
 }): React.ReactNode {
   const [renaming, setRenaming] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -120,6 +135,28 @@ export function FolderTree({
           </li>
         ) : null}
       </ul>
+      {/* Smart folders are read-only saved searches with their own divider and
+          the ◇ icon PRD-06:253 names. They existed only as an API: the tree
+          never showed them and nothing could save a search (F-114). */}
+      {smartFolders.length > 0 ? (
+        <>
+          <div className="folder-tree-divider">{message('library.smartDivider')}</div>
+          <ul role="tree" className="folder-tree-smart" aria-label={message('library.smartDivider')}>
+            {smartFolders.map((folder) => (
+              <li key={folder.id} role="treeitem" aria-selected={selectedSmart === folder.id}>
+                <button
+                  type="button"
+                  className={`folder-tree-item${selectedSmart === folder.id ? ' is-selected' : ''}`}
+                  onClick={() => onSelectSmart?.(folder)}
+                >
+                  <Diamond aria-hidden size={15} strokeWidth={1.75} />
+                  <span className="folder-tree-name">{folder.name}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : null}
     </nav>
   );
 }

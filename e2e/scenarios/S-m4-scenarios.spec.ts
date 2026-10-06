@@ -356,20 +356,30 @@ test('@m4 S-12 sidecar recovery via doctor reindex over the reindex route', asyn
 
 test('@m4 S-25 smart folders (the smart-folders half)', async ({ page }) => {
   await ensureSignedIn(page, '/library');
-  const token = await csrf(page);
-  // Saving a search as a smart folder persists it and lists it back.
-  const created = await page.evaluate(async (token) => {
-    const make = await fetch('/api/library/smart-folders', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Kilnry-CSRF': token },
-      body: JSON.stringify({ name: 'Maya videos', query: '@maya type:video cost>0.5 since:7d' }),
-    });
-    if (!make.ok) return { listed: false };
+  // F-114: the built-ins and the Save-search control are in the tree now, so the
+  // scenario clicks them instead of driving the API behind the interface.
+  const tree = page.locator('.folder-tree');
+  await expect(tree.getByText('Smart', { exact: true })).toBeVisible({ timeout: 15_000 });
+  const allVideos = tree.getByRole('treeitem').filter({ hasText: 'All videos' });
+  await expect(allVideos).toBeVisible();
+  await allVideos.click();
+  // Clicking a smart folder puts its query in the search box.
+  await expect(page.locator('.library-search')).toHaveValue('type:video');
+
+  // Saving the typed search creates a user smart folder that lists back.
+  await page.locator('.library-search').fill('type:video cost>0.5');
+  await page.getByRole('button', { name: 'Save search' }).click();
+  await page.getByLabel('Name this search').fill('Maya videos');
+  await page.keyboard.press('Enter');
+  await expect(tree.getByRole('treeitem').filter({ hasText: 'Maya videos' })).toBeVisible({
+    timeout: 15_000,
+  });
+  const listed = await page.evaluate(async () => {
     const list = await fetch('/api/library/smart-folders');
     const body = (await list.json()) as { smart_folders?: Array<{ name: string }> };
-    return { listed: (body.smart_folders ?? []).some((folder) => folder.name === 'Maya videos') };
-  }, token);
-  expect(created.listed).toBe(true);
+    return (body.smart_folders ?? []).some((folder) => folder.name === 'Maya videos');
+  });
+  expect(listed).toBe(true);
 });
 
 test('@m4 sheet-build: one photo yields a plan that pauses at approval', async ({ page }) => {

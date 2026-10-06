@@ -9,7 +9,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { apiFetch } from '../lib/api-client';
 import { message } from '../lib/messages';
 import type { AssetDetail, AssetListItem, AssetSort, MetadataPatch } from '../lib/composer-types';
-import { FolderTree, type FolderNode } from './folder-tree';
+import { FolderTree, type FolderNode, type SmartFolderNode } from './folder-tree';
 import { AssetGrid } from './asset-grid';
 import { InspectorDrawer } from './inspector-drawer';
 import { SelectionBar } from './selection-bar';
@@ -33,6 +33,11 @@ export function LibraryBrowser(): React.ReactNode {
   const [transformSource, setTransformSource] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [searchResults, setSearchResults] = useState<AssetListItem[] | null>(null);
+  // Saved searches: built-ins plus the user's own (F-114). They hold no files,
+  // so selecting one only sets the search query.
+  const [smartFolders, setSmartFolders] = useState<SmartFolderNode[]>([]);
+  const [selectedSmart, setSelectedSmart] = useState<string>();
+  const [savingSearch, setSavingSearch] = useState(false);
   const [selection, setSelection] = useState<Set<string>>(new Set());
   const [exportOpen, setExportOpen] = useState(false);
   // Consistency badges show only while the check is on (F-CHR-12 acceptance 3).
@@ -132,6 +137,33 @@ export function LibraryBrowser(): React.ReactNode {
     return () => clearTimeout(handle);
   }, [query]);
 
+  const loadSmartFolders = useCallback(() => {
+    void fetch('/api/library/smart-folders')
+      .then((response) => json<{ smart_folders: SmartFolderNode[] }>(response))
+      .then((body) => setSmartFolders(body.smart_folders))
+      .catch(() => setSmartFolders([]));
+  }, []);
+
+  useEffect(() => {
+    loadSmartFolders();
+  }, [loadSmartFolders]);
+
+  async function saveSearch(name: string): Promise<void> {
+    setSavingSearch(false);
+    const trimmed = name.trim();
+    if (!trimmed || !query.trim()) return;
+    try {
+      await apiFetch('/api/library/smart-folders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: trimmed, query: query.trim() }),
+      });
+      loadSmartFolders();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : message('library.unreachableTitle'));
+    }
+  }
+
   const shownAssets = searchResults ?? assets;
   const inTrash = selected === 'Trash' || query.includes('in:trash');
 
@@ -218,6 +250,12 @@ export function LibraryBrowser(): React.ReactNode {
         onDelete={(path) =>
           void mutate('/api/library/folders/op', JSON.stringify({ op: 'delete', folder: path }))
         }
+        smartFolders={smartFolders}
+        selectedSmart={selectedSmart}
+        onSelectSmart={(folder) => {
+          setSelectedSmart(folder.id);
+          setQuery(folder.query);
+        }}
       />
       <div className="library-grid-area">
         <DiskBanner />
@@ -230,6 +268,28 @@ export function LibraryBrowser(): React.ReactNode {
             aria-label={message('library.search')}
             onChange={(event) => setQuery(event.target.value)}
           />
+          {savingSearch ? (
+            <input
+              autoFocus
+              className="library-save-search-name"
+              aria-label={message('library.saveSearchName')}
+              placeholder={message('library.saveSearchName')}
+              onBlur={(event) => void saveSearch(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') void saveSearch(event.currentTarget.value);
+                if (event.key === 'Escape') setSavingSearch(false);
+              }}
+            />
+          ) : (
+            <button
+              type="button"
+              className="library-save-search"
+              disabled={query.trim().length === 0}
+              onClick={() => setSavingSearch(true)}
+            >
+              {message('library.saveSearch')}
+            </button>
+          )}
           <button type="button" className="library-import" onClick={() => void importFolder()}>
             {message('library.importFolder')}
           </button>
@@ -254,6 +314,7 @@ export function LibraryBrowser(): React.ReactNode {
             onOpen={(id) => void openInspector(id)}
             onToggleSelect={toggleSelect}
             showConsistency={showConsistency}
+            total={searchResults === null ? undefined : assets.length}
           />
         )}
         <SelectionBar

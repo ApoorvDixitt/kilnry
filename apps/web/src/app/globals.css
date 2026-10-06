@@ -1968,6 +1968,40 @@ kbd {
   margin: 8px 0 0;
 }
 
+/* "Save search" turns the typed query into a smart folder (F-114). */
+.library-save-search,
+.library-save-search-name {
+  background: var(--surface-2);
+  border: 1px solid var(--border-control);
+  border-radius: 999px;
+  color: var(--text);
+  cursor: pointer;
+  flex: none;
+  font-size: 12px;
+  padding: 8px 14px;
+  white-space: nowrap;
+}
+
+.library-save-search:disabled {
+  color: var(--text-muted);
+  cursor: default;
+}
+
+.library-save-search-name {
+  background: var(--background);
+  cursor: text;
+  width: 150px;
+}
+
+/* The "Smart" divider and its saved searches (PRD-06:253). */
+.folder-tree-divider {
+  color: var(--text-muted);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  margin: 14px 0 6px;
+  padding: 0 8px;
+}
+
 .library-search:focus-visible {
   border-color: var(--ring);
   outline: none;

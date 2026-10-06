@@ -89,4 +89,26 @@ describe('FolderTree', () => {
     });
     expect(onCreate).toHaveBeenCalledWith('Drafts');
   });
+
+  // F-114: smart folders existed only as an API — the tree had no "Smart"
+  // divider, no built-ins and no way to reach one, while STATUS listed the
+  // feature as shipped.
+  it('renders the saved searches under a Smart divider and selects one', async () => {
+    const picked: string[] = [];
+    const host = await render({
+      folders,
+      selected: 'inbox',
+      onSelect: () => {},
+      smartFolders: [
+        { id: 'builtin-all-videos', name: 'All videos', query: 'type:video', builtin: true },
+        { id: 'builtin-today', name: 'Today', query: 'since:24h', builtin: true },
+      ],
+      onSelectSmart: (folder: { query: string }) => picked.push(folder.query),
+    });
+    expect(host.querySelector('.folder-tree-divider')?.textContent).toBe('Smart');
+    const items = [...host.querySelectorAll('.folder-tree-smart .folder-tree-item')];
+    expect(items.map((item) => item.textContent)).toEqual(['All videos', 'Today']);
+    await act(async () => (items[0] as HTMLButtonElement).click());
+    expect(picked).toEqual(['type:video']);
+  });
 });
