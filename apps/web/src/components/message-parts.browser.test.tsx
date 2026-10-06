@@ -240,10 +240,34 @@ describe('groupToolCalls (F-CHT-03)', () => {
 });
 
 describe('BudgetReachedCard (F-CHT-02)', () => {
-  it('names the reached session cap without offering to spend', async () => {
-    const host = await render(<BudgetReachedCard capUsd={1} />);
+  // UX-20: the card named the cap and offered nothing to do about it, so a plan
+  // the session budget stopped could not be approved, raised past or stopped.
+  // PRD-11:143 gives the sentence and the three buttons.
+  it('words the stop as PRD-11 does and offers the three actions', async () => {
+    const actions: string[] = [];
+    const host = await render(
+      <BudgetReachedCard
+        capUsd={5}
+        planUsd={4.24}
+        spentUsd={3.91}
+        onRaise={() => actions.push('raise')}
+        onApprove={() => actions.push('approve')}
+        onStop={() => actions.push('stop')}
+      />,
+    );
     expect(host.querySelector('h3')?.textContent).toBe('Budget reached');
-    expect(host.querySelector('p')?.textContent).toBe('Session cap $1.00 reached');
+    expect(host.querySelector('p')?.textContent).toBe(
+      'This plan (≈ $4.24) would take the session past $5.00 (spent $3.91). Raise the budget, approve just this plan, or stop.',
+    );
+    expect(host.querySelector('.chat-budget-raise')?.textContent).toBe('Raise to $10.00');
+    for (const selector of ['.chat-budget-raise', '.chat-budget-approve', '.chat-budget-stop']) {
+      await act(async () => (host.querySelector(selector) as HTMLButtonElement).click());
+    }
+    expect(actions).toEqual(['raise', 'approve', 'stop']);
+  });
+
+  it('leaves the actions out when no handler is given', async () => {
+    const host = await render(<BudgetReachedCard capUsd={1} />);
     expect(host.querySelector('button')).toBeNull();
   });
 });

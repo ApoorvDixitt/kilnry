@@ -62,6 +62,8 @@ interface PartHandlers {
   onEdit?: (() => void) | undefined;
   /** Runs the turn again after a failure that can be retried. */
   onRegenerate?: (() => void) | undefined;
+  /** Doubles the session budget from the Budget-reached card (PRD-11:143). */
+  onRaiseBudget?: ((toUsd: number) => void) | undefined;
 }
 
 // The planned calls an approval part carries, priced by the route before the SDK
@@ -187,7 +189,20 @@ export function renderParts(parts: MessagePart[], handlers: PartHandlers): React
     if (state === 'approval-requested') {
       const capUsd = sessionCapFrom(part);
       if (capUsd !== undefined) {
-        nodes.push(<BudgetReachedCard key={`b-${index}`} capUsd={capUsd} />);
+        const approvalId = (part as { approval?: { id?: string } }).approval?.id ?? '';
+        const planned = plannedCalls(part);
+        nodes.push(
+          <BudgetReachedCard
+            key={`b-${index}`}
+            capUsd={capUsd}
+            planUsd={plannedTotal(planned, part)}
+            {...(handlers.onRaiseBudget
+              ? { onRaise: () => handlers.onRaiseBudget?.(Math.round(capUsd * 2 * 100) / 100) }
+              : {})}
+            onApprove={() => handlers.onApprove(approvalId, {})}
+            onStop={() => handlers.onDeny(approvalId)}
+          />,
+        );
         continue;
       }
       const approvalId = (part as { approval?: { id?: string } }).approval?.id ?? '';
@@ -254,6 +269,12 @@ export interface ChatScreenProps {
   /** The threshold the approval card's auto-approve checkbox would set. */
   autoApproveUsd?: number;
   ollamaDetected?: boolean;
+  /**
+   * The messages already stored for this session (F-116). A reload used to mint
+   * a new session id and start an empty thread, stranding any pending card,
+   * while chat_messages held the conversation unread.
+   */
+  initialMessages?: Array<{ id: string; role: 'user' | 'assistant' | 'system'; parts: MessagePart[] }>;
 }
 
 type WorkspaceTab = 'preview' | 'steps' | 'cost';
@@ -307,6 +328,7 @@ export function ChatScreen({
   sessionAutonomy = 'ask_first',
   autoApproveUsd,
   ollamaDetected = false,
+  initialMessages,
 }: ChatScreenProps): React.ReactNode {
   const [ratio, setRatio] = useState(DEFAULT_RATIO);
   const [tab, setTab] = useState<WorkspaceTab>('preview');
@@ -337,6 +359,7 @@ export function ChatScreen({
   const { messages, sendMessage, status, error, addToolApprovalResponse, regenerate } = useChat({
     id: sessionId,
     transport,
+    ...(initialMessages && initialMessages.length > 0 ? { messages: initialMessages as never } : {}),
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
   });
   const costEntries = chatGenerationEntries(messages);
@@ -532,6 +555,16 @@ export function ChatScreen({
         <span className="chat-budget">
           {message('chat.sessionBudget')}: ${budgetUsd.toFixed(2)}
         </span>
+        {/* /chat now resumes the most recent session (F-116), so starting a
+            second conversation needs the "New session" control PRD-11 §1 names
+            in the session menu. */}
+        <button
+          type="button"
+          className="chat-new-session"
+          onClick={() => window.location.assign(`/chat/session-${Date.now().toString(36)}`)}
+        >
+          {message('chat.newSession')}
+        </button>
         <a className="chat-export" href={`/api/chat/${encodeURIComponent(sessionId)}/export.md`} download>
           {message('chat.exportMarkdown')}
         </a>
@@ -567,6 +600,7 @@ export function ChatScreen({
                       );
                     },
                     onRegenerate: () => void regenerate(),
+                    onRaiseBudget: (toUsd) => void updateSession({ budget_usd: toUsd }),
                   })}
                 </article>
               ))

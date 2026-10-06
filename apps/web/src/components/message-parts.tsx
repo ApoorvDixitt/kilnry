@@ -270,11 +270,57 @@ export function groupToolCalls<T extends { toolName: string; state: ToolCallStat
 }
 
 /** A Run-automatically call that would cross the session cap pauses here. */
-export function BudgetReachedCard({ capUsd }: { capUsd: number }): React.ReactNode {
+export function BudgetReachedCard({
+  capUsd,
+  planUsd,
+  spentUsd,
+  onRaise,
+  onApprove,
+  onStop,
+}: {
+  capUsd: number;
+  /** The plan the session budget stopped (PRD-11:143). */
+  planUsd?: number | undefined;
+  spentUsd?: number | undefined;
+  onRaise?: (() => void) | undefined;
+  onApprove?: (() => void) | undefined;
+  onStop?: (() => void) | undefined;
+}): React.ReactNode {
+  // UX-20: the card named the cap and offered nothing to do about it, so a plan
+  // the session budget stopped could not be approved, raised past or stopped —
+  // PRD-11:143 gives the sentence and the three buttons.
+  const raised = Math.round(capUsd * 2 * 100) / 100;
   return (
     <article className="chat-budget-reached" role="alert">
       <h3>{message('chat.budgetReachedTitle')}</h3>
-      <p>{message('chat.budgetReachedBody').replace('{amount}', capUsd.toFixed(2))}</p>
+      <p>
+        {message('chat.budgetReachedBody')
+          .replace('{plan}', (planUsd ?? 0).toFixed(2))
+          .replace('{cap}', capUsd.toFixed(2))
+          .replace(
+            '{spent}',
+            spentUsd === undefined
+              ? ''
+              : message('chat.budgetReachedSpent').replace('{spent}', spentUsd.toFixed(2)),
+          )}
+      </p>
+      <div className="chat-budget-reached-actions">
+        {onRaise ? (
+          <button type="button" className="chat-budget-raise" onClick={onRaise}>
+            {message('chat.budgetReachedRaise').replace('{amount}', raised.toFixed(2))}
+          </button>
+        ) : null}
+        {onApprove ? (
+          <button type="button" className="chat-budget-approve" onClick={onApprove}>
+            {message('chat.budgetReachedApprove')}
+          </button>
+        ) : null}
+        {onStop ? (
+          <button type="button" className="chat-budget-stop" onClick={onStop}>
+            {message('chat.budgetReachedStop')}
+          </button>
+        ) : null}
+      </div>
     </article>
   );
 }

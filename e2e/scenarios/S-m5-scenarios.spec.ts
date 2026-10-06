@@ -1075,11 +1075,32 @@ test('@m5 S-24 asks for the three-video spend, then pauses at the session cap', 
   // no job and makes no provider request.
   const reached = page.locator('.chat-budget-reached');
   await expect(reached.locator('h3')).toHaveText('Budget reached', { timeout: 30_000 });
-  await expect(reached).toContainText('Session cap $1.00 reached');
-  await expect(reached.locator('button')).toHaveCount(0);
+  // UX-20: PRD-11:143's sentence and its three actions, so the stopped plan can
+  // be approved once, raised past, or stopped.
+  await expect(reached).toContainText('would take the session past $1.00');
+  await expect(reached.getByRole('button', { name: 'Raise to $2.00' })).toBeVisible();
+  await expect(reached.getByRole('button', { name: 'Approve this plan' })).toBeVisible();
+  await expect(reached.getByRole('button', { name: 'Stop' })).toBeVisible();
   expect(await jobCount(page)).toBe(jobsAtCap);
   // No provider request follows: the submit count stays at the settled value.
   await expect.poll(() => falSubmitCount(), { timeout: 5_000 }).toBe(submitsAtCap);
+  expect(await jobCount(page)).toBe(jobsAtCap);
+
+  // F-116: a reload used to mint a new session id, so the conversation vanished
+  // and this pending card could never be answered. The thread and the card come
+  // back, and the URL is the session's own.
+  const sessionUrl = page.url();
+  expect(sessionUrl).toMatch(/\/chat\/session-/);
+  await page.reload();
+  await expect(page).toHaveURL(sessionUrl);
+  await expect(page.locator('.chat-message.is-user').first()).toContainText(
+    'Make 3 variants of the chai reel',
+  );
+  await expect(page.locator('.chat-budget-reached h3')).toHaveText('Budget reached', {
+    timeout: 30_000,
+  });
+  // The reloaded session keeps its own budget, not the workspace default.
+  await expect(page.locator('.chat-budget')).toContainText('$1.00');
   expect(await jobCount(page)).toBe(jobsAtCap);
 });
 
@@ -1094,7 +1115,13 @@ test('@m5 chat auto-runs one image below the threshold and lands it in the Libra
       ? readdirSync(join(library, 'inbox')).filter((name) => name.endsWith('.png'))
       : [],
   );
+  // /chat resumes the most recent session (F-116), and S-24 leaves that one at
+  // Run automatically with a $1.00 cap and a pending card, so this scenario
+  // starts its own thread through the control PRD-11 §1 names.
   await page.goto('/chat');
+  await page.getByRole('button', { name: 'New session' }).click();
+  await expect(page.locator('.chat-thread-empty')).toBeVisible({ timeout: 15_000 });
+  await setChatSettings(page, { autonomy: 'ask_first', session_budget_usd: 5 });
   const composer = page.locator('.chat-composer textarea');
   await composer.fill('Make one chai poster');
   await composer.press('Enter');

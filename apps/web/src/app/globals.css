@@ -6563,6 +6563,17 @@ html[data-motion='reduced'] *::after {
   font-size: 12px;
 }
 
+/* "New session" (PRD-11 §1); /chat resumes the most recent one (F-116). */
+.chat-new-session {
+  background: var(--background);
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 4px 10px;
+}
+
 .chat-session-control select,
 .chat-session-control input {
   background: var(--background);
@@ -6618,6 +6629,27 @@ html[data-motion='reduced'] *::after {
 .chat-budget-reached h3,
 .chat-budget-reached p {
   margin: 0;
+}
+
+/* The three actions PRD-11:143 gives the card (UX-20). */
+.chat-budget-reached-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.chat-budget-reached-actions button {
+  background: var(--background);
+  border: 1px solid var(--border-control);
+  border-radius: 6px;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 6px 12px;
+}
+
+.chat-budget-reached-actions .chat-budget-approve {
+  background: var(--surface-2);
 }
 
 .chat-budget-reached p {
