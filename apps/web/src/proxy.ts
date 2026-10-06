@@ -124,27 +124,41 @@ export function ratePolicy(path: string): { name: string; limit: number } {
   return { name: 'default', limit: 600 };
 }
 
-function principalKey(request: NextRequest): string {
-  const session = request.cookies
-    .getAll()
-    .filter((cookie) => cookie.name !== 'kilnry_csrf')
-    .sort((left, right) => left.name.localeCompare(right.name))
-    .map((cookie) => `${cookie.name}=${cookie.value}`)
-    .join(';');
-  // The pre-session fallback must not key on a client-controlled header, or the
-  // "10/min per IP" sign-in throttle (TRD-15 §6) is defeated by rotating
-  // X-Forwarded-For to mint a fresh bucket for every password guess (F-05). The
-  // app binds the loopback peer, and LAN mode has no reverse proxy, so an
-  // unauthenticated caller collapses to one shared bucket by default. Only when
-  // the operator opts in behind a trusted reverse proxy (KILNRY_TRUSTED_PROXY=1)
-  // is the first forwarded address honoured as the real client address.
-  let fallback = 'peer';
+// The better-auth session cookie, by the name auth.ts configures. better-auth
+// 1.7.5 builds it as `${secureCookiePrefix}${cookiePrefix}.session_token`, with
+// cookiePrefix "better-auth" when `advanced.cookiePrefix` is unset
+// (dist/cookies/index.mjs:28-29) and secureCookiePrefix "__Secure-" only when
+// `advanced.useSecureCookies` is on (index.mjs:22, cookie-utils.mjs:10).
+// auth.ts sets no cookiePrefix and turns secure cookies on with KILNRY_TLS=1.
+function sessionCookieName(): string {
+  return `${process.env.KILNRY_TLS === '1' ? '__Secure-' : ''}better-auth.session_token`;
+}
+
+// Policies a caller meets before it has a session. Their bucket is the peer
+// alone: no cookie and no header the caller chose can mint a fresh one.
+const PRE_SESSION_POLICIES = new Set(['sign-in']);
+
+function peerKey(request: NextRequest): string {
+  // `next start` and the standalone server give the proxy no socket peer, and
+  // the app binds loopback (LAN mode has no reverse proxy), so without a proxy
+  // the pre-session bucket is one per process (F-05). Behind a trusted reverse
+  // proxy the operator sets KILNRY_TRUSTED_PROXY=1 and the first forwarded
+  // address is the client (default; adjustable).
   if (process.env.KILNRY_TRUSTED_PROXY === '1') {
     const forwarded = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim();
-    if (forwarded) fallback = `proxy:${forwarded}`;
+    if (forwarded) return `proxy:${forwarded}`;
   }
+  return 'peer';
+}
+
+function principalKey(request: NextRequest, policy: string): string {
+  // Every other policy keys on the session token, never on the whole cookie
+  // jar: an unrelated cookie the caller rotates must not mint a new bucket.
+  const session = PRE_SESSION_POLICIES.has(policy)
+    ? undefined
+    : request.cookies.get(sessionCookieName())?.value;
   return createHash('sha256')
-    .update(session || fallback)
+    .update(session ? `session:${session}` : peerKey(request))
     .digest('hex')
     .slice(0, 24);
 }
@@ -181,7 +195,7 @@ export function proxy(request: NextRequest): NextResponse {
 
   if (request.nextUrl.pathname.startsWith('/api/') && request.nextUrl.pathname !== '/api/health') {
     const policy = ratePolicy(request.nextUrl.pathname);
-    const limited = takeRateLimit(`${policy.name}:${principalKey(request)}`, policy.limit);
+    const limited = takeRateLimit(`${policy.name}:${principalKey(request, policy.name)}`, policy.limit);
     if (!limited.allowed) {
       return addSecurityHeaders(
         NextResponse.json(

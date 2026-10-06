@@ -124,6 +124,68 @@ describe('pre-session rate limit keys on the peer, not X-Forwarded-For (F-ONB-02
     expect(eleventh.status).toBe(429);
   });
 
+  it('shares one sign-in bucket across requests carrying different cookies', () => {
+    // A caller with no session can send any cookie it likes. Keying the sign-in
+    // bucket on the cookie jar let a rotating `Cookie: a=<n>` mint a fresh
+    // bucket per guess exactly as X-Forwarded-For did, so the pre-session
+    // bucket is the peer alone. No header besides Host: the eleventh is refused
+    // by the limiter before the origin check runs.
+    for (let attempt = 1; attempt <= 10; attempt += 1) {
+      const response = proxy(
+        request('/api/auth/sign-in/email', { method: 'POST', headers: { cookie: `a=${attempt}` } }),
+      );
+      expect(response.status).not.toBe(429);
+    }
+    const eleventh = proxy(
+      request('/api/auth/sign-in/email', { method: 'POST', headers: { cookie: 'a=11' } }),
+    );
+    expect(eleventh.status).toBe(429);
+  });
+
+  it('ignores even a better-auth session cookie for the sign-in bucket', () => {
+    for (let attempt = 1; attempt <= 10; attempt += 1) {
+      proxy(
+        request('/api/auth/sign-in/email', {
+          method: 'POST',
+          headers: { cookie: `better-auth.session_token=forged-${attempt}` },
+        }),
+      );
+    }
+    const eleventh = proxy(
+      request('/api/auth/sign-in/email', {
+        method: 'POST',
+        headers: { cookie: 'better-auth.session_token=forged-11' },
+      }),
+    );
+    expect(eleventh.status).toBe(429);
+  });
+
+  it('keys other policies on the better-auth session cookie only, never the whole jar', () => {
+    // The provider-test bucket allows 20/min. Twenty requests with one session
+    // token and a different unrelated cookie each time share that session's
+    // bucket, so the twenty-first is refused; a second session has its own.
+    for (let attempt = 1; attempt <= 20; attempt += 1) {
+      const response = proxy(
+        request('/api/providers/fal/test', {
+          headers: { cookie: `better-auth.session_token=session-one; junk=${attempt}` },
+        }),
+      );
+      expect(response.status).not.toBe(429);
+    }
+    const sameSession = proxy(
+      request('/api/providers/fal/test', {
+        headers: { cookie: 'better-auth.session_token=session-one; junk=21' },
+      }),
+    );
+    expect(sameSession.status).toBe(429);
+    const otherSession = proxy(
+      request('/api/providers/fal/test', {
+        headers: { cookie: 'better-auth.session_token=session-two' },
+      }),
+    );
+    expect(otherSession.status).not.toBe(429);
+  });
+
   it('honours X-Forwarded-For only when the trusted-proxy flag is set', () => {
     // Behind a trusted reverse proxy the operator opts in and each real client
     // address keeps its own bucket again.
