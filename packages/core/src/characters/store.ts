@@ -213,6 +213,10 @@ export async function loadVersion(
     negative_traits: raw.negative_traits ?? [],
     ...(raw.palette_hex ? { palette_hex: raw.palette_hex } : {}),
     ...(raw.gendered_noun ? { gendered_noun: raw.gendered_noun } : {}),
+    // A product Element's facts were written by the URL import and then dropped
+    // here, so every reader of a loaded version — the read tool's ticked-claims
+    // branch included — saw no claims at all (found while fixing F-123).
+    ...(raw.product_facts ? { product_facts: raw.product_facts } : {}),
   };
   const result: LoadedVersion = {
     id: characterId,

@@ -76,6 +76,9 @@ export const libraryTool: KilnryTool = {
   },
 };
 
+/** The label TRD-15 §13 names for text taken from a fetched web page. */
+export const WEB_PAGE_LABEL = 'from the web page:';
+
 // kilnry_characters — read and resolve Characters and Elements (read-only).
 export const charactersTool: KilnryTool = {
   name: 'kilnry_characters',
@@ -113,8 +116,17 @@ export const charactersTool: KilnryTool = {
         const versions = head ? await listVersions(services.db, head.id) : [];
         // A product Element exposes only the claims the user ticked, never the
         // full extracted list (F-ELM-04 acceptance 2).
-        const facts = (item.appearance as { product_facts?: { approved_claims?: string[] } }).product_facts;
-        const approvedClaims = facts?.approved_claims ?? [];
+        const facts = (
+          item.appearance as {
+            product_facts?: { approved_claims?: string[]; source_url?: string };
+          }
+        ).product_facts;
+        // TRD-15 §13: text extracted from a product page is labelled in the
+        // prompt, so the model reads a claim as someone else's words rather than
+        // as its own knowledge or an instruction (F-123).
+        const approvedClaims = (facts?.approved_claims ?? []).map((claim) =>
+          facts?.source_url === undefined ? claim : `${WEB_PAGE_LABEL} ${claim}`,
+        );
         return {
           text: `@${item.handle} (${item.kind}).`,
           structuredContent: { item: { ...item, versions, approved_claims: approvedClaims } },
