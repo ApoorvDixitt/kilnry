@@ -386,4 +386,73 @@ describe('workflow run view (F-WFL-03)', () => {
     });
     expect(reloadUrls.some((url) => url.endsWith('/api/runs/run_1'))).toBe(true);
   });
+
+  // F-100: the live run keeps one stream for its whole life. The fake mirrors
+  // /api/events as the route implements it: a fresh EventSource (no
+  // Last-Event-ID) is first sent every buffered event (`eventHub.since(0)`,
+  // apps/web/src/app/api/events/route.ts:22), so a job event arrives right after
+  // each open. Every reload returns a new run object, as the server does.
+  it('keeps one EventSource and at most two run GETs in the first 5 s of a live run (F-100)', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'setInterval', 'clearTimeout', 'clearInterval'] });
+    try {
+      let constructed = 0;
+      class ReplayingEventSource {
+        #listeners = new Map<string, Array<(event: MessageEvent) => void>>();
+        #closed = false;
+        constructor(public url: string) {
+          constructed += 1;
+          setTimeout(() => {
+            if (this.#closed) return;
+            for (const handler of this.#listeners.get('open') ?? []) handler(new MessageEvent('open'));
+            for (const handler of this.#listeners.get('job.updated') ?? [])
+              handler(new MessageEvent('job.updated', { data: '{}' }));
+          }, 5);
+        }
+        addEventListener(type: string, handler: (event: MessageEvent) => void): void {
+          this.#listeners.set(type, [...(this.#listeners.get(type) ?? []), handler]);
+        }
+        close(): void {
+          this.#closed = true;
+        }
+      }
+      vi.stubGlobal('EventSource', ReplayingEventSource as unknown as typeof EventSource);
+      let runGets = 0;
+      vi.stubGlobal(
+        'fetch',
+        vi.fn((input: RequestInfo | URL) => {
+          if (String(input).endsWith('/api/runs/run_1')) runGets += 1;
+          return Promise.resolve(
+            new Response(JSON.stringify({ run: { ...RUN, status: 'running', steps: [...RUN.steps] } }), {
+              status: 200,
+            }),
+          );
+        }),
+      );
+      const host = await render(<WorkflowRunView runId="run_1" initial={{ ...RUN, status: 'running' }} />);
+      for (let elapsed = 0; elapsed < 5000; elapsed += 50) {
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(50);
+        });
+      }
+      expect(constructed).toBe(1);
+      expect(runGets).toBeLessThanOrEqual(2);
+      // UX-13: the header says the stream is live.
+      expect(host.querySelector('[data-testid="run-stream"]')?.textContent).toBe('Live');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('shows a stalled stream in the header so a view that stopped moving is visible (UX-13)', async () => {
+    const host = await render(
+      <RunHeader run={{ ...RUN, status: 'running' }} stream="stalled" onCancel={() => {}} />,
+    );
+    expect(host.querySelector('[data-testid="run-stream"]')?.textContent).toBe(
+      'Live updates stopped · checking every 10 s',
+    );
+    const done = await render(
+      <RunHeader run={{ ...RUN, status: 'completed' }} stream="live" onCancel={() => {}} />,
+    );
+    expect(done.querySelector('[data-testid="run-stream"]')).toBeNull();
+  });
 });

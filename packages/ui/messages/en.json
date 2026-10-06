@@ -1112,6 +1112,11 @@
         "queued": "Queued",
         "skipped": "Skipped",
         "waiting": "Waiting"
+      },
+      "stream": {
+        "connecting": "Connecting…",
+        "live": "Live",
+        "stalled": "Live updates stopped · checking every 10 s"
       }
     },
     "approval": {

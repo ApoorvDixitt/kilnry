@@ -25,6 +25,11 @@ import {
 } from './workflow-run-view-logic';
 
 const DETAIL_TABS = ['inputs', 'outputs', 'logs', 'cost'] as const;
+
+// The state of the run view's one server-sent event stream (UX-13): shown in the
+// header while the run is live, so a stalled stream is visible instead of a
+// view that silently stops moving.
+export type RunStreamState = 'connecting' | 'live' | 'stalled';
 type DetailTab = (typeof DETAIL_TABS)[number];
 
 export function RunHeader({
@@ -35,8 +40,10 @@ export function RunHeader({
   onOpenFolder,
   onExportManifest,
   onSaveAsWorkflow,
+  stream,
 }: {
   run: RunView;
+  stream?: RunStreamState;
   onCancel: () => void;
   onRerunFrom?: (stepId: string) => void;
   onDuplicate?: () => void;
@@ -57,6 +64,11 @@ export function RunHeader({
         <span className="run-progress-count">
           {message('workflows.runView.progress').replace('{n}', String(done)).replace('{m}', String(total))}
         </span>
+        {stream && !finished ? (
+          <span className={`run-stream run-stream-${stream}`} role="status" data-testid="run-stream">
+            {message(`workflows.runView.stream.${stream}`)}
+          </span>
+        ) : null}
         <span className="run-cost">{costSoFarLabel(run)}</span>
         {finished ? null : (
           <button type="button" className="run-cancel-button" onClick={onCancel}>
@@ -528,6 +540,13 @@ export function WorkflowRunView({ runId, initial }: { runId: string; initial?: R
     if (initial === undefined) void reload();
   }, [initial, reload]);
 
+  // The stream's life is the run's liveness, not the run object: every reload
+  // produces a new `run`, and an effect keyed on it tore the stream down and
+  // reopened it on each one; /api/events replays its buffer to a fresh stream,
+  // whose job events reloaded again — hundreds of GETs a second (F-100).
+  const live = run === null || isLive(run.status);
+  const [stream, setStream] = useState<RunStreamState>('connecting');
+
   useEffect(() => {
     // Drive the run view from the pg-boss event hub over server-sent events
     // rather than a fixed 2-second poll (F32, PRD-10 §3). Every job update,
@@ -538,7 +557,7 @@ export function WorkflowRunView({ runId, initial }: { runId: string; initial?: R
     // loaded, terminal run needs no further updates (F-WFL-03). When the browser
     // has no EventSource, fall back to a slow safety poll so the view still
     // advances.
-    if (run && !isLive(run.status)) return;
+    if (!live) return;
     if (typeof EventSource === 'undefined') {
       const timer = setInterval(() => void reload(), 2000);
       return () => clearInterval(timer);
@@ -558,7 +577,11 @@ export function WorkflowRunView({ runId, initial }: { runId: string; initial?: R
     ]) {
       source.addEventListener(type, onJob);
     }
-    source.addEventListener('error', () => source.close());
+    source.addEventListener('open', () => setStream('live'));
+    source.addEventListener('error', () => {
+      source.close();
+      setStream('stalled');
+    });
     // A low-frequency safety poll covers the first-write race (a run row that
     // appears just after the stream opened) and any missed event, without the
     // old two-second churn.
@@ -567,7 +590,7 @@ export function WorkflowRunView({ runId, initial }: { runId: string; initial?: R
       source.close();
       clearInterval(safety);
     };
-  }, [run, reload]);
+  }, [runId, live, reload]);
 
   const cancel = useCallback(async (): Promise<void> => {
     await apiFetch(`/api/runs/${encodeURIComponent(runId)}/cancel`, { method: 'POST' });
@@ -685,6 +708,7 @@ export function WorkflowRunView({ runId, initial }: { runId: string; initial?: R
     <section className="run-view">
       <RunHeader
         run={run}
+        stream={stream}
         onCancel={() => void cancel()}
         onRerunFrom={(stepId) => void rerunFrom(stepId)}
         onDuplicate={() => void duplicate()}

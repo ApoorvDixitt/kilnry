@@ -251,14 +251,10 @@ async function driveRun(
   // or cancelled fails here with its step errors, and the folder and manifest
   // are read only once the run has completed.
   const runId = new URL(page.url()).pathname.split('/').at(-1)!;
-  const readRun = async (): Promise<RunView | 'rendering'> => {
+  const readRun = async (): Promise<RunView> => {
     const answer = await page.evaluate(async (id) => {
-      // Under a long, busy shard the single-threaded server can be mid-write and
-      // not answer this instant, so the browser fetch rejects at the network
-      // layer. Report that as status 0 — the server is busy, a real observable
-      // condition — so the caller waits for the next poll tick instead of
-      // treating one unanswered GET as a product failure. This is not a swallowed
-      // error: an HTTP error status below still throws.
+      // A fetch rejected at the network layer is reported as status 0 and
+      // thrown below with the run id, so a dropped request fails the scenario.
       try {
         const response = await fetch(`/api/runs/${encodeURIComponent(id)}`);
         return { status: response.status, body: await response.text() };
@@ -266,7 +262,9 @@ async function driveRun(
         return { status: 0, body: '' };
       }
     }, runId);
-    if (answer.status === 0) return 'rendering';
+    // A GET the server never answered is a failure, not "still rendering": the
+    // run view's request storm that made drops routine is gone (F-100, F-87).
+    if (answer.status === 0) throw new Error(`GET /api/runs/${runId} got no answer`);
     if (answer.status !== 200) {
       throw new Error(`GET /api/runs/${runId} answered ${answer.status}: ${answer.body.slice(0, 300)}`);
     }
@@ -283,13 +281,12 @@ async function driveRun(
       .poll(
         async () => {
           const view = await readRun();
-          return view === 'rendering' ? 'rendering' : view.status;
+          return view.status;
         },
         { timeout: 420_000, intervals: [2_000] },
       )
       .toMatch(/^(awaiting_approval|completed|failed|cancelled)$/);
     const run = await readRun();
-    if (run === 'rendering') continue;
     if (run.status === 'completed') break;
     if (run.status !== 'awaiting_approval') {
       const errors = run.steps
@@ -308,9 +305,8 @@ async function driveRun(
     await expect(card.getByRole('button', { name: /Approve/i })).toBeVisible();
     // Drive the same /approve the card's button drives, awaiting it. Approve now
     // records the decision, enqueues one drive and returns fast, so this does not
-    // hold a request open for the render. A 429 is explicit backpressure (the run
-    // view polls the same server), not a failure, so honour it and retry,
-    // bounded; any other non-200 fails.
+    // hold a request open for the render. Any non-200, a 429 included, fails:
+    // the run view no longer floods the rate bucket (F-100, F-87).
     await expect
       .poll(
         async () => {
@@ -329,13 +325,11 @@ async function driveRun(
               });
               return { status: response.status, body: await response.text() };
             } catch {
-              // The server was mid-write under shard load and did not answer this
-              // POST; status 0 means retry on the next tick, the same tolerance
-              // readRun gives a dropped GET. No .catch or timer in the wait.
+              // An unanswered POST is status 0, which throws below like any
+              // other non-200.
               return { status: 0, body: '' };
             }
           }, runId);
-          if (answer.status === 0 || answer.status === 429) return false;
           if (answer.status !== 200)
             throw new Error(`approve ${answer.status}: ${answer.body.slice(0, 200)}`);
           return true;
@@ -352,9 +346,6 @@ async function driveRun(
       .poll(
         async () => {
           const next = await readRun();
-          // The server is busy and did not answer this instant; the run is still
-          // working, which is what this poll waits out.
-          if (next === 'rendering') return false;
           const same = next.steps.find((step) => step.step_id === waiting!.step_id);
           return same?.status !== 'waiting' || next.status === 'completed' || next.status === 'failed';
         },

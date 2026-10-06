@@ -8,7 +8,7 @@
 // driver: open the workflow, fill the intake by field id, preview, approve the
 // plan total, clear every approval checkpoint through the UI, then read the run
 // folder's manifest once it lands on disk. Waits are on the run's own state, not
-// timers; a dropped GET/POST under shard load reports status 0 and is retried.
+// timers; a dropped GET/POST (status 0) or any non-200 fails the run at once.
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
@@ -245,7 +245,7 @@ export async function driveWorkflowRun(
   await page.waitForURL(/\/workflows\/runs\/[^/]+$/, { timeout: 180_000 });
 
   const runId = new URL(page.url()).pathname.split('/').at(-1)!;
-  const readRun = async (): Promise<RunView | 'rendering'> => {
+  const readRun = async (): Promise<RunView> => {
     const answer = await page.evaluate(async (id) => {
       try {
         const response = await fetch(`/api/runs/${encodeURIComponent(id)}`);
@@ -254,7 +254,9 @@ export async function driveWorkflowRun(
         return { status: 0, body: '' };
       }
     }, runId);
-    if (answer.status === 0) return 'rendering';
+    // A GET the server never answered is a failure, not "still rendering": the
+    // run view's request storm that made drops routine is gone (F-100, F-87).
+    if (answer.status === 0) throw new Error(`GET /api/runs/${runId} got no answer`);
     if (answer.status !== 200) {
       throw new Error(`GET /api/runs/${runId} answered ${answer.status}: ${answer.body.slice(0, 300)}`);
     }
@@ -266,13 +268,12 @@ export async function driveWorkflowRun(
       .poll(
         async () => {
           const view = await readRun();
-          return view === 'rendering' ? 'rendering' : view.status;
+          return view.status;
         },
         { timeout: 420_000, intervals: [2_000] },
       )
       .toMatch(/^(awaiting_approval|completed|failed|cancelled)$/);
     const run = await readRun();
-    if (run === 'rendering') continue;
     if (run.status === 'completed') break;
     if (run.status !== 'awaiting_approval') {
       const errors = run.steps
@@ -318,7 +319,6 @@ export async function driveWorkflowRun(
               return { status: 0, body: '' };
             }
           }, runId);
-          if (answer.status === 0 || answer.status === 429) return false;
           if (answer.status !== 200)
             throw new Error(`approve ${answer.status}: ${answer.body.slice(0, 200)}`);
           return true;
@@ -330,7 +330,6 @@ export async function driveWorkflowRun(
       .poll(
         async () => {
           const next = await readRun();
-          if (next === 'rendering') return false;
           const same = next.steps.find((step) => step.step_id === waiting!.step_id);
           return same?.status !== 'waiting' || next.status === 'completed' || next.status === 'failed';
         },

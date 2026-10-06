@@ -7022,6 +7022,15 @@ html[data-motion='reduced'] *::after {
   font-size: 13px;
 }
 
+.run-stream {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.run-stream-stalled {
+  color: var(--danger);
+}
+
 .run-cost {
   color: var(--accent-text);
   font-weight: 600;
