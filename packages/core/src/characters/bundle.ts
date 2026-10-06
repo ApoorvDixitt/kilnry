@@ -13,8 +13,8 @@
 // bundle carries a release and the importer confirms.
 
 import { createHash } from 'node:crypto';
-import { copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
-import { basename, join } from 'node:path';
+import { copyFile, lstat, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { basename, join, relative } from 'node:path';
 import { and, eq } from 'drizzle-orm';
 import * as z from 'zod';
 import { assets, characters, trainedIdentities, type DatabaseState } from '@kilnry/db';
@@ -131,6 +131,34 @@ async function sha256(path: string): Promise<string> {
 
 function safeSegment(input: string): string {
   return input.replace(/[^a-z0-9_-]+/gi, '_');
+}
+
+// A bundle may not carry a symbolic link anywhere (PRD-07 §14: import never
+// reads outside the extracted bundle; F-06). unzip restores a link stored with
+// `zip -y` verbatim, and copyFile follows it, so a manifest path that is in
+// bounds could still copy any host file the server can read into the Library.
+// The whole extracted tree is walked with lstat before anything is read.
+async function assertNoSymlinks(extractDir: string, dir = extractDir): Promise<void> {
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    const abs = join(dir, entry.name);
+    if (entry.isSymbolicLink()) {
+      throw new KilnryError(
+        'INVALID_INPUT',
+        `A Character bundle cannot contain a symbolic link: ${relative(extractDir, abs)}.`,
+      );
+    }
+    if (entry.isDirectory()) await assertNoSymlinks(extractDir, abs);
+  }
+}
+
+// Each entry the manifest names (references, their sidecars, the identity) is
+// checked again with lstat right before it is read, so a link can never be
+// followed even if the tree changed after the walk.
+async function assertRegularFile(extractDir: string, rel: string): Promise<void> {
+  const stats = await lstat(join(extractDir, rel)).catch(() => undefined);
+  if (stats?.isSymbolicLink()) {
+    throw new KilnryError('INVALID_INPUT', `A Character bundle cannot contain a symbolic link: ${rel}.`);
+  }
 }
 
 export async function exportCharacterBundle(
@@ -336,6 +364,7 @@ export async function importCharacterBundle(
   await mkdir(extractDir, { recursive: true });
   try {
     await services.unzipTo(bundleAbs, extractDir);
+    await assertNoSymlinks(extractDir);
 
     const manifestRaw = await readFile(join(extractDir, 'character.json'), 'utf8').catch(() => '');
     if (manifestRaw.trim() === '') {
@@ -355,6 +384,8 @@ export async function importCharacterBundle(
     const bad: string[] = [];
     const sidecars = new Map<string, z.infer<typeof SidecarSchema>>();
     for (const ref of manifest.character.references) {
+      await assertRegularFile(extractDir, ref.file);
+      await assertRegularFile(extractDir, `${ref.file}.kilnry.json`);
       const sidecarAbs = sidecarPath(join(extractDir, ref.file));
       const raw = await readFile(sidecarAbs, 'utf8').catch(() => '');
       if (raw.trim() === '') continue; // no sidecar is allowed; a bad one is not
@@ -368,6 +399,7 @@ export async function importCharacterBundle(
 
     // Verify any LoRA's sha256 before trusting the bundle.
     if (manifest.identity) {
+      await assertRegularFile(extractDir, manifest.identity.file);
       const digest = await sha256(join(extractDir, manifest.identity.file)).catch(() => '');
       if (digest !== manifest.identity.sha256) {
         throw new KilnryError('INVALID_INPUT', "The bundle's LoRA does not match its recorded sha256.");

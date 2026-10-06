@@ -9,7 +9,7 @@
 // wiring spawns.
 
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -234,5 +234,77 @@ describe('character export/import bundle (F-CHR-14)', () => {
     });
     expect(imported.consent_status).toBe('none');
     expect(imported.notes.join(' ')).toMatch(/consent was reset to none/);
+  }, 30_000);
+
+  it('refuses a bundle whose reference is a symbolic link and copies nothing (F-06)', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'kilnry-char-symlink-'));
+    const dataDir = join(root, 'data');
+    const library = join(root, 'library');
+    const bundlesRoot = join(root, 'bundles');
+    mkdirSync(dataDir);
+    mkdirSync(bundlesRoot);
+    const prepared = prepareLibraryRoot(library, dataDir);
+    const state = createDatabase(dataDir, { memory: true });
+    disposers.push(async () => {
+      await closeDatabaseState(state);
+      rmSync(root, { recursive: true, force: true });
+    });
+    await state.ready;
+    const refAbs = join(library, 'inbox', 'anchor.png');
+    writeFileSync(
+      refAbs,
+      Buffer.from(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+        'base64',
+      ),
+    );
+    const assetId = (await indexAsset(state, library, refAbs, prepared.marker.library_id)).sidecar.asset_id;
+    const created = await createCharacter(state, {
+      handle: 'maya',
+      kind: 'character',
+      display_name: 'Maya',
+      appearance: { descriptor: 'a calm ceramicist', anchors: [], negative_traits: [] },
+    });
+    await addReferences(state, created.id, [{ asset_id: assetId, role: 'anchor', view: 'front' }]);
+    const services: CharacterBundleServices = {
+      db: state,
+      libraryRoot: library,
+      bundlesRoot,
+      exportsRoot: join(library, 'Exports'),
+      kilnryVersion: '0.5.0-test',
+      zipDir,
+      unzipTo,
+      indexAsset: async (rel) =>
+        (await indexAsset(state, library, join(library, rel), prepared.marker.library_id)).sidecar.asset_id,
+    };
+    const exported = await exportCharacterBundle(services, { handle: 'maya' });
+
+    // Rebuild the bundle with the reference image replaced by a symbolic link
+    // to a host file outside the bundle; `zip -y` stores the link itself, and
+    // unzip restores it verbatim (the audit's repro).
+    const secret = join(root, 'secret.txt');
+    writeFileSync(secret, 'SECRET-TARGET-CONTENTS');
+    const crafted = join(root, 'crafted');
+    mkdirSync(crafted);
+    await unzipTo(exported.bundle_path, crafted);
+    const refName = exported.manifest.character.references[0]!.file;
+    rmSync(join(crafted, refName));
+    symlinkSync(secret, join(crafted, refName));
+    const craftedZip = join(bundlesRoot, 'crafted.kilnry-character.zip');
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn('zip', ['-y', '-r', '-q', craftedZip, '.'], { cwd: crafted });
+      child.on('error', reject);
+      child.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`zip exited ${code}`))));
+    });
+
+    await expect(
+      importCharacterBundle(services, { bundle_path: craftedZip, on_conflict: 'rename' }),
+    ).rejects.toMatchObject({
+      code: 'INVALID_INPUT',
+      message: `A Character bundle cannot contain a symbolic link: ${refName}.`,
+    });
+    // Nothing was created or copied: no new Character, no imported folder.
+    expect(await lookupHandle(state, 'maya_2')).toBeUndefined();
+    expect(existsSync(join(library, 'Characters', '@maya_2'))).toBe(false);
   }, 30_000);
 });
