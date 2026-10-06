@@ -52,7 +52,11 @@ export const DESIGN_PROVIDERS: Record<DesignProvider, DesignProviderCard> = {
 
 // Price a design from the registry so the confirmed figure is the registry's
 // (F-VOI-03 acceptance 1: the price is shown before submit).
-export async function priceDesign(db: DatabaseState, provider: DesignProvider): Promise<Estimate> {
+export async function priceDesign(
+  db: DatabaseState,
+  provider: DesignProvider,
+  now: Date = new Date(),
+): Promise<Estimate> {
   const modelId = DESIGN_PRICING[provider];
   const registry = await loadRegistry(db);
   const model = registry.models.find(
@@ -76,7 +80,7 @@ export async function priceDesign(db: DatabaseState, provider: DesignProvider): 
     target_folder: 'inbox',
     source: 'ui',
   };
-  return priceEstimate({ model, snapshot, request });
+  return priceEstimate({ model, snapshot, request, now });
 }
 
 export interface DesignInput {
@@ -144,7 +148,7 @@ export async function designVoice(services: DesignServices, input: DesignInput):
   // PRD-14 "reserve"): the cap check and a pending ledger row at the estimate are
   // one locked transaction, keyed by the voice's own id so a design is charged at
   // most once.
-  const designEstimate = await priceDesign(services.db, input.provider);
+  const designEstimate = await priceDesign(services.db, input.provider, services.now?.() ?? new Date());
   assertFreshPrice(designEstimate, input.allow_stale_price);
   assertCostConfirmation(designEstimate, input.confirmed_cost_usd);
   const chargedUsd = designEstimate.authoritative_usd ?? designEstimate.estimate_usd;

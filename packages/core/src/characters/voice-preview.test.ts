@@ -19,6 +19,7 @@ import {
 import { eq } from 'drizzle-orm';
 import { seedRegistry } from '../registry/store.js';
 import { previewVoice, deleteVoice, PREVIEW_SAMPLE } from './voice-preview.js';
+import { seedPinnedClock } from '../registry/seed/test-clock.js';
 
 const disposers: Array<() => Promise<void>> = [];
 afterEach(async () => {
@@ -44,6 +45,7 @@ describe('voice preview and deletion (F-VOI-01)', () => {
     const result = await previewVoice(
       {
         db: state,
+        now: seedPinnedClock(),
         synth: async ({ text }) => {
           synthesisedText = text;
           return { bytes: new Uint8Array([1, 2, 3]), mime: 'audio/mpeg' };
@@ -69,7 +71,11 @@ describe('voice preview and deletion (F-VOI-01)', () => {
     const state = await db();
     await expect(
       previewVoice(
-        { db: state, synth: async () => ({ bytes: new Uint8Array(), mime: 'audio/mpeg' }) },
+        {
+          db: state,
+          now: seedPinnedClock(),
+          synth: async () => ({ bytes: new Uint8Array(), mime: 'audio/mpeg' }),
+        },
         { provider: 'minimax', voiceId: 'v1' },
       ),
     ).rejects.toMatchObject({ code: 'NO_PROVIDER' });
@@ -113,6 +119,7 @@ describe('voice preview holds its estimate before synthesis (F-01, F-PRV-04)', (
     let calls = 0;
     const services = {
       db: state,
+      now: seedPinnedClock(),
       synth: async () => {
         calls += 1;
         await gate;
@@ -145,7 +152,7 @@ describe('voice preview holds its estimate before synthesis (F-01, F-PRV-04)', (
     const state = await db();
     await expect(
       previewVoice(
-        { db: state, synth: () => Promise.reject(new Error('synthesis refused')) },
+        { db: state, now: seedPinnedClock(), synth: () => Promise.reject(new Error('synthesis refused')) },
         { provider: 'elevenlabs', voiceId: 'v1', text },
       ),
     ).rejects.toThrow('synthesis refused');
@@ -158,12 +165,15 @@ describe('voice preview holds its estimate before synthesis (F-01, F-PRV-04)', (
 describe('voice preview refuses a stale price (F-21, F-PRV-07)', () => {
   it('refuses a 31-day-old price with CONFIRMATION_REQUIRED and synthesises nothing', async () => {
     const state = await db();
-    await state.db.update(priceSnapshots).set({ fetchedAt: new Date(Date.now() - 31 * 86_400_000) });
+    await state.db
+      .update(priceSnapshots)
+      .set({ fetchedAt: new Date(seedPinnedClock()().getTime() - 31 * 86_400_000) });
     let calls = 0;
     await expect(
       previewVoice(
         {
           db: state,
+          now: seedPinnedClock(),
           synth: async () => {
             calls += 1;
             return { bytes: new Uint8Array([1]), mime: 'audio/mpeg' };

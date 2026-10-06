@@ -146,6 +146,8 @@ export function route(
     snapshots: ReadonlyMap<string, PriceSnapshot>;
     providers: Partial<Record<ProviderId, ProviderRouteState>>;
     now?: Date;
+    /** The clock a price snapshot's age is judged by (D-71a); defaults to now. */
+    price_now?: Date;
     price_max_age_days?: number;
   },
 ): RouteResult {
@@ -177,7 +179,7 @@ export function route(
       model,
       snapshot,
       request,
-      now,
+      now: context.price_now ?? now,
       ...(context.price_max_age_days === undefined ? {} : { price_max_age_days: context.price_max_age_days }),
     });
     if (constraints.max_price_usd !== undefined && priced.estimate_usd > constraints.max_price_usd) {

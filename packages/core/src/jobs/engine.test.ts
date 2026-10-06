@@ -31,6 +31,7 @@ import type { PollStatus, ProviderAdapter, ProviderResult, SubmitHandle } from '
 import { prepareLibraryRoot } from '../library/root.js';
 import { readSidecar } from '../library/sidecar.js';
 import { canonicalQueueName, JobEngine, type JobEngineOptions } from './engine.js';
+import { seedPinnedClock } from '../registry/seed/test-clock.js';
 
 const tinyPng = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
@@ -141,7 +142,7 @@ function fakeAdapter(overrides: Partial<FakeState> = {}): { adapter: ProviderAda
 async function harness(
   adapter: ProviderAdapter,
   withKey = true,
-  engineOptions: Partial<Pick<JobEngineOptions, 'pollScheduleMs' | 'pollTimeoutMs' | 'runDriver'>> & {
+  engineOptions: Partial<Pick<JobEngineOptions, 'pollScheduleMs' | 'pollTimeoutMs' | 'runDriver' | 'now'>> & {
     extraAdapters?: ProviderAdapter[];
   } = {},
 ): Promise<{
@@ -185,6 +186,8 @@ async function harness(
     submitRetryScheduleMs: [0],
     pollTimeoutMs: engineOptions.pollTimeoutMs ?? 2000,
     ...(engineOptions.runDriver ? { runDriver: engineOptions.runDriver } : {}),
+    // The bundled seed is priced on the pinned clock, never the wall clock (D-71a).
+    now: engineOptions.now ?? seedPinnedClock(),
     log: (_level, event) => {
       if (event.startsWith('job_finalize_')) stages.push(event.replace('job_finalize_', ''));
     },
@@ -415,7 +418,10 @@ describe('pg-boss job engine', () => {
         confirmed_cost_usd: priced.estimate.estimate_usd,
         confirmed_by: 'user',
       }),
-    ).rejects.toMatchObject({ code: 'INVALID_INPUT', options: { details: { stale_price: true } } });
+    ).rejects.toMatchObject({
+      code: 'CONFIRMATION_REQUIRED',
+      options: { details: { reason: 'stale_price', stale_price: true } },
+    });
     const created = await engine.createJob({
       request: imageRequest(),
       confirmed_cost_usd: priced.estimate.estimate_usd,
@@ -423,6 +429,29 @@ describe('pg-boss job engine', () => {
       allow_stale_price: true,
     });
     expect(await engine.waitForJob(created.job_id, 5000)).toMatchObject({ status: 'completed' });
+  });
+
+  // D-71a: the age of a price is judged against the engine's clock, not the
+  // wall clock. On the pinned clock (SEEDED_AT + 1 day) the bundled seed is
+  // fresh; the same untouched seed read 31 days after SEEDED_AT is stale, and the
+  // engine refuses it exactly as every job-less paid path does.
+  it('judges the bundled seed fresh on the pinned clock and stale 31 days after it was stamped', async () => {
+    const fresh = await harness(fakeAdapter().adapter);
+    expect((await fresh.engine.estimate(imageRequest())).estimate.adjustments).not.toContain('stale_price');
+
+    const late = await harness(fakeAdapter().adapter, true, { now: seedPinnedClock(31 * 86_400_000) });
+    const priced = await late.engine.estimate(imageRequest());
+    expect(priced.estimate.adjustments).toContain('stale_price');
+    await expect(
+      late.engine.createJob({
+        request: imageRequest(),
+        confirmed_cost_usd: priced.estimate.estimate_usd,
+        confirmed_by: 'user',
+      }),
+    ).rejects.toMatchObject({
+      code: 'CONFIRMATION_REQUIRED',
+      options: { details: { reason: 'stale_price' } },
+    });
   });
 
   it('writes a zero ledger entry for moderation', async () => {

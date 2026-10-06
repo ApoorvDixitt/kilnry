@@ -82,7 +82,11 @@ export function clonedVoiceProvider(provider: CloneProvider): string {
 
 // Price a clone from the registry so the confirmed figure is the figure the
 // registry holds (F-VOI-02, F-PRV-05).
-export async function priceClone(db: DatabaseState, provider: CloneProvider): Promise<Estimate> {
+export async function priceClone(
+  db: DatabaseState,
+  provider: CloneProvider,
+  now: Date = new Date(),
+): Promise<Estimate> {
   const { registry_provider: registryProvider, model_id: modelId } = CLONE_PRICING[provider];
   const registry = await loadRegistry(db);
   const model = registry.models.find(
@@ -106,7 +110,7 @@ export async function priceClone(db: DatabaseState, provider: CloneProvider): Pr
     target_folder: 'inbox',
     source: 'ui',
   };
-  return priceEstimate({ model, snapshot, request });
+  return priceEstimate({ model, snapshot, request, now });
 }
 
 export interface CloneInput {
@@ -195,7 +199,7 @@ export async function cloneVoice(services: CloneServices, input: CloneInput): Pr
   // cap check and the pending ledger row are one locked transaction, so two
   // concurrent clones against a cap with room for one admit exactly one. A free
   // clone (ElevenLabs instant voice cloning) still records one ledger row at $0.
-  const cloneEstimate = await priceClone(services.db, input.provider);
+  const cloneEstimate = await priceClone(services.db, input.provider, services.now?.() ?? new Date());
   assertFreshPrice(cloneEstimate, input.allow_stale_price);
   assertCostConfirmation(cloneEstimate, input.confirmed_cost_usd);
   const chargedUsd = cloneEstimate.authoritative_usd ?? cloneEstimate.estimate_usd;

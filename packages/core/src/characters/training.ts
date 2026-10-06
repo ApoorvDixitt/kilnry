@@ -98,7 +98,12 @@ const TRAINER_PRICING: Record<TrainerId, { model_id: string; capability: Canonic
 // Price a training run from the registry so the confirmed figure is the figure
 // the registry holds (F-CHR-07, F-PRV-05). The estimate carries the provider's
 // authoritative figure when one is available and the formula figure otherwise.
-export async function priceTraining(db: DatabaseState, trainer: TrainerId, steps: number): Promise<Estimate> {
+export async function priceTraining(
+  db: DatabaseState,
+  trainer: TrainerId,
+  steps: number,
+  now: Date = new Date(),
+): Promise<Estimate> {
   const pricing = TRAINER_PRICING[trainer];
   const registry = await loadRegistry(db);
   const model = registry.models.find(
@@ -122,7 +127,7 @@ export async function priceTraining(db: DatabaseState, trainer: TrainerId, steps
     target_folder: 'inbox',
     source: 'ui',
   };
-  return priceEstimate({ model, snapshot, request, steps });
+  return priceEstimate({ model, snapshot, request, steps, now });
 }
 
 // The trigger word a LoRA is trained with (PRD-07 §8): the handle stripped to
@@ -242,7 +247,12 @@ export async function startTraining(
   // before any provider request is made (F-CHR-07, F-PRV-05). The estimate, the
   // reservation and the ledger row all use this one figure.
   const steps = input.steps ?? 1000;
-  const trainingEstimate = await priceTraining(services.db, input.trainer, steps);
+  const trainingEstimate = await priceTraining(
+    services.db,
+    input.trainer,
+    steps,
+    services.now?.() ?? new Date(),
+  );
   assertFreshPrice(trainingEstimate, input.allow_stale_price);
   assertCostConfirmation(trainingEstimate, input.confirmed_cost_usd);
   const chargedUsd = trainingEstimate.authoritative_usd ?? trainingEstimate.estimate_usd;

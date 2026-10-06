@@ -37,7 +37,12 @@ const PREVIEW_MODEL: Partial<Record<string, string>> = {
 };
 
 // Price a preview of the given length from the provider's text-to-speech row.
-export async function pricePreview(db: DatabaseState, provider: string, text: string): Promise<Estimate> {
+export async function pricePreview(
+  db: DatabaseState,
+  provider: string,
+  text: string,
+  now: Date = new Date(),
+): Promise<Estimate> {
   const modelId = PREVIEW_MODEL[provider];
   const registry = modelId ? await loadRegistry(db) : undefined;
   const model = registry?.models.find(
@@ -61,7 +66,7 @@ export async function pricePreview(db: DatabaseState, provider: string, text: st
     target_folder: 'inbox',
     source: 'ui',
   };
-  return priceEstimate({ model, snapshot, request, text_chars: text.length });
+  return priceEstimate({ model, snapshot, request, text_chars: text.length, now });
 }
 
 export interface PreviewServices {
@@ -84,7 +89,7 @@ export async function previewVoice(
 ): Promise<{ bytes: Uint8Array; mime: string; estimate_usd: number }> {
   const now = services.now ?? (() => new Date());
   const text = input.text && input.text.trim() !== '' ? input.text : PREVIEW_SAMPLE;
-  const estimate = await pricePreview(services.db, input.provider, text);
+  const estimate = await pricePreview(services.db, input.provider, text, services.now?.() ?? new Date());
   assertFreshPrice(estimate, input.allow_stale_price);
   assertCostConfirmation(estimate, estimate.estimate_usd);
   // Hold the estimate before the synthesis call (F-01, D-60): the cap check and

@@ -14,7 +14,12 @@ import { bindFragmentAssets, mentionsPossible, mergeFragment, resolveForEngine }
 import { recordAssetCharacters } from '../characters/store.js';
 import { indexAsset } from '../library/index.js';
 import { createDerivatives } from '@kilnry/media';
-import { BUDGET_LOCK_ID, assertCostConfirmation, reserveBudget } from '../budget/enforcer.js';
+import {
+  BUDGET_LOCK_ID,
+  assertCostConfirmation,
+  assertFreshPrice,
+  reserveBudget,
+} from '../budget/enforcer.js';
 import { normalizeConfirmedBy } from '../budget/confirmation.js';
 import { KilnryError } from '../errors.js';
 import { eventHub, type EventHub } from '../events/hub.js';
@@ -423,6 +428,8 @@ export class JobEngine {
       models: registry.models,
       snapshots: registry.snapshots,
       providers: providersState,
+      now: this.#options.now(),
+      price_now: this.#options.now(),
     });
     // One resolver for every surface (TRD-14 §1): @mentions become provider
     // inputs here, once, against the routed model. The resolver's own ladder
@@ -464,6 +471,8 @@ export class JobEngine {
             models: registry.models,
             snapshots: registry.snapshots,
             providers: providersState,
+            now: this.#options.now(),
+            price_now: this.#options.now(),
           },
         );
         chosenManifest = registry.models.find(
@@ -564,13 +573,10 @@ export class JobEngine {
       }
     }
     const prepared = await this.estimate(input.request, input.constraints);
-    if (prepared.estimate.adjustments.includes('stale_price') && !input.allow_stale_price) {
-      throw new KilnryError(
-        'INVALID_INPUT',
-        'This price snapshot is older than 30 days. Refresh provider prices before generating, or explicitly allow the stale estimate.',
-        { details: { stale_price: true, estimate: prepared.estimate } },
-      );
-    }
+    // The same refusal as every job-less paid path (D-71a, TRD-07 §6 rule 3):
+    // CONFIRMATION_REQUIRED with reason stale_price, lifted only by this call's
+    // allow_stale_price.
+    assertFreshPrice(prepared.estimate, input.allow_stale_price);
     assertCostConfirmation(prepared.estimate, input.confirmed_cost_usd);
     const id = ulid();
     const row: typeof jobs.$inferInsert = {

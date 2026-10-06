@@ -22,6 +22,7 @@ import { seedRegistry } from '../registry/store.js';
 import { addReferences, createCharacter } from './store.js';
 import { setConsent } from './consent.js';
 import { startTraining, triggerWordFor, isValidTriggerWord, type TrainingServices } from './training.js';
+import { seedPinnedClock } from '../registry/seed/test-clock.js';
 
 const disposers: Array<() => Promise<void>> = [];
 afterEach(async () => {
@@ -95,7 +96,7 @@ function trainingServices(
     assetUrl: (id) => `https://media.test/${id}`,
     identitiesRoot: root,
     fetch: fetchImpl,
-    now: () => new Date('2026-09-21T00:00:00Z'),
+    now: seedPinnedClock(),
   };
 }
 
@@ -360,7 +361,9 @@ describe('training refuses a stale price (F-21, F-PRV-07)', () => {
   it('refuses a 31-day-old price with CONFIRMATION_REQUIRED and holds nothing', async () => {
     const state = await db();
     await characterWithRefs(state);
-    await state.db.update(priceSnapshots).set({ fetchedAt: new Date(Date.now() - 31 * 86_400_000) });
+    await state.db
+      .update(priceSnapshots)
+      .set({ fetchedAt: new Date(seedPinnedClock()().getTime() - 31 * 86_400_000) });
     const services = trainingServices(state, (async () => new Response('{}')) as unknown as typeof fetch);
     await expect(
       startTraining(services, { handle: 'maya', trainer: 'fal', confirmed_cost_usd: 2 }),

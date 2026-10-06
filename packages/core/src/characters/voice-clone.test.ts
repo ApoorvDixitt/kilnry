@@ -22,6 +22,7 @@ import { setConsent } from './consent.js';
 import { boundVoice } from './voices.js';
 import { seedRegistry } from '../registry/store.js';
 import { cloneVoice, sampleLongEnough, type CloneServices } from './voice-clone.js';
+import { seedPinnedClock } from '../registry/seed/test-clock.js';
 
 const disposers: Array<() => Promise<void>> = [];
 afterEach(async () => {
@@ -58,7 +59,7 @@ function services(state: Awaited<ReturnType<typeof createDatabase>>, fetchImpl: 
     db: state,
     keyFor: () => Promise.resolve('a-key'),
     fetch: fetchImpl,
-    now: () => new Date('2026-09-21T00:00:00Z'),
+    now: seedPinnedClock(),
   };
 }
 
@@ -466,7 +467,9 @@ describe('cloning refuses a Character that reads as a minor (F-07, PRD-07 §7)',
 describe('voice clone refuses a stale price (F-21, F-PRV-07)', () => {
   it('refuses a 31-day-old price with CONFIRMATION_REQUIRED and calls no provider', async () => {
     const state = await db();
-    await state.db.update(priceSnapshots).set({ fetchedAt: new Date(Date.now() - 31 * 86_400_000) });
+    await state.db
+      .update(priceSnapshots)
+      .set({ fetchedAt: new Date(seedPinnedClock()().getTime() - 31 * 86_400_000) });
     let calls = 0;
     const counting = (async (url: string, init?: RequestInit) => {
       calls += 1;

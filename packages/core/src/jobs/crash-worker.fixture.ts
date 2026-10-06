@@ -15,6 +15,7 @@ import type { PollStatus, ProviderAdapter, ProviderResult } from '../providers/a
 import { ProviderKeyStore } from '../security/key-store.js';
 import { CanonicalRequestSchema } from '../types.js';
 import { JobEngine } from './engine.js';
+import { seedPinnedClock } from '../registry/seed/test-clock.js';
 
 const tinyPng = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
@@ -109,6 +110,7 @@ async function main(): Promise<void> {
     libraryId,
     pollScheduleMs: [50],
     pollTimeoutMs: 60_000,
+    now: seedPinnedClock(),
   });
   await engine.start();
 

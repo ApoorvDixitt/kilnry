@@ -6,6 +6,7 @@
 import type { ModelManifest, PriceSnapshot } from '../manifest.js';
 import { falSeed } from './fal.js';
 import { goldenSupportSeed } from './other-goldens.js';
+import { SEEDED_AT } from './helpers.js';
 import { openrouterSeed } from './openrouter.js';
 import { remainingProvidersSeed } from './remaining-providers.js';
 
@@ -49,7 +50,7 @@ const pollinationsSeed: ModelManifest = {
   enabled: true,
   deprecated_at: null,
   source_url: 'https://gen.pollinations.ai/docs',
-  seeded_at: '2026-09-19T00:00:00.000Z',
+  seeded_at: SEEDED_AT,
 };
 
 export const registrySeed: readonly ModelManifest[] = [
