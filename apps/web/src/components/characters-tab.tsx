@@ -290,6 +290,11 @@ function CharacterGridCard({ card }: { card: CharacterCard }): React.ReactNode {
               ♪
             </span>
           ) : null}
+          {card.minor_suspected ? (
+            <span className="character-badge" title={message('characters.minorRefusal')}>
+              {message('characters.badgeMinor')}
+            </span>
+          ) : null}
         </span>
         {card.is_real_person ? (
           <span className="character-shield" title={message('characters.realPersonMarker')}>

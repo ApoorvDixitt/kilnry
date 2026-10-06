@@ -167,12 +167,14 @@ export async function cloneVoice(services: CloneServices, input: CloneInput): Pr
   }
   const paying = CLONE_PRICING[input.provider].registry_provider;
 
-  // Binding to a real-person Character asserts the Character's own consent gate.
+  // Binding to a Character asserts its gate: a Character that reads as a minor
+  // is refused whether or not it is a real person (PRD-07 §7, F-07), and a
+  // real person needs consent; consent is always satisfied for a fictional one.
   let bindTarget: { characterId: string; version: number } | undefined;
   if (input.bind_to) {
     const head = await lookupHandle(services.db, input.bind_to);
     if (!head) throw new KilnryError('NOT_FOUND', `@${input.bind_to} is not a Character.`);
-    if (head.is_real_person) await assertConsentForTraining(services.db, head.id);
+    await assertConsentForTraining(services.db, head.id);
     bindTarget = { characterId: head.id, version: head.current_version };
   }
 

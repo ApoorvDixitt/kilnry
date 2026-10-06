@@ -1157,6 +1157,8 @@
     "usedNever": "Not used yet",
     "noAnchor": "No anchor yet",
     "realPersonMarker": "Real person",
+    "badgeMinor": "Minor",
+    "minorRefusal": "Kilnry does not train or clone minors.",
     "versionsHint": "{n} versions · latest v{latest}",
     "emptyTitle": "No characters yet",
     "emptyBody": "Characters are cast members. Make one from a photo or a sentence, then type @handle in any prompt.",

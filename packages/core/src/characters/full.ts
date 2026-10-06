@@ -35,6 +35,8 @@ export interface FullCharacter {
   versions: number[];
   is_real_person: boolean;
   consent: { status: 'self' | 'written' | 'none' | 'n/a'; evidence_asset_id?: string; granted_at?: string };
+  // PRD-07 §7: the version reads as a minor; Train and Clone are refused.
+  minor_suspected: boolean;
   license: string;
   appearance: Appearance;
   references: Array<{
@@ -86,6 +88,7 @@ export interface CharacterCard {
   voice?: { provider: string; voice_id: string };
   is_real_person: boolean;
   consent_status: string;
+  minor_suspected: boolean;
   usage_count: number;
   updated_at: string;
   last_used_at?: string;
@@ -152,6 +155,7 @@ export async function cardFor(db: DatabaseState, head: CharacterHead): Promise<C
     trained,
     is_real_person: head.is_real_person,
     consent_status: head.consent_status,
+    minor_suspected: version.minor_suspected,
     usage_count: row.usageCount,
     updated_at: row.updatedAt.toISOString(),
     ...(anchor ? { anchor_asset_id: anchor, anchor_preview_url: thumbUrl(anchor) } : {}),
@@ -294,6 +298,7 @@ export async function loadFullCharacter(
       ...(row.consentEvidenceAssetId ? { evidence_asset_id: row.consentEvidenceAssetId } : {}),
       ...(row.consentGrantedAt ? { granted_at: row.consentGrantedAt.toISOString() } : {}),
     },
+    minor_suspected: loaded.minor_suspected,
     license: row.license,
     appearance: loaded.appearance,
     references,

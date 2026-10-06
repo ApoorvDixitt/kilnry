@@ -6,6 +6,8 @@
 import { eq } from 'drizzle-orm';
 import { characters, type DatabaseState } from '@kilnry/db';
 import { KilnryError } from '../errors.js';
+import { MINOR_REFUSAL } from './minor.js';
+import { loadVersion } from './store.js';
 
 export type ConsentStatus = 'self' | 'written' | 'none' | 'n/a';
 
@@ -81,6 +83,7 @@ export async function setConsent(
 // consent is set. Throws CONFIRMATION_REQUIRED with reason 'consent_required' so
 // the interface can show the gate and the Model Context Protocol client can prompt.
 export async function assertConsentForTraining(db: DatabaseState, characterId: string): Promise<void> {
+  await assertNotMinor(db, characterId);
   const consent = await getConsent(db, characterId);
   if (!consentSatisfied(consent)) {
     throw new KilnryError('CONFIRMATION_REQUIRED', 'Set consent before training or sending this likeness.', {
@@ -97,6 +100,20 @@ export async function assertConsentForExport(db: DatabaseState, characterId: str
   if (!consentSatisfied(consent)) {
     throw new KilnryError('CONFIRMATION_REQUIRED', 'Record permission first.', {
       details: { reason: 'consent_required', character_id: characterId },
+    });
+  }
+}
+
+// "Public figures, celebrities, and minors cannot be trained or cloned in
+// Kilnry regardless of consent" (PRD-07 §7, F-07). Checked on the current
+// version before any consent branch, for real and fictional Characters alike.
+// The code is INVALID_INPUT, not CONFIRMATION_REQUIRED: TRD-20 reserves that
+// code for a spend a confirmation can unlock, and no confirmation unlocks this.
+export async function assertNotMinor(db: DatabaseState, characterId: string): Promise<void> {
+  const version = await loadVersion(db, characterId);
+  if (version.minor_suspected) {
+    throw new KilnryError('INVALID_INPUT', MINOR_REFUSAL, {
+      details: { reason: 'minor_suspected', character_id: characterId },
     });
   }
 }

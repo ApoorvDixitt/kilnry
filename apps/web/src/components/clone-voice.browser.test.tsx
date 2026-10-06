@@ -87,4 +87,32 @@ describe('the clone-voice drawer (F-VOI-02)', () => {
     });
     expect(host.querySelector('.clone-voice-warn')?.textContent).toContain('at least 10 seconds');
   });
+
+  it('refuses a Character that reads as a minor even with every field filled (F-07)', async () => {
+    const host = await render(<CloneVoiceDrawer handle="little" minorSuspected onClose={() => undefined} />);
+    const inputs = [...host.querySelectorAll('input')] as HTMLInputElement[];
+    const consent = inputs.find((i) => i.type === 'checkbox')!;
+    await act(async () => {
+      setValue(
+        inputs.find((i) => i.type === 'text')!,
+        'Little',
+      );
+      setValue(
+        inputs.find((i) => i.type === 'url')!,
+        'https://media.test/s.mp3',
+      );
+      setValue(
+        inputs.find((i) => i.type === 'number')!,
+        '30',
+      );
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'checked')?.set?.call(consent, true);
+      consent.dispatchEvent(new Event('click', { bubbles: true }));
+    });
+    const button = host.querySelector('.clone-voice-actions button') as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    expect(button.title).toBe('Kilnry does not train or clone minors.');
+    expect(host.querySelector('.clone-voice-minor')?.textContent).toBe(
+      'Kilnry does not train or clone minors.',
+    );
+  });
 });

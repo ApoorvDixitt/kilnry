@@ -20,6 +20,8 @@ export interface CharacterCard {
   voice?: { provider: string; voice_id: string };
   is_real_person: boolean;
   consent_status: string;
+  // PRD-07 §7: the current version reads as a minor (shown as a badge).
+  minor_suspected?: boolean;
   usage_count: number;
   updated_at: string;
   last_used_at?: string;

@@ -426,3 +426,33 @@ describe('voice clone budget hold (F-PRV-04)', () => {
     expect(await state.db.select().from(voices)).toHaveLength(0);
   });
 });
+
+describe('cloning refuses a Character that reads as a minor (F-07, PRD-07 §7)', () => {
+  it('refuses a fictional Character described as a child: no provider call, no hold', async () => {
+    const state = await db();
+    await createCharacter(state, {
+      handle: 'little_one',
+      kind: 'character',
+      display_name: 'Little One',
+      appearance: { descriptor: 'a child in a yellow raincoat', anchors: [], negative_traits: [] },
+    });
+    let providerCalls = 0;
+    const counting = (async (url: string, init?: RequestInit) => {
+      providerCalls += 1;
+      return minimaxFetch()(url, init);
+    }) as unknown as typeof fetch;
+    await expect(
+      cloneVoice(services(state, counting), {
+        name: 'Little',
+        provider: 'minimax',
+        sample_url: 'https://media.test/sample.mp3',
+        sample_seconds: 30,
+        consent_confirmed: true,
+        confirmed_cost_usd: 1.5,
+        bind_to: 'little_one',
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_INPUT', message: 'Kilnry does not train or clone minors.' });
+    expect(providerCalls).toBe(0);
+    expect(await state.db.select().from(spendLedger)).toHaveLength(0);
+  });
+});

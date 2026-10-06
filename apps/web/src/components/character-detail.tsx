@@ -22,6 +22,7 @@ import {
 } from './character-detail-logic';
 import { VersionSwitcher } from './version-switcher';
 import { CloneVoiceDrawer } from './clone-voice';
+import { TrainerCards } from './train-identity';
 import { VoiceBindPicker } from './voice-bind-picker';
 
 type DetailTab = 'sheet' | 'identities' | 'voice' | 'usage' | 'settings';
@@ -411,6 +412,11 @@ export function CharacterDetail({ handle }: { handle: string }): React.ReactNode
                   ? format(message('characters.detail.consentSet'), { status: item.consent.status })
                   : message('characters.detail.consentNone')}
             </p>
+            {item.minor_suspected === true ? (
+              <p className="character-consent bad character-minor-refusal">
+                {message('characters.minorRefusal')}
+              </p>
+            ) : null}
           </div>
         </section>
       ) : null}
@@ -433,49 +439,12 @@ export function CharacterDetail({ handle }: { handle: string }): React.ReactNode
                 </div>
               ))
             )}
-            <div className="character-trainer-cards">
-              {(
-                [
-                  { trainer: 'fal', label: message('characters.detail.trainerFal'), cost: 2, price: '$2.00' },
-                  {
-                    trainer: 'replicate',
-                    label: message('characters.detail.trainerReplicate'),
-                    cost: 1.46,
-                    price: '$1.46',
-                  },
-                  {
-                    trainer: 'higgsfield',
-                    label: message('characters.detail.trainerHiggsfield'),
-                    cost: 2.5,
-                    price: '$2.50',
-                  },
-                ] as const
-              ).map((card) => {
-                // Training a real person needs consent recorded first (F-CHR-07
-                // acceptance 1); the button explains why it is disabled.
-                const consentBlocks = item.is_real_person && !consentSatisfiedView(item);
-                return (
-                  <div key={card.trainer} className="character-trainer-card">
-                    <h4>{card.label}</h4>
-                    <button
-                      className="btn primary"
-                      type="button"
-                      disabled={training !== null || consentBlocks}
-                      title={
-                        consentBlocks
-                          ? message('characters.detail.trainConsentTooltip')
-                          : format(message('characters.detail.trainWithPrice'), { price: card.price })
-                      }
-                      onClick={() => setTrainDialog({ trainer: card.trainer, cost: card.cost })}
-                    >
-                      {training === card.trainer
-                        ? message('characters.detail.training')
-                        : format(message('characters.detail.trainWithPrice'), { price: card.price })}
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
+            <TrainerCards
+              training={training}
+              consentBlocks={item.is_real_person && !consentSatisfiedView(item)}
+              minorSuspected={item.minor_suspected === true}
+              onPick={setTrainDialog}
+            />
             {trainError ? (
               <p className="characters-error" role="alert">
                 {trainError}
@@ -562,13 +531,20 @@ export function CharacterDetail({ handle }: { handle: string }): React.ReactNode
               {message('characters.detail.unbind')}
             </button>
           ) : null}
-          <button className="btn primary" type="button" onClick={() => setCloneOpen(true)}>
+          <button
+            className="btn primary"
+            type="button"
+            disabled={item.minor_suspected === true}
+            title={item.minor_suspected === true ? message('characters.minorRefusal') : undefined}
+            onClick={() => setCloneOpen(true)}
+          >
             {message('characters.detail.clone')}
           </button>
           <VoiceBindPicker handle={item.handle} onBound={(bound) => setItem(bound as FullCharacterView)} />
           {cloneOpen ? (
             <CloneVoiceDrawer
               handle={item.handle}
+              minorSuspected={item.minor_suspected === true}
               onClose={() => setCloneOpen(false)}
               onCloned={reloadCharacter}
             />

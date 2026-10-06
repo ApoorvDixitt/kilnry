@@ -17,6 +17,7 @@ import {
 import { KilnryError } from '../errors.js';
 import { ulid } from '../ids.js';
 import type { Strategy } from '../types.js';
+import { minorSuspected } from './minor.js';
 
 export type CharacterKind = 'character' | 'prop' | 'environment' | 'style';
 
@@ -72,6 +73,9 @@ export interface LoadedVersion {
   injection_defaults?: Partial<Record<'image' | 'video' | 'audio', Strategy[]>>;
   references: ReferenceRow[];
   frozen: boolean;
+  // PRD-07 §7: the version reads as a minor (an `age:` tag under eighteen or
+  // descriptor words that name a minor); Train and Clone are refused.
+  minor_suspected: boolean;
   voice?: { provider: string; voice_id: string };
 }
 
@@ -113,6 +117,7 @@ export async function createCharacter(
   if (existing) throw new KilnryError('INVALID_INPUT', `The handle @${handle} is already in use.`);
   const id = ulid();
   const now = new Date();
+  const appearance = input.appearance ?? { descriptor: '', anchors: [], negative_traits: [] };
   await state.db.transaction(async (tx) => {
     await tx.insert(characters).values({
       id,
@@ -130,11 +135,12 @@ export async function createCharacter(
     await tx.insert(characterVersions).values({
       characterId: id,
       version: 1,
-      appearance: (input.appearance ?? {
-        descriptor: '',
-        anchors: [],
-        negative_traits: [],
-      }) as unknown as Record<string, unknown>,
+      appearance: appearance as unknown as Record<string, unknown>,
+      minorSuspected: minorSuspected({
+        tags: input.tags,
+        descriptor: appearance.descriptor,
+        anchors: appearance.anchors,
+      }),
       injectionDefaults: (input.injection_defaults ?? null) as unknown as Record<string, unknown> | null,
       castParams: (input.cast_params ?? null) as Record<string, unknown> | null,
       frozen: false,
@@ -227,6 +233,15 @@ export async function loadVersion(
       ...(r.label ? { label: r.label } : {}),
     })),
     frozen: rows[0].frozen,
+    // Stored on every write; a row written before the column existed is
+    // recomputed from the current tags and descriptor.
+    minor_suspected:
+      rows[0].minorSuspected ||
+      minorSuspected({
+        tags: head[0].tags,
+        descriptor: appearance.descriptor,
+        anchors: appearance.anchors,
+      }),
     ...(rows[0].injectionDefaults
       ? {
           injection_defaults: rows[0].injectionDefaults as NonNullable<LoadedVersion['injection_defaults']>,
@@ -347,6 +362,13 @@ export async function forkVersion(state: DatabaseState, characterId: string): Pr
       injectionDefaults: source[0]?.injectionDefaults ?? null,
       castParams: source[0]?.castParams ?? null,
       frozen: false,
+      minorSuspected:
+        (source[0]?.minorSuspected ?? false) ||
+        minorSuspected({
+          tags: head[0].tags,
+          descriptor: (source[0]?.appearance as Partial<Appearance> | null)?.descriptor,
+          anchors: (source[0]?.appearance as Partial<Appearance> | null)?.anchors,
+        }),
       createdAt: new Date(),
     });
     const refs = await tx
@@ -410,9 +432,21 @@ export async function setAppearance(
     ...(appearance.palette_hex !== undefined ? { palette_hex: appearance.palette_hex } : {}),
     ...(appearance.gendered_noun !== undefined ? { gendered_noun: appearance.gendered_noun } : {}),
   };
+  const head = await state.db
+    .select({ tags: characters.tags })
+    .from(characters)
+    .where(eq(characters.id, characterId))
+    .limit(1);
   await state.db
     .update(characterVersions)
-    .set({ appearance: merged as unknown as Record<string, unknown> })
+    .set({
+      appearance: merged as unknown as Record<string, unknown>,
+      minorSuspected: minorSuspected({
+        tags: head[0]?.tags,
+        descriptor: merged.descriptor,
+        anchors: merged.anchors,
+      }),
+    })
     .where(and(eq(characterVersions.characterId, characterId), eq(characterVersions.version, version)));
   await touchCharacter(state, characterId);
   return version;

@@ -48,6 +48,8 @@ export const characterVersions = pgTable(
     injectionDefaults: jsonb('injection_defaults').$type<Record<string, unknown>>(),
     castParams: jsonb('cast_params').$type<Record<string, unknown>>(),
     frozen: boolean('frozen').notNull().default(false),
+    // PRD-07 §7: the version reads as a minor; Train and Clone are refused.
+    minorSuspected: boolean('minor_suspected').notNull().default(false),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
   },
   (table) => [primaryKey({ columns: [table.characterId, table.version] })],

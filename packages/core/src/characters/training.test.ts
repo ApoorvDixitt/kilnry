@@ -241,3 +241,39 @@ describe('identity training (F-CHR-07)', () => {
     expect(result.status).toBe('ready');
   });
 });
+
+describe('training refuses a Character that reads as a minor (F-07, PRD-07 §7)', () => {
+  it('refuses with the exact copy even with consent recorded, and never submits', async () => {
+    const state = await db();
+    const head = await createCharacter(state, {
+      handle: 'teen',
+      kind: 'character',
+      display_name: 'Teen',
+      is_real_person: true,
+      appearance: { descriptor: 'a 15 year old boy', anchors: [], negative_traits: [] },
+    });
+    await addReferences(state, head.id, [
+      { asset_id: 'a1', role: 'anchor', view: 'front' },
+      { asset_id: 'a2', role: 'turnaround' },
+      { asset_id: 'a3', role: 'turnaround' },
+      { asset_id: 'a4', role: 'outfit' },
+    ]);
+    await setConsent(state, head.id, { is_real_person: true, status: 'self' });
+    const services = trainingServices(state, (async () => new Response('{}')) as unknown as typeof fetch);
+    let submits = 0;
+    const adapter = services.adapters.fal!;
+    services.adapters = {
+      fal: {
+        ...adapter,
+        submit: (...args: Parameters<typeof adapter.submit>) => {
+          submits += 1;
+          return adapter.submit(...args);
+        },
+      },
+    };
+    await expect(
+      startTraining(services, { handle: 'teen', trainer: 'fal', confirmed_cost_usd: 2 }),
+    ).rejects.toMatchObject({ code: 'INVALID_INPUT', message: 'Kilnry does not train or clone minors.' });
+    expect(submits).toBe(0);
+  });
+});

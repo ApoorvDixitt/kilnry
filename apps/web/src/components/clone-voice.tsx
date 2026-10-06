@@ -26,10 +26,13 @@ import {
 
 export function CloneVoiceDrawer({
   handle,
+  minorSuspected = false,
   onClose,
   onCloned,
 }: {
   handle: string;
+  // PRD-07 §7: a Character that reads as a minor is never cloned (F-07).
+  minorSuspected?: boolean;
   onClose: () => void;
   onCloned?: () => void;
 }): React.ReactNode {
@@ -42,7 +45,7 @@ export function CloneVoiceDrawer({
   const [error, setError] = useState<string>();
 
   const option = providerOption(provider);
-  const enabled = canClone({ name, sampleSeconds, sampleUrl, consent, cloning, provider });
+  const enabled = !minorSuspected && canClone({ name, sampleSeconds, sampleUrl, consent, cloning, provider });
 
   function clone(): void {
     if (!enabled) return;
@@ -177,8 +180,18 @@ export function CloneVoiceDrawer({
         </p>
       ) : null}
 
+      {minorSuspected ? (
+        <p className="muted clone-voice-minor">{message('characters.minorRefusal')}</p>
+      ) : null}
+
       <footer className="clone-voice-actions">
-        <button type="button" className="btn primary" disabled={!enabled} onClick={clone}>
+        <button
+          type="button"
+          className="btn primary"
+          disabled={!enabled}
+          title={minorSuspected ? message('characters.minorRefusal') : undefined}
+          onClick={clone}
+        >
           {cloning
             ? message('characters.clone.cloning')
             : cloneLabel(message('characters.clone.clone'), option.priceLabel)}

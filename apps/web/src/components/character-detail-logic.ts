@@ -67,6 +67,8 @@ export interface FullCharacterView {
   tags: string[];
   is_real_person: boolean;
   consent: { status: string };
+  // PRD-07 §7: the version reads as a minor; Train and Clone are refused.
+  minor_suspected?: boolean;
   appearance: { descriptor: string; anchors: string[]; negative_traits: string[] };
   references: Reference[];
   trained_identities: Array<{ id: string; provider: string; kind: string; status: string }>;

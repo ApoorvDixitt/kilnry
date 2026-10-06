@@ -63,6 +63,7 @@ function mayaVersion(version: number, references: LoadedVersion['references']): 
     appearance: mayaAppearance,
     references,
     frozen: version === 1,
+    minor_suspected: false,
     voice: { provider: 'kling', voice_id: 'kv_8f2c…' },
   };
 }
@@ -90,6 +91,7 @@ const chaiVersion: LoadedVersion = {
   appearance: { descriptor: 'tall cutting-chai glass with a gold rim.', anchors: [], negative_traits: [] },
   references: [{ id: 'r-glas', asset_id: GLAS, role: 'anchor', view: 'front', weight: 1, position: 0 }],
   frozen: false,
+  minor_suspected: false,
 };
 
 const mayaIdentities: TrainedIdentityInfo[] = [
@@ -442,6 +444,7 @@ describe('F-CHR-13 people warnings', () => {
       },
     ],
     frozen: false,
+    minor_suspected: false,
   };
 
   function multiCtx(): ResolverCtx {

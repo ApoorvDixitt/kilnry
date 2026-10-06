@@ -116,3 +116,61 @@ describe('the consent gate blocks training for a real person until consent is se
     await expect(assertConsentForTraining(state, head.id)).resolves.toBeUndefined();
   });
 });
+
+describe('a Character that reads as a minor is never trained or cloned (F-07, PRD-07 §7)', () => {
+  it('refuses a real person with recorded consent whose descriptor names a 15 year old', async () => {
+    const state = await db();
+    const head = await createCharacter(state, {
+      handle: 'teen_real',
+      kind: 'character',
+      display_name: 'Teen',
+      is_real_person: true,
+      appearance: { descriptor: 'a 15 year old boy with curly hair', anchors: [], negative_traits: [] },
+    });
+    await setConsent(state, head.id, { is_real_person: true, status: 'self' });
+    await expect(assertConsentForTraining(state, head.id)).rejects.toMatchObject({
+      code: 'INVALID_INPUT',
+      message: 'Kilnry does not train or clone minors.',
+      options: { details: { reason: 'minor_suspected', character_id: head.id } },
+    });
+  });
+
+  it('refuses a fictional Character tagged with an age under eighteen', async () => {
+    const state = await db();
+    const head = await createCharacter(state, {
+      handle: 'young_hero',
+      kind: 'character',
+      display_name: 'Young Hero',
+      tags: ['hero', 'age:16'],
+      appearance: { descriptor: 'a hero in a red cape', anchors: [], negative_traits: [] },
+    });
+    await expect(assertConsentForTraining(state, head.id)).rejects.toThrow(
+      'Kilnry does not train or clone minors.',
+    );
+  });
+
+  it('refuses a descriptor that says teen, and allows an adult one', async () => {
+    const state = await db();
+    const teen = await createCharacter(state, {
+      handle: 'teen_skater',
+      kind: 'character',
+      display_name: 'Skater',
+      appearance: { descriptor: 'a teen skater', anchors: [], negative_traits: [] },
+    });
+    await expect(assertConsentForTraining(state, teen.id)).rejects.toThrow(
+      'Kilnry does not train or clone minors.',
+    );
+    const adult = await createCharacter(state, {
+      handle: 'adult_chef',
+      kind: 'character',
+      display_name: 'Chef',
+      tags: ['age:34'],
+      appearance: {
+        descriptor: 'a 34 year old chef with 5 years of experience',
+        anchors: [],
+        negative_traits: [],
+      },
+    });
+    await expect(assertConsentForTraining(state, adult.id)).resolves.toBeUndefined();
+  });
+});
