@@ -44,7 +44,7 @@ Geist and Geist Mono are used under the SIL Open Font License 1.1 and are self-h
 - baseline-browser-mapping 2.11.25
 - detect-libc 2.1.2
 - drizzle-orm 0.45.2
-- sharp 0.35.4
+- sharp 0.35.5
 - temporal-spec 1.0.1
 
 ### BSD-3-Clause

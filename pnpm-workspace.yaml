@@ -29,6 +29,12 @@ onlyBuiltDependencies:
 
 overrides:
   esbuild: 0.28.2
+  # sharp < 0.35.5 carries librsvg 2.63.1, whose use-after-free can reach remote
+  # code execution when an SVG is decoded on glibc Linux (GHSA-wq5f-xc86-pv6w,
+  # CVE-2026-96889, high 8.9; published to the advisory database 2026-10-06).
+  # @kilnry/core and @kilnry/media depend on sharp directly and are pinned to
+  # 0.35.5; this override pulls next, better-auth and geist's copies up too.
+  sharp: 0.35.5
   react: 19.3.0
   react-dom: 19.3.0
   zod: 4.6.5
