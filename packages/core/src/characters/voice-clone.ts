@@ -139,6 +139,12 @@ export interface CloneServices {
   now?: () => Date;
   // Test-only poll tuning so a timeout can be exercised without a 2-minute wait.
   falPoll?: { budgetMs?: number; intervalMs?: number; sleep?: (ms: number) => Promise<void> };
+  /**
+   * Put a Library asset where the provider can fetch it and answer with that
+   * address. Every clone endpoint takes a URL the provider itself downloads, so
+   * a recording on the user's own disk needed one (PRD-08:230, F-118).
+   */
+  uploadSample?: (assetId: string, provider: ClonePayingProvider) => Promise<string>;
 }
 
 export interface CloneResult {
@@ -217,13 +223,29 @@ export async function cloneVoice(services: CloneServices, input: CloneInput): Pr
     now: now(),
   });
 
+  // A sample the user uploaded lives in the Library; the provider cannot read
+  // the user's disk, so it is put in the provider's own storage first (F-118).
+  let sampleUrl = input.sample_url;
+  if (input.sample_asset_id && !/^https?:\/\//i.test(sampleUrl)) {
+    if (!services.uploadSample) {
+      throw new KilnryError(
+        'INVALID_INPUT',
+        'This provider needs a public sample URL; uploading a file is not wired for it yet.',
+      );
+    }
+    sampleUrl = await services.uploadSample(
+      input.sample_asset_id,
+      CLONE_PRICING[input.provider].registry_provider,
+    );
+  }
+
   let cloned: { voiceId: string; previewAudioUrl?: string; requestId?: string };
   try {
     cloned = await cloneWithProvider(
       fetchImpl,
       input.provider,
       key,
-      { name: input.name, sampleUrl: input.sample_url },
+      { name: input.name, sampleUrl },
       services.falPoll,
     );
   } catch (error) {

@@ -4,8 +4,10 @@
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
 import { and, desc, eq } from 'drizzle-orm';
-import { voices as voicesTable, characterVoices, type DatabaseState } from '@kilnry/db';
+import { voices as voicesTable, characterVoices, settings, type DatabaseState } from '@kilnry/db';
 import { ulid } from '../ids.js';
+import { loadRegistry } from '../registry/store.js';
+import { KilnryError } from '../errors.js';
 
 // A voice a user can preview, pin, and @mention (F-VOI-01). Presets ship with
 // Kilnry; clones are rows the user created (voice cloning itself is M5).
@@ -24,6 +26,12 @@ export interface VoiceListItem {
   // exactly as the reference documents it.
   price_label: string;
   preview_url?: string;
+  /**
+   * What kind of voice this is for the user: a provider preset, a clone of a
+   * real recording, or one designed from a description. A designed voice was
+   * typed "clone" and priced "—" (UX-16).
+   */
+  kind: 'preset' | 'clone' | 'designed';
 }
 
 // The provider presets shipped with Kilnry (PRD-08 B1). Adapters that synthesise
@@ -38,6 +46,7 @@ const PRESETS: VoiceListItem[] = [
     gender: 'female',
     tags: ['calm', 'narration'],
     is_clone: false,
+    kind: 'preset' as const,
     price_label: '$0.10 / 1k chars',
   },
   {
@@ -48,6 +57,7 @@ const PRESETS: VoiceListItem[] = [
     gender: 'male',
     tags: ['news', 'deep'],
     is_clone: false,
+    kind: 'preset' as const,
     price_label: '$0.10 / 1k chars',
   },
   {
@@ -58,6 +68,7 @@ const PRESETS: VoiceListItem[] = [
     gender: 'female',
     tags: ['energetic'],
     is_clone: false,
+    kind: 'preset' as const,
     price_label: '$0.10 / 1k chars',
   },
   {
@@ -68,6 +79,7 @@ const PRESETS: VoiceListItem[] = [
     gender: 'male',
     tags: ['narration'],
     is_clone: false,
+    kind: 'preset' as const,
     price_label: '$0.10 / 1k chars',
   },
   {
@@ -78,6 +90,7 @@ const PRESETS: VoiceListItem[] = [
     gender: 'neutral',
     tags: ['balanced'],
     is_clone: false,
+    kind: 'preset' as const,
     price_label: '≈ $0.015 / min',
   },
   {
@@ -88,6 +101,7 @@ const PRESETS: VoiceListItem[] = [
     gender: 'female',
     tags: ['bright'],
     is_clone: false,
+    kind: 'preset' as const,
     price_label: '≈ $0.015 / min',
   },
   {
@@ -98,6 +112,7 @@ const PRESETS: VoiceListItem[] = [
     gender: 'female',
     tags: ['news'],
     is_clone: false,
+    kind: 'preset' as const,
     price_label: '≈ $0.03 / min',
   },
   {
@@ -108,6 +123,7 @@ const PRESETS: VoiceListItem[] = [
     gender: 'female',
     tags: ['warm'],
     is_clone: false,
+    kind: 'preset' as const,
     price_label: '$0.02 / 1k chars',
   },
 ];
@@ -147,8 +163,40 @@ export function filterVoices(list: VoiceListItem[], filter: VoiceFilter): VoiceL
 
 // List every voice: the shipped presets plus the user's cloned voices from the
 // database, newest clones first.
+/**
+ * Which provider's speech models can use this voice: a Kling voice is spoken by
+ * fal's Kling speech, a fal-hosted MiniMax clone by fal's MiniMax speech.
+ */
+function voicePriceProvider(provider: string): string {
+  return provider === 'kling' ? 'fal' : provider;
+}
+
 export async function listVoices(db: DatabaseState, filter: VoiceFilter = {}): Promise<VoiceListItem[]> {
   const cloneRows = await db.db.select().from(voicesTable).orderBy(desc(voicesTable.createdAt));
+  // What synthesis with this voice costs, from the registry rather than a dash
+  // (UX-16): the cheapest speech model of the provider that owns the voice.
+  const registry = await loadRegistry(db);
+  const speechPrice = (provider: string): string => {
+    const prices = registry.models
+      .filter((model) => model.provider === provider && model.capabilities.includes('tts'))
+      .map((model) => registry.snapshots.get(`${model.provider}:${model.model_id}`))
+      .flatMap((snapshot) => {
+        const rule = snapshot?.rule as { kind?: string; amount?: number; unit?: string } | undefined;
+        return rule && typeof rule.amount === 'number' ? [rule] : [];
+      });
+    const cheapest = prices.sort((a, b) => (a.amount ?? 0) - (b.amount ?? 0))[0];
+    if (!cheapest) return '—';
+    const amount = cheapest.amount ?? 0;
+    // The reference prices speech per 1,000 characters or per minute; the label
+    // repeats whichever unit the rule holds (PRD-08:202 price column).
+    const unit =
+      cheapest.kind === 'per_1k_chars'
+        ? '1k chars'
+        : cheapest.kind === 'per_minute'
+          ? 'minute'
+          : (cheapest.unit ?? 'unit');
+    return `$${amount.toFixed(amount < 0.01 ? 4 : 2)} / ${unit}`;
+  };
   const clones: VoiceListItem[] = cloneRows.map((row) => ({
     id: row.id,
     provider: row.providerId,
@@ -158,10 +206,39 @@ export async function listVoices(db: DatabaseState, filter: VoiceFilter = {}): P
     gender: row.gender ?? '—',
     tags: row.tags ?? [],
     is_clone: row.isClone,
-    price_label: '—',
+    kind: row.cloneKind === 'design' ? ('designed' as const) : ('clone' as const),
+    price_label: speechPrice(voicePriceProvider(row.providerId)),
     ...(row.previewAssetId ? { preview_url: `/api/media/${row.previewAssetId}` } : {}),
   }));
   return filterVoices([...clones, ...presetVoices()], filter);
+}
+
+/**
+ * The workspace's default narration voice (PRD-08:202 "Set as default voice").
+ * The row action existed in the specification only (UX-16).
+ */
+export const DEFAULT_VOICE_SETTING = 'voices.default_ulid';
+
+export async function setDefaultVoice(db: DatabaseState, voiceUlid: string): Promise<void> {
+  const rows = await db.db
+    .select({ id: voicesTable.id })
+    .from(voicesTable)
+    .where(eq(voicesTable.id, voiceUlid))
+    .limit(1);
+  if (!rows[0]) throw new KilnryError('NOT_FOUND', 'That voice is not stored.');
+  await db.db
+    .insert(settings)
+    .values({ key: DEFAULT_VOICE_SETTING, value: voiceUlid })
+    .onConflictDoUpdate({ target: settings.key, set: { value: voiceUlid, updatedAt: new Date() } });
+}
+
+export async function defaultVoiceUlid(db: DatabaseState): Promise<string | null> {
+  const rows = await db.db
+    .select({ value: settings.value })
+    .from(settings)
+    .where(eq(settings.key, DEFAULT_VOICE_SETTING))
+    .limit(1);
+  return typeof rows[0]?.value === 'string' ? rows[0].value : null;
 }
 
 // Bind one voice to a Character version (F-CHR-08). Binding is per version and a

@@ -4,7 +4,7 @@
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
 import { NextResponse } from 'next/server';
-import { listVoices, type VoiceFilter } from '@kilnry/core';
+import { defaultVoiceUlid, listVoices, type VoiceFilter } from '@kilnry/core';
 import { errorResponse, requireSessionOrBearer } from '../../../server/http';
 import { runtimeServices } from '../../../server/runtime';
 
@@ -25,7 +25,12 @@ export async function GET(request: Request): Promise<Response> {
     };
     const services = await runtimeServices();
     const items = await listVoices(services.database, filter);
-    return NextResponse.json({ voices: items });
+    // Which voice is the workspace default, so the table can say so (UX-16).
+    const defaultUlid = await defaultVoiceUlid(services.database);
+    return NextResponse.json({
+      voices: items,
+      ...(defaultUlid === null ? {} : { default_voice_ulid: defaultUlid }),
+    });
   } catch (error) {
     return errorResponse(error);
   }

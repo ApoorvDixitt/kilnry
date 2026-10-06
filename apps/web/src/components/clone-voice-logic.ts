@@ -110,6 +110,36 @@ export function canClone(input: {
   return sampleLongEnough(input.sampleSeconds, option.provider) && input.sampleSeconds <= option.maxSeconds;
 }
 
+/**
+ * Which key pays for each option: a Kling voice and the MiniMax clone hosted on
+ * fal are fal's, the other two are the provider's own (PRD-08 §B2).
+ */
+export const CLONE_PAYING_PROVIDER: Record<CloneProvider, string> = {
+  minimax: 'minimax',
+  elevenlabs: 'elevenlabs',
+  kling: 'fal',
+  fal: 'fal',
+};
+
+/**
+ * PRD-08:231 offers "only connected" providers. All four were listed whatever
+ * the user had, so MiniMax direct and ElevenLabs were offered with no key and
+ * failed at submit (F-118).
+ */
+export function connectedCloneProviders(connected: string[]): CloneProviderOption[] {
+  const have = new Set(connected);
+  return CLONE_PROVIDERS.filter((option) => have.has(CLONE_PAYING_PROVIDER[option.provider]));
+}
+
+/**
+ * Whether a recording on the user's disk can be used with this option: the
+ * provider must have an upload Kilnry can drive (fal's storage today), so the
+ * two direct endpoints still take a URL.
+ */
+export function acceptsUploadedSample(provider: CloneProvider): boolean {
+  return CLONE_PAYING_PROVIDER[provider] === 'fal';
+}
+
 // The clone button label, e.g. "Clone · $1.50".
 export function cloneLabel(template: string, priceLabel: string): string {
   return template.replace('{price}', priceLabel);

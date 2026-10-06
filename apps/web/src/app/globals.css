@@ -4981,6 +4981,33 @@ html[data-motion='reduced'] *::after {
   padding: 0 20px 24px;
   overflow: auto;
 }
+/* PRD-08:202's row actions and the default marker (UX-16). */
+.voices-actions {
+  display: flex;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.voices-actions button {
+  background: var(--background);
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 3px 8px;
+}
+
+.voices-default {
+  color: var(--text-muted);
+}
+
+/* The uploaded sample field in the clone drawer (F-118). */
+.clone-voice-measured {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
 .voices-table {
   width: 100%;
   border-collapse: collapse;

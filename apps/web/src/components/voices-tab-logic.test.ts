@@ -4,7 +4,7 @@
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
 import { describe, expect, it } from 'vitest';
-import { filterVoiceRows, type VoiceRow } from './voices-tab-logic';
+import { filterVoiceRows, type VoiceRow, voiceProviderLabel } from './voices-tab-logic';
 
 const row = (over: Partial<VoiceRow>): VoiceRow => ({
   provider: 'elevenlabs',
@@ -28,5 +28,14 @@ describe('filterVoiceRows', () => {
     expect(filterVoiceRows(rows, 'openai', '').map((r) => r.voice_id)).toEqual(['nova']);
     expect(filterVoiceRows(rows, '', 'zh').map((r) => r.voice_id)).toEqual(['moss']);
     expect(filterVoiceRows(rows, '', '')).toHaveLength(3);
+  });
+
+  // UX-16: the table showed a provider id and typed a designed voice "clone".
+  it('names the provider the way the user knows it', () => {
+    expect(voiceProviderLabel('kling')).toBe('Kling (via fal)');
+    expect(voiceProviderLabel('fal')).toBe('MiniMax (via fal)');
+    expect(voiceProviderLabel('elevenlabs')).toBe('ElevenLabs');
+    // An id with no label is shown as it is rather than hidden.
+    expect(voiceProviderLabel('newprovider')).toBe('newprovider');
   });
 });

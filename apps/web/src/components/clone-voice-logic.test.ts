@@ -4,7 +4,15 @@
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
 import { describe, expect, it } from 'vitest';
-import { CLONE_PROVIDERS, canClone, cloneLabel, providerOption, sampleLongEnough } from './clone-voice-logic';
+import {
+  CLONE_PROVIDERS,
+  acceptsUploadedSample,
+  canClone,
+  cloneLabel,
+  connectedCloneProviders,
+  providerOption,
+  sampleLongEnough,
+} from './clone-voice-logic';
 
 describe('clone-voice logic (F-VOI-02)', () => {
   it('offers the four clone options with the price each page publishes (PRD-08 §B2)', () => {
@@ -75,5 +83,27 @@ describe('clone-voice logic (F-VOI-02)', () => {
 
   it('renders the price on the clone label', () => {
     expect(cloneLabel('Clone · {price}', '$1.50')).toBe('Clone · $1.50');
+  });
+
+  // F-118: PRD-08:231 offers "only connected" providers. All four were listed
+  // whatever the user had, so MiniMax direct and ElevenLabs were offered with no
+  // key and failed at submit; and a recording on the user's disk could not be
+  // used at all, because the drawer asked for a public URL.
+  it('offers only the providers whose key is connected', () => {
+    expect(connectedCloneProviders(['fal']).map((option) => option.provider)).toEqual(['kling', 'fal']);
+    expect(connectedCloneProviders(['minimax', 'fal']).map((option) => option.provider)).toEqual([
+      'minimax',
+      'kling',
+      'fal',
+    ]);
+    expect(connectedCloneProviders([])).toEqual([]);
+  });
+
+  it('takes an uploaded sample only where Kilnry can upload it', () => {
+    expect(acceptsUploadedSample('kling')).toBe(true);
+    expect(acceptsUploadedSample('fal')).toBe(true);
+    // The two direct endpoints take a multipart body, not a presigned address.
+    expect(acceptsUploadedSample('minimax')).toBe(false);
+    expect(acceptsUploadedSample('elevenlabs')).toBe(false);
   });
 });

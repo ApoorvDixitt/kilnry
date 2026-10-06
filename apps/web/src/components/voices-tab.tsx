@@ -8,7 +8,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { apiFetch } from '../lib/api-client';
 import { message } from '../lib/messages';
-import { VOICE_FILTER_PROVIDERS, filterVoiceRows, type VoiceRow } from './voices-tab-logic';
+import {
+  VOICE_FILTER_PROVIDERS,
+  filterVoiceRows,
+  voiceProviderLabel,
+  type VoiceRow,
+} from './voices-tab-logic';
+import { CloneVoiceDrawer } from './clone-voice';
 
 const DESIGN_COST_USD = 3;
 const MAX_DESIGN_DESCRIPTION = 300;
@@ -27,13 +33,78 @@ export function VoicesTab(): React.ReactNode {
   const [designGender, setDesignGender] = useState('');
   const [designing, setDesigning] = useState(false);
   const [designNote, setDesignNote] = useState<string>();
+  const [cloneOpen, setCloneOpen] = useState(false);
+  const [defaultVoice, setDefaultVoice] = useState<string | null>(null);
 
   const reload = useCallback(() => {
     void fetch('/api/voices')
-      .then((response) => response.json() as Promise<{ voices: VoiceRow[] }>)
-      .then((body) => setRows(body.voices))
+      .then((response) => response.json() as Promise<{ voices: VoiceRow[]; default_voice_ulid?: string }>)
+      .then((body) => {
+        setRows(body.voices);
+        setDefaultVoice(body.default_voice_ulid ?? null);
+      })
       .catch(() => setRows([]));
   }, []);
+
+  // PRD-08:202's row actions. Bind asks for the Character by handle, which is
+  // what a @mention is; the three were reachable only from inside a Character
+  // (UX-16).
+  async function manage(body: Record<string, unknown>): Promise<unknown> {
+    const response = await apiFetch('/api/voices/manage', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const answer = (await response.json()) as { error?: { message?: string } };
+    if (!response.ok) throw new Error(answer.error?.message ?? message('characters.voices.actionFailed'));
+    return answer;
+  }
+
+  async function bindRow(voice: VoiceRow): Promise<void> {
+    const handle = window.prompt(
+      message('characters.voices.bindHandlePrompt').replace('{voice}', voice.name),
+    );
+    if (!handle) return;
+    try {
+      await manage({
+        action: 'bind',
+        handle: handle.replace(/^@/, ''),
+        ...(voice.id
+          ? { voice_ulid: voice.id }
+          : { preset_provider: voice.provider, preset_voice_id: voice.voice_id, preset_name: voice.name }),
+      });
+      setNote(
+        message('characters.voices.bindDone')
+          .replace('{voice}', voice.name)
+          .replace('{handle}', handle.replace(/^@/, '')),
+      );
+      reload();
+    } catch (cause) {
+      setNote(cause instanceof Error ? cause.message : message('characters.voices.actionFailed'));
+    }
+  }
+
+  async function makeDefault(voice: VoiceRow): Promise<void> {
+    if (!voice.id) return;
+    try {
+      await manage({ action: 'set_default', voice_ulid: voice.id });
+      setDefaultVoice(voice.id);
+      setNote(message('characters.voices.defaultDone').replace('{voice}', voice.name));
+    } catch (cause) {
+      setNote(cause instanceof Error ? cause.message : message('characters.voices.actionFailed'));
+    }
+  }
+
+  async function removeVoice(voice: VoiceRow): Promise<void> {
+    if (!voice.id) return;
+    if (!window.confirm(message('characters.voices.deleteConfirm').replace('{voice}', voice.name))) return;
+    try {
+      await manage({ action: 'delete', voice_ulid: voice.id });
+      reload();
+    } catch (cause) {
+      setNote(cause instanceof Error ? cause.message : message('characters.voices.actionFailed'));
+    }
+  }
 
   useEffect(() => {
     reload();
@@ -108,6 +179,16 @@ export function VoicesTab(): React.ReactNode {
             {message('characters.voices.design')}
           </button>
         ) : null}
+        {/* PRD-08:226 puts "Clone voice" on this tab; it was reachable only from
+            inside a Character (F-118). */}
+        <button
+          type="button"
+          className="btn"
+          data-testid="voice-clone-open"
+          onClick={() => setCloneOpen(true)}
+        >
+          {message('characters.voices.clone')}
+        </button>
       </div>
       {designOpen && designProvider ? (
         <form
@@ -202,6 +283,7 @@ export function VoicesTab(): React.ReactNode {
               <th>{message('characters.voices.colTags')}</th>
               <th>{message('characters.voices.colPrice')}</th>
               <th>{message('characters.voices.colType')}</th>
+              <th aria-label={message('characters.voices.bindTo')} />
             </tr>
           </thead>
           <tbody>
@@ -219,7 +301,8 @@ export function VoicesTab(): React.ReactNode {
                   </button>
                 </td>
                 <td>{voice.name}</td>
-                <td>{voice.provider}</td>
+                {/* UX-16: the user reads a name, not a provider id. */}
+                <td>{voiceProviderLabel(voice.provider)}</td>
                 <td>{voice.language}</td>
                 <td>{voice.gender}</td>
                 <td className="voices-tags">
@@ -231,15 +314,45 @@ export function VoicesTab(): React.ReactNode {
                 </td>
                 <td data-money="true">{voice.price_label}</td>
                 <td>
-                  {voice.is_clone
-                    ? message('characters.voices.typeClone')
-                    : message('characters.voices.typePreset')}
+                  {voice.kind === 'designed'
+                    ? message('characters.voices.typeDesigned')
+                    : voice.kind === 'clone'
+                      ? message('characters.voices.typeClone')
+                      : message('characters.voices.typePreset')}
+                  {voice.id && voice.id === defaultVoice ? (
+                    <span className="voices-default"> · {message('characters.voices.isDefault')}</span>
+                  ) : null}
+                </td>
+                {/* PRD-08:202's row actions; Delete is for stored voices only. */}
+                <td className="voices-actions">
+                  <button type="button" onClick={() => void bindRow(voice)}>
+                    {message('characters.voices.bindTo')}
+                  </button>
+                  {voice.id ? (
+                    <>
+                      <button type="button" onClick={() => void makeDefault(voice)}>
+                        {message('characters.voices.setDefault')}
+                      </button>
+                      <button type="button" className="danger-text" onClick={() => void removeVoice(voice)}>
+                        {message('characters.voices.deleteVoice')}
+                      </button>
+                    </>
+                  ) : null}
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       )}
+      {cloneOpen ? (
+        <CloneVoiceDrawer
+          onClose={() => setCloneOpen(false)}
+          onCloned={() => {
+            setCloneOpen(false);
+            reload();
+          }}
+        />
+      ) : null}
       {note ? (
         <p className="muted voices-note" role="status">
           {note}

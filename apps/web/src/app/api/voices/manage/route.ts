@@ -6,6 +6,7 @@
 import { NextResponse } from 'next/server';
 import * as z from 'zod';
 import {
+  setDefaultVoice,
   KilnryError,
   bindVoice,
   bindPresetVoice,
@@ -15,15 +16,17 @@ import {
 } from '@kilnry/core';
 import { assertMayMutate, errorResponse, requireSessionOrBearer } from '../../../../server/http';
 import { runtimeServices } from '../../../../server/runtime';
-import { voiceCloner, voiceDesigner } from '../../../../server/voices';
+import { voiceCloner, voiceDeleter, voiceDesigner } from '../../../../server/voices';
 
 const Body = z.object({
-  action: z.enum(['clone', 'bind', 'unbind', 'design']),
+  action: z.enum(['clone', 'bind', 'unbind', 'design', 'set_default', 'delete']),
   handle: z.string().optional(),
   // Cloning.
   name: z.string().min(1).max(60).optional(),
   provider: z.enum(['minimax', 'elevenlabs', 'kling', 'fal']).optional(),
   sample_url: z.string().optional(),
+  // A recording the user uploaded into the Library (PRD-08:230, F-118).
+  sample_asset_id: z.string().optional(),
   sample_seconds: z.number().optional(),
   consent: z.boolean().optional(),
   confirm_cost_usd: z.number().optional(),
@@ -66,6 +69,7 @@ export async function POST(request: Request): Promise<Response> {
         provider: body.provider ?? 'minimax',
         sample_url: body.sample_url,
         sample_seconds: body.sample_seconds ?? 0,
+        ...(body.sample_asset_id ? { sample_asset_id: body.sample_asset_id } : {}),
         consent_confirmed: true,
         confirmed_cost_usd: body.confirm_cost_usd,
         ...(body.handle ? { bind_to: body.handle } : {}),
@@ -93,6 +97,21 @@ export async function POST(request: Request): Promise<Response> {
         ...(body.handle ? { bind_to: body.handle } : {}),
       });
       return NextResponse.json({ voice: result });
+    }
+
+    // PRD-08:202's row actions reach the Voices tab, where there is no
+    // Character in the url (UX-16).
+    if (body.action === 'set_default') {
+      if (!body.voice_ulid) throw new KilnryError('INVALID_INPUT', 'A voice is required.');
+      await setDefaultVoice(db, body.voice_ulid);
+      return NextResponse.json({ ok: true, default_voice_ulid: body.voice_ulid });
+    }
+
+    if (body.action === 'delete') {
+      if (!body.voice_ulid) throw new KilnryError('INVALID_INPUT', 'A voice is required.');
+      const deleter = await voiceDeleter();
+      await deleter.delete(body.voice_ulid);
+      return NextResponse.json({ ok: true });
     }
 
     if (!body.handle) throw new KilnryError('INVALID_INPUT', 'A handle is required.');

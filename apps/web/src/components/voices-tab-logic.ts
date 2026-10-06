@@ -6,6 +6,24 @@
 // Framework-free voice list helpers for the Voices tab (F-VOI-01), unit-tested
 // without a browser.
 
+/**
+ * The provider as the user knows it (UX-16): the table showed raw ids, and a
+ * Kling voice is reached through fal, which the label says.
+ */
+export const VOICE_PROVIDER_LABELS: Record<string, string> = {
+  elevenlabs: 'ElevenLabs',
+  minimax: 'MiniMax',
+  openai: 'OpenAI',
+  google: 'Google',
+  kokoro: 'Kokoro',
+  kling: 'Kling (via fal)',
+  fal: 'MiniMax (via fal)',
+};
+
+export function voiceProviderLabel(provider: string): string {
+  return VOICE_PROVIDER_LABELS[provider] ?? provider;
+}
+
 export interface VoiceRow {
   provider: string;
   voice_id: string;
@@ -16,6 +34,9 @@ export interface VoiceRow {
   is_clone: boolean;
   price_label: string;
   preview_url?: string;
+  /** Present for a stored clone or designed voice (UX-16 row actions). */
+  id?: string;
+  kind?: 'preset' | 'clone' | 'designed';
 }
 
 // The providers offered in the filter, in the order the reference lists them.

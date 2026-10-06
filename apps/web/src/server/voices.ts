@@ -9,7 +9,7 @@
 // and the preview is priced and ledgered inside previewVoice, so these helpers
 // only hand over keys and the provider synthesis call.
 
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   KilnryError,
@@ -27,8 +27,10 @@ import {
   type VoiceDeleter,
   type VoicePreviewer,
   safeFetch,
+  getAssetDetail,
+  resolveInRoot,
 } from '@kilnry/core';
-import { synthesizeSpeech } from '@kilnry/providers';
+import { adapters, synthesizeSpeech } from '@kilnry/providers';
 import { runtimeServices } from './runtime';
 
 export async function voiceCloner(): Promise<VoiceCloner> {
@@ -39,10 +41,47 @@ export async function voiceCloner(): Promise<VoiceCloner> {
         {
           db: services.database,
           keyFor: (provider) => services.keyStore.get(provider),
+          uploadSample: (assetId, provider) => uploadVoiceSample(assetId, provider),
         },
         input,
       ),
   };
+}
+
+/**
+ * Put a Library recording where the clone provider can fetch it (F-118). Every
+ * clone endpoint takes a URL the provider downloads itself, so a file on the
+ * user's own disk has to be uploaded first; fal's storage is reached through the
+ * adapter's own uploadFile (TRD-06 §3.1). MiniMax's and ElevenLabs' direct
+ * endpoints take a multipart body rather than a presigned address, so a local
+ * file for those two still needs their own upload call — the drawer only offers
+ * the file field for the providers this can serve.
+ */
+async function uploadVoiceSample(assetId: string, provider: string): Promise<string> {
+  const services = await runtimeServices();
+  const config = loadConfig();
+  if (!config.library_root) throw new KilnryError('NOT_FOUND', 'Library root is not configured.');
+  const adapter = adapters[provider as keyof typeof adapters];
+  if (!adapter?.uploadFile) {
+    throw new KilnryError(
+      'INVALID_INPUT',
+      `${provider} needs a public sample URL; Kilnry cannot upload a local file to it yet.`,
+    );
+  }
+  const key = await services.keyStore.get(provider as never);
+  if (!key) throw new KilnryError('NO_PROVIDER', `${provider} has no connected key.`);
+  const asset = await getAssetDetail(services.database, config.library_root, assetId);
+  const resolved = await resolveInRoot(config.library_root, asset.path, { mustExist: true });
+  const bytes = await readFile(resolved.abs);
+  const uploaded = await adapter.uploadFile(
+    {
+      bytes: new Uint8Array(bytes),
+      mime: asset.mime ?? 'audio/mpeg',
+      file_name: asset.path.split('/').pop() ?? 'sample',
+    },
+    { key, fetch, signal: AbortSignal.timeout(120_000), log: () => undefined },
+  );
+  return uploaded.url;
 }
 
 export interface VoiceDesigner {
