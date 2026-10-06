@@ -11,6 +11,8 @@ import { Check, Eye, EyeOff, FolderOpen, KeyRound, LockKeyhole, Sparkles } from 
 import { AnimatePresence, motion } from 'motion/react';
 import { detectProviderKey } from '@kilnry/core/security/key-detection';
 import { BrandMark } from './brand-mark';
+import { providerLabel } from './model-picker';
+import { readAppearance, renderAppearance, storeAppearance, type ThemeSetting } from '../lib/appearance';
 import { RecoveryProof } from './recovery-proof';
 import { apiFetch } from '../lib/api-client';
 import { message } from '../lib/messages';
@@ -54,6 +56,20 @@ export function OnboardingFlow({
   const [demoExpanded, setDemoExpanded] = useState(false);
   const [connectionNote, setConnectionNote] = useState<string>();
   const [recoveryKit, setRecoveryKit] = useState<string>();
+  const [theme, setTheme] = useState<ThemeSetting>('system');
+
+  // PRD-04:200 puts the theme choice on the final card (D-32); it existed only
+  // in Settings › Appearance (F-50, UX-02).
+  useEffect(() => {
+    if (step === 4) setTheme(readAppearance().theme);
+  }, [step]);
+
+  function chooseTheme(next: ThemeSetting): void {
+    setTheme(next);
+    const value = { ...readAppearance(), theme: next };
+    storeAppearance(value);
+    renderAppearance(value);
+  }
 
   // A key that is already saved keeps Continue available across a reload: the
   // step used to hold its only record of the save in component state, so a
@@ -346,10 +362,12 @@ export function OnboardingFlow({
                   <option value="pollinations">Pollinations</option>
                 </select>
                 <span className="field-hint">
+                  {/* The provider's own spelling, never the lower-case id
+                      (DES-01 §6, F-55). */}
                   {detectProvider(providerKey)
                     ? message('welcome.providerDetected').replace(
                         '{provider}',
-                        detectProvider(providerKey) ?? provider,
+                        providerLabel(detectProvider(providerKey) ?? provider),
                       )
                     : detectProviderKey(providerKey).length > 1
                       ? message('welcome.providerAmbiguous')
@@ -382,13 +400,17 @@ export function OnboardingFlow({
                   >
                     {pending ? message('welcome.providerTesting') : message('welcome.providerTest')}
                   </button>
+                  {/* One primary (D-69, UX-11): it reads "Continue without a
+                      key" until a key is tested and "Continue" after, so a user
+                      with no key is never looking at a grey primary button
+                      wondering which grey control is the way on. */}
                   <button
                     className="primary-button"
                     type="button"
-                    disabled={pending || !connected}
+                    disabled={pending}
                     onClick={() => void finishProviderStep()}
                   >
-                    {message('welcome.continue')}
+                    {connected ? message('welcome.continue') : message('welcome.continueWithoutKey')}
                   </button>
                 </div>
                 <div className="demo-divider">
@@ -422,14 +444,6 @@ export function OnboardingFlow({
                     </motion.div>
                   ) : null}
                 </AnimatePresence>
-                <button
-                  className="text-button"
-                  type="button"
-                  disabled={pending}
-                  onClick={() => void finishProviderStep()}
-                >
-                  {message('welcome.skipProvider')}
-                </button>
               </form>
             ) : null}
             {step === 4 ? (
@@ -440,6 +454,21 @@ export function OnboardingFlow({
                 <p className="eyebrow">{message('welcome.eyebrow')}</p>
                 <h1>{message('welcome.readyTitle')}</h1>
                 <p className="onboarding-subtitle">{message('welcome.readyBody')}</p>
+                <fieldset className="ready-theme">
+                  <legend>{message('settings.appearance.theme.title')}</legend>
+                  {(['system', 'light', 'dark'] as const).map((option) => (
+                    <label key={option}>
+                      <input
+                        type="radio"
+                        name="onboarding-theme"
+                        value={option}
+                        checked={theme === option}
+                        onChange={() => chooseTheme(option)}
+                      />
+                      {message(`settings.appearance.theme.${option}`)}
+                    </label>
+                  ))}
+                </fieldset>
                 <div className="ready-detail">
                   <span>⌘K</span>
                   <p>{message('shell.command')}</p>
@@ -452,7 +481,19 @@ export function OnboardingFlow({
                   className="primary-button"
                   type="button"
                   onClick={() => {
-                    router.push('/create');
+                    // The first Generate is one click: Create opens with the
+                    // PRD's example prompt for the provider that is connected —
+                    // a video prompt with OpenRouter or fal, an image prompt with
+                    // the Pollinations demo (PRD-04:200, UX-02).
+                    const video = provider === 'openrouter' || provider === 'fal';
+                    const prefill = video
+                      ? message('welcome.examplePromptVideo')
+                      : message('welcome.examplePromptImage');
+                    const params = new URLSearchParams({
+                      prefill,
+                      mode: video ? 'video' : 'image',
+                    });
+                    router.push(`/create?${params.toString()}`);
                     router.refresh();
                   }}
                 >

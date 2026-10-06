@@ -121,6 +121,7 @@ export function Composer({
   onGenerate,
   onStateChange,
   seed,
+  initialMode,
   edit,
   onExitEdit,
 }: {
@@ -144,10 +145,12 @@ export function Composer({
     ready: boolean;
   }) => void;
   seed?: { token: number; prompt: string } | undefined;
+  /** The mode the composer opens in; Create's default is Image. */
+  initialMode?: ComposerMode | undefined;
   edit?: EditSource | undefined;
   onExitEdit?: (() => void) | undefined;
 }): React.ReactNode {
-  const [mode, setMode] = useState<ComposerMode>('image');
+  const [mode, setMode] = useState<ComposerMode>(initialMode ?? 'image');
   const [prompt, setPrompt] = useState('');
   const [batch, setBatch] = useState(false);
   const [batchText, setBatchText] = useState('');

@@ -74,14 +74,25 @@ function toEstimatePayload(
   };
 }
 
-export function CreateComposer({ editAssetId = null }: { editAssetId?: string | null }): React.ReactNode {
+export function CreateComposer({
+  editAssetId = null,
+  prefillPrompt,
+  prefillMode,
+}: {
+  editAssetId?: string | null;
+  /** The example prompt onboarding hands over (PRD-04:200). */
+  prefillPrompt?: string;
+  prefillMode?: 'image' | 'video';
+}): React.ReactNode {
   const [models, setModels] = useState<ApiModel[]>([]);
   const [estimate, setEstimate] = useState<ApiEstimate | null>(null);
   const [tiles, setTiles] = useState<ResultTile[]>([]);
   const [loadError, setLoadError] = useState<string>();
   const [capabilities, setCapabilities] = useState<TileCapabilities>({ reveal: false });
   const [budgets, setBudgets] = useState<BudgetLine[]>([]);
-  const [seed, setSeed] = useState<{ token: number; prompt: string }>();
+  const [seed, setSeed] = useState<{ token: number; prompt: string } | undefined>(
+    prefillPrompt ? { token: 0, prompt: prefillPrompt } : undefined,
+  );
   const [edit, setEdit] = useState<EditSource | null>(null);
   const [saving, setSaving] = useState(false);
   const [snapshot, setSnapshot] = useState<ComposerSnapshot | null>(null);
@@ -468,6 +479,7 @@ export function CreateComposer({ editAssetId = null }: { editAssetId?: string | 
           else void generate(payload.override_budget);
         }}
         seed={seed}
+        {...(prefillMode ? { initialMode: prefillMode } : {})}
         {...(edit ? { edit } : {})}
         onExitEdit={() => {
           setEdit(null);

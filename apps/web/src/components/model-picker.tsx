@@ -54,7 +54,8 @@ const UNIT_SUFFIX: Record<string, string> = {
 
 const STALE_PRICE_DAYS = 30;
 
-function providerLabel(provider: string): string {
+/** A provider's own spelling of its name (DES-01 §6). */
+export function providerLabel(provider: string): string {
   return PROVIDER_NAMES[provider] ?? provider;
 }
 

@@ -74,7 +74,8 @@ test('@smoke @m3 S-01 AS-01 first run creates a protected local account and Libr
     return { missing_csrf: missingCsrf.status, no_provider: response.status };
   });
   expect(noProviderStatus).toEqual({ missing_csrf: 403, no_provider: 424 });
-  await page.getByRole('button', { name: 'Try the demo with a free Pollinations key' }).click();
+  // PRD-04:163's own wording (F-55).
+  await page.getByRole('button', { name: 'Try the demo (free Pollinations key)' }).click();
   await expect(page.getByText('Free Pollinations image demo')).toBeVisible();
   await expect(page.getByRole('link', { name: 'Open Pollinations free keys' })).toHaveAttribute(
     'href',
@@ -82,7 +83,8 @@ test('@smoke @m3 S-01 AS-01 first run creates a protected local account and Libr
   );
   const providerKey = ['sk-or-v1-', '0'.repeat(64)].join('');
   await page.getByLabel('Provider key').fill(providerKey);
-  await expect(page.getByText('openrouter detected', { exact: false })).toBeVisible();
+  // The provider's own spelling, not the lower-case id (DES-01 §6, F-55).
+  await expect(page.getByText('OpenRouter detected', { exact: false })).toBeVisible();
   await page.getByRole('button', { name: 'Test and save key' }).click();
   await expect(page.getByText(/Connected · \d+ ms/)).toBeVisible({ timeout: 30_000 });
   // D-63: with the master key in the OS keychain there is no recovery-kit card
@@ -122,8 +124,20 @@ test('@smoke @m3 S-01 AS-01 first run creates a protected local account and Libr
   expect(providerTestStatuses[20]).toBe(429);
   await page.getByRole('button', { name: 'Continue' }).click();
   await expect(page.getByRole('heading', { name: 'Your studio is ready' })).toBeVisible();
+  // PRD-04:200 (F-50, UX-02): the final card carries the theme choice, and Open
+  // Kilnry lands on Create with the provider-matched example prompt already in
+  // the composer, in the matching mode — one click from the first Generate.
+  await expect(page.locator('.ready-theme input[type="radio"]')).toHaveCount(3);
+  await expect(page.locator('.ready-theme input[value="system"]')).toBeChecked();
+  await page.locator('.ready-theme input[value="dark"]').check();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await page.locator('.ready-theme input[value="system"]').check();
   await page.getByRole('button', { name: 'Open Kilnry' }).click();
-  await expect(page).toHaveURL('/create');
+  await expect(page).toHaveURL(/\/create\?/);
+  await expect(page.getByRole('textbox', { name: 'Describe what you want to make…' })).toHaveValue(
+    'A slow dolly-in on a chai glass on a marble counter, steam rising, morning light',
+  );
+  await expect(page.getByRole('tab', { name: 'Video' })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByRole('heading', { name: 'Create', exact: true })).toBeVisible();
   // A fresh install has the $10.00 daily cap PRD-14 promises, and the top-bar
   // meter shows today's spend against it (F-08, F-17).
@@ -136,6 +150,9 @@ test('@smoke @m3 S-01 AS-01 first run creates a protected local account and Libr
   expect(existsSync(join(library, 'Trash'))).toBe(true);
   expect(existsSync(join(dataDir, 'first-run.token'))).toBe(false);
 
+  // The scripted start is a video prompt; this check goes on to make the first
+  // image, so it switches mode the way the user would.
+  await page.getByRole('tab', { name: 'Image' }).click();
   await page
     .getByRole('textbox', { name: 'Describe what you want to make…' })
     .fill('a small ceramic kiln arch on warm handmade paper, soft studio light');
