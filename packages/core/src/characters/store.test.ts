@@ -118,6 +118,27 @@ describe('references and versioning', () => {
     expect(loaded.references[1]).toMatchObject({ position: 1 });
   });
 
+  // Found while reading a red CI shard: a second anchor was added beside the
+  // first, so the resolver sent the same face twice and spent two of the model's
+  // reference slots on it. PRD-07 treats the anchor as one slot (:84, :97, :158).
+  it('replaces the anchor instead of keeping two', async () => {
+    const state = await db();
+    const head = await createCharacter(state, { handle: 'maya', kind: 'character', display_name: 'Maya' });
+    const first = ulid();
+    const second = ulid();
+    await addReferences(state, head.id, [{ asset_id: first, role: 'anchor', view: 'front' }]);
+    await addReferences(state, head.id, [
+      { asset_id: second, role: 'anchor', view: 'front' },
+      { asset_id: ulid(), role: 'outfit', label: 'wet' },
+    ]);
+    const loaded = await loadVersion(state, head.id);
+    const anchors = loaded.references.filter((reference) => reference.role === 'anchor');
+    expect(anchors).toHaveLength(1);
+    expect(anchors[0]?.asset_id).toBe(second);
+    // The other roles are untouched.
+    expect(loaded.references.filter((reference) => reference.role === 'outfit')).toHaveLength(1);
+  });
+
   it('forks a new version when adding references to a frozen version', async () => {
     const state = await db();
     const head = await createCharacter(state, { handle: 'maya', kind: 'character', display_name: 'Maya' });

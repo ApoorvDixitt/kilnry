@@ -293,6 +293,21 @@ export async function addReferences(
     .from(characterReferences)
     .where(and(eq(characterReferences.characterId, characterId), eq(characterReferences.version, version)));
   let next = existing.reduce((max, r) => Math.max(max, (r.position ?? 0) + 1), 0);
+  // The anchor is one slot, not a list (PRD-07:84, :97 "Missing anchor", :158
+  // "drag another to the anchor slot"): adding one replaces the current anchor
+  // rather than leaving two, which sent the same identity twice in the provider
+  // payload and spent two of the model's reference slots on one face.
+  if (refs.some((ref) => ref.role === 'anchor')) {
+    await state.db
+      .delete(characterReferences)
+      .where(
+        and(
+          eq(characterReferences.characterId, characterId),
+          eq(characterReferences.version, version),
+          eq(characterReferences.role, 'anchor'),
+        ),
+      );
+  }
   for (const ref of refs) {
     await state.db.insert(characterReferences).values({
       id: ulid(),

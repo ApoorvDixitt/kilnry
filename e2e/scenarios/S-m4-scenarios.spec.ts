@@ -157,7 +157,9 @@ test('@m4 S-03 @character in a video prompt resolves to references, not the lite
   // The composer's preview names the strategy, and the price is the resolved
   // one: Wan 3.0 reference-to-video at $0.05 a second for its own 2 s minimum,
   // which is the duration the engine uses when the composer sends none.
-  await expect(page.getByText('@maya → reference_images')).toBeVisible({ timeout: 15_000 });
+  // 30 s, not 15: on a cold continuous-integration runner the first call to
+  // /api/characters/resolve compiles the route, and the chip waits for it.
+  await expect(page.getByText('@maya → reference_images')).toBeVisible({ timeout: 30_000 });
   await expect(page.locator('.cost-strip .cost-strip-figure-text')).toContainText('$0.100', {
     timeout: 15_000,
   });

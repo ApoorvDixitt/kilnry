@@ -200,8 +200,9 @@ export function Composer({
     }
     setMentionQuery(active);
     void fetch(`/api/characters/mentions?q=${encodeURIComponent(active.query)}&limit=8`)
-      .then((response) => response.json() as Promise<{ items: MentionSuggestion[] }>)
-      .then((body) => setSuggestions(body.items))
+      .then((response) => response.json() as Promise<{ items?: MentionSuggestion[] }>)
+      // An answer without items crashed the composer on the next render.
+      .then((body) => setSuggestions(body.items ?? []))
       .catch(() => setSuggestions([]));
   }, []);
 
@@ -354,6 +355,13 @@ export function Composer({
       return;
     }
     const resolveKind = mode === 'workflow' ? 'image' : mode;
+    // One answer per prompt, and only the newest: the effect had no ordering
+    // guard, so a slow reply for an earlier prompt could land after a newer one
+    // and overwrite it. On a loaded runner the reply for the half-typed "@may"
+    // arrived after the reply for "@maya" and the composer kept showing "@may is
+    // not a Character" with no chip — read from the acceptance shard's own
+    // failure snapshot (e2e-m3-m4 artifact of run 37543781517).
+    let current = true;
     const timer = setTimeout(() => {
       void apiFetch('/api/characters/resolve', {
         method: 'POST',
@@ -365,10 +373,17 @@ export function Composer({
         }),
       })
         .then((response) => response.json() as Promise<{ resolution?: ResolvePreview }>)
-        .then((body) => setPreview(body.resolution ?? null))
-        .catch(() => setPreview(null));
+        .then((body) => {
+          if (current) setPreview(body.resolution ?? null);
+        })
+        .catch(() => {
+          if (current) setPreview(null);
+        });
     }, 300);
-    return () => clearTimeout(timer);
+    return () => {
+      current = false;
+      clearTimeout(timer);
+    };
   }, [prompt, selectedModel, mode]);
 
   const acceptSuggestion = useCallback(

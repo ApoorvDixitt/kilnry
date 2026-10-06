@@ -249,4 +249,74 @@ describe('Composer', () => {
     expect(why).toContain('Picks the cheapest model that fits your settings');
     expect(why).not.toContain('×');
   });
+
+  // Read from the acceptance shard's own failure snapshot (run 37543781517,
+  // artifact e2e-m3-m4): the composer kept "@may is not a Character" and showed
+  // no chip, because the slow reply for the half-typed mention landed after the
+  // reply for the finished one. The effect had no ordering guard.
+  it('ignores a resolver reply for a prompt that has already changed', async () => {
+    const replies: Array<(value: unknown) => void> = [];
+    const original = globalThis.fetch;
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      if (String(url).startsWith('/api/characters/resolve')) {
+        const body = JSON.parse(String(init?.body ?? '{}')) as { prompt?: string };
+        return new Promise((resolve) => {
+          replies.push(() =>
+            resolve(
+              new Response(
+                JSON.stringify({
+                  resolution: body.prompt?.includes('@maya')
+                    ? {
+                        rewritten_prompt: 'x',
+                        injections: [
+                          {
+                            handle: 'maya',
+                            version: 1,
+                            strategy: 'reference_images',
+                            inputs: [],
+                            notes: [],
+                          },
+                        ],
+                        warnings: [],
+                      }
+                    : {
+                        rewritten_prompt: 'x',
+                        injections: [],
+                        warnings: ['@may is not a Character; did you mean @maya?'],
+                      },
+                }),
+                { status: 200, headers: { 'Content-Type': 'application/json' } },
+              ),
+            ),
+          );
+        });
+      }
+      return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as typeof globalThis.fetch;
+
+    try {
+      const host = await render(<Composer models={[imageModel()]} estimate={estimate} now={NOW} />);
+      const textarea = host.querySelector('.composer textarea') as HTMLTextAreaElement;
+      const type = async (value: string): Promise<void> => {
+        await act(async () => {
+          const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
+          setter?.call(textarea, value);
+          textarea.dispatchEvent(new Event('input', { bubbles: true }));
+        });
+        // Past the 300 ms debounce.
+        await act(async () => new Promise((resolve) => setTimeout(resolve, 350)));
+      };
+      await type('@may');
+      await type('Slow dolly-in on @maya at a chai stall');
+      // The older reply answers last, as it did on the runner.
+      await act(async () => {
+        for (const reply of replies.reverse()) reply(undefined);
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      });
+      expect(host.querySelector('.composer-resolve')?.textContent).toContain('@maya → reference_images');
+      expect(host.textContent).not.toContain('is not a Character');
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
 });
