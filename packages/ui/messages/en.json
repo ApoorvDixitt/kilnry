@@ -318,6 +318,7 @@
       "jobFailed": "The generation did not complete. Open Jobs for details.",
       "waitTimeout": "The job is still running. Open Jobs to keep watching it.",
       "requestFailed": "Kilnry could not complete that request. Check the details and try again.",
+      "offline": "Waiting for network. This will run when you reconnect.",
       "status": {
         "queued": "Queued",
         "running": "Running",

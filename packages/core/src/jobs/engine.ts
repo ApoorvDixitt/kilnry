@@ -5,7 +5,7 @@
 
 import { mkdir, rm } from 'node:fs/promises';
 import { join, dirname, relative } from 'node:path';
-import { and, desc, eq, gte, inArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, sql } from 'drizzle-orm';
 import { PgBoss, fromPglite, type Job } from 'pg-boss';
 import type { DatabaseState } from '@kilnry/db';
 import { jobs, providers, spendLedger, auditEvents, characters, characterVersions, runs } from '@kilnry/db';
@@ -24,7 +24,13 @@ import { normalizeConfirmedBy } from '../budget/confirmation.js';
 import { KilnryError } from '../errors.js';
 import { eventHub, type EventHub } from '../events/hub.js';
 import { ulid } from '../ids.js';
-import { markNetworkOnline } from '../net/network-state.js';
+import {
+  NETWORK_HOLD_SECONDS,
+  WAITING_FOR_NETWORK,
+  isNetworkOnline,
+  markNetworkOnline,
+  persistNetworkState,
+} from '../net/network-state.js';
 import type { ProviderKeyStore } from '../security/key-store.js';
 import { redact, redactString } from '../security/redact.js';
 import { loadRegistry, providerRouteStates, seedRegistry } from '../registry/store.js';
@@ -245,7 +251,10 @@ export class JobEngine {
   constructor(options: JobEngineOptions) {
     this.#options = {
       ...options,
-      fetch: options.fetch ?? fetch,
+      // Late-bound on purpose: capturing the global here froze whatever
+      // `fetch` was at construction, so a wrapper installed afterwards (an
+      // interceptor, the acceptance harness's denied network) was bypassed.
+      fetch: options.fetch ?? ((input, init) => globalThis.fetch(input, init)),
       events: options.events ?? eventHub,
       pollScheduleMs: options.pollScheduleMs ?? [2000, 3000, 5000, 8000, 10_000],
       pollTimeoutMs: options.pollTimeoutMs ?? 7_200_000,
@@ -957,6 +966,62 @@ export class JobEngine {
     return rows[0];
   }
 
+  /**
+   * A connection error before anything was submitted (no provider request id,
+   * `provider_code: 'network'`, not an ambiguous submit) means the job never
+   * left the machine, so it can wait instead of failing.
+   */
+  #heldByNetwork(row: JobRow, error: KilnryError): boolean {
+    if (row.providerRequestId) return false;
+    if (error.options?.provider_code !== 'network') return false;
+    const details = error.options?.details as
+      { ambiguous_submit?: unknown; unreachable?: unknown } | undefined;
+    if (details?.ambiguous_submit === true) return false;
+    // Only a DNS or connect failure means the request never left the machine
+    // (PRD-15 §Offline); a connection lost mid-flight is not safe to resubmit.
+    return details?.unreachable === true;
+  }
+
+  /** True when this job is the oldest one waiting for the network. */
+  async #oldestHeld(jobId: string): Promise<boolean> {
+    const rows = await this.#options.state.db
+      .select({ id: jobs.id })
+      .from(jobs)
+      .where(and(eq(jobs.status, 'queued'), eq(jobs.stepLabel, WAITING_FOR_NETWORK)))
+      .orderBy(asc(jobs.createdAt))
+      .limit(1);
+    return rows[0] === undefined || rows[0].id === jobId;
+  }
+
+  /**
+   * Keep the job queued with PRD-15's waiting label and look again in five
+   * seconds, which is the window acceptance criterion 2 gives the resume.
+   */
+  async #holdForNetwork(jobId: string): Promise<void> {
+    const row = await this.#job(jobId);
+    await this.#options.state.db
+      .update(jobs)
+      .set({ stepLabel: WAITING_FOR_NETWORK })
+      .where(and(eq(jobs.id, jobId), eq(jobs.status, 'queued')));
+    this.#options.events.emit({
+      type: 'job.updated',
+      job_id: jobId,
+      status: 'queued',
+      step_label: WAITING_FOR_NETWORK,
+      estimate_usd: numeric(row.estimateUsd),
+      ts: this.#options.now().toISOString(),
+    });
+    // Every route handler can read this; the in-process flag is not shared
+    // across Next's per-route module instances (F-117).
+    await persistNetworkState(this.#options.state, this.#options.now().toISOString());
+    const provider = ProviderIdSchema.parse(row.providerId);
+    await this.boss.send(
+      queueName(provider),
+      { job_id: jobId },
+      { startAfter: NETWORK_HOLD_SECONDS, retryLimit: 0 },
+    );
+  }
+
   async #enqueue(jobId: string, provider: ProviderId, resume = false): Promise<void> {
     const result = await this.boss.send(
       queueName(provider),
@@ -999,6 +1064,19 @@ export class JobEngine {
               retryable: true,
               cause: error,
             });
+      // A request that never reached the network, with nothing submitted, is not
+      // a failure: PRD-15 §Offline keeps the job queued under "Waiting for
+      // network" and submits it when the network is back. It used to fail with
+      // TIMEOUT, so nothing waited and nothing resumed (F-117).
+      if (this.#heldByNetwork(row, normalized)) {
+        await this.#options.state.db
+          .update(jobs)
+          .set({ status: 'queued', startedAt: null, errorCode: null, errorMessage: null, retryable: null })
+          .where(eq(jobs.id, jobId));
+        await this.#holdForNetwork(jobId);
+        this.#options.log('info', 'job_waiting_for_network', { job_id: jobId });
+        return;
+      }
       await this.#finishError(row, normalized, false);
       this.#options.log('error', 'handler_crash', { job_id: jobId, error: redact(error) });
     } finally {
@@ -1009,6 +1087,17 @@ export class JobEngine {
   async #run(jobId: string, resume: boolean): Promise<void> {
     let row = await this.#job(jobId);
     if (['completed', 'failed', 'cancelled', 'moderated'].includes(row.status)) return;
+    // PRD-15 §Offline: while the observed network state is offline a new
+    // generation is accepted and sits queued with "Waiting for network" instead
+    // of being submitted, and it resumes when a request reaches the network
+    // again. Until now a connection error failed the job outright, so nothing
+    // ever waited and nothing resumed (F-117). One held job — the oldest — is
+    // allowed to try each tick: that attempt is the observation the reconnect
+    // rule needs, and the spec forbids a connectivity probe.
+    if (!resume && row.status === 'queued' && !isNetworkOnline() && !(await this.#oldestHeld(jobId))) {
+      await this.#holdForNetwork(jobId);
+      return;
+    }
     const provider = ProviderIdSchema.parse(row.providerId);
     const adapter = this.#options.adapters[provider];
     if (!adapter) throw new KilnryError('NO_PROVIDER', `No adapter is registered for ${provider}.`);
@@ -1189,8 +1278,9 @@ export class JobEngine {
   ): Promise<void> {
     const actualUsd = result.billing?.actual_usd ?? estimate.authoritative_usd ?? estimate.estimate_usd;
     // A provider request that completed proves the network is reachable, so chat
-    // regains its spend tools (F40).
+    // regains its spend tools (F40) and the offline bar comes down (F-117).
     markNetworkOnline();
+    await persistNetworkState(this.#options.state, null);
     await this.#options.state.db.update(jobs).set({ stepLabel: 'downloading' }).where(eq(jobs.id, row.id));
     let downloaded: Awaited<ReturnType<ProviderAdapter['download']>>;
     try {

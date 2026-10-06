@@ -15,6 +15,7 @@ import { message } from '../lib/messages';
 import type { ApiEstimate, ApiModel } from '../lib/composer-types';
 import { Composer } from './composer';
 import { batchRequests, parseBatch } from './batch-logic';
+import { isLocalNetworkError } from './offline-logic';
 import { editPayload, editSourceFromDetail, type EditAssetDetail, type EditSource } from './edit-logic';
 import type { ComposerMode } from './model-picker';
 import type { ComposerParams } from './param-chips';
@@ -305,14 +306,20 @@ export function CreateComposer({
       );
       await poll(tileId, created.job_id);
     } catch (cause) {
+      // The browser's own "Failed to fetch" reached the tile as the error copy
+      // when the machine was offline; PRD-15:153 words this as waiting for the
+      // network, and the queued job on the server does the waiting (F-117).
+      const offline = isLocalNetworkError(cause);
       setTiles((prior) =>
         prior.map((tile) =>
           tile.id === tileId
-            ? {
-                ...tile,
-                status: 'failed',
-                error: cause instanceof Error ? cause.message : message('create.proof.requestFailed'),
-              }
+            ? offline
+              ? { ...tile, status: 'queued', stepLabel: message('create.proof.offline') }
+              : {
+                  ...tile,
+                  status: 'failed',
+                  error: cause instanceof Error ? cause.message : message('create.proof.requestFailed'),
+                }
             : tile,
         ),
       );

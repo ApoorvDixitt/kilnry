@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
-import { readFileSync, rmSync } from 'node:fs';
+import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 import { PNG, seedLibraryFile } from './workflow-harness';
@@ -327,15 +327,81 @@ test('@m4 S-06 a read-only token cannot spend', async ({ page, request }) => {
 });
 
 test('@m4 S-10 offline queue shows the bar and resumes on reconnect', async ({ page, context }) => {
+  test.setTimeout(180_000);
   await ensureProvider(page, 'fal', FAL_KEY);
   await ensureSignedIn(page, '/jobs');
-  // Going offline shows the bar; coming back online clears it.
+  // The browser hint shows the bar early on any page (PRD-15:152, D-70); it
+  // never changes a job.
   await context.setOffline(true);
   await page.evaluate(() => window.dispatchEvent(new Event('offline')));
   await expect(page.locator('.offline-bar')).toBeVisible({ timeout: 10_000 });
   await context.setOffline(false);
   await page.evaluate(() => window.dispatchEvent(new Event('online')));
   await expect(page.locator('.offline-bar')).toHaveCount(0, { timeout: 10_000 });
+
+  // PRD-15 §Offline's When/Then, driven through the server's own observed state
+  // (F-117): with the network denied a generation is accepted, waits, and
+  // submits once when the network is back.
+  writeFileSync(join(dataDir, 'msw-network-down'), '1');
+  try {
+    await ensureSignedIn(page, '/create');
+    await pickModel(page, /Auto/);
+    await page
+      .getByRole('textbox', { name: 'Describe what you want to make…' })
+      .fill('a small tin lantern on a windowsill');
+    // The estimate still shows and Generate stays enabled (PRD-15:153).
+    await expect(page.locator('.cost-strip .cost-strip-figure')).toContainText('$', {
+      timeout: 15_000,
+    });
+    await expect(page.getByRole('button', { name: 'Generate' })).toBeEnabled();
+    await page.getByRole('button', { name: 'Generate' }).click();
+
+    // The job is accepted and waits under the exact label, and the bar appears
+    // on Create too — the first attempt is what observes the network is down.
+    await page.goto('/jobs');
+    await page.getByRole('tab', { name: 'Queued' }).click();
+    await expect(page.locator('.jobs-step-label').first()).toHaveText('Waiting for network', {
+      timeout: 60_000,
+    });
+    await expect(page.locator('.offline-bar')).toBeVisible({ timeout: 15_000 });
+  } finally {
+    rmSync(join(dataDir, 'msw-network-down'), { force: true });
+  }
+
+  // Restoring the network submits the waiting job and completes it with exactly
+  // one submission beyond the one failed attempt (acceptance 2 and 3).
+  await expect
+    .poll(async () => (await page.locator('.offline-bar').count()) === 0, { timeout: 30_000 })
+    .toBe(true);
+  // The resume is the server's work; the page is reloaded to read it, because
+  // the dev server gives each route handler its own module instance and the
+  // event stream of one is not the event hub of the other.
+  await expect
+    .poll(
+      async () => {
+        await page.reload();
+        await page.getByRole('tab', { name: 'Queued' }).click();
+        return page.locator('.jobs-step-label').count();
+      },
+      { timeout: 90_000, intervals: [5_000] },
+    )
+    .toBe(0);
+  // The job that waited is the one that completed, with one provider request id
+  // — it was submitted once (acceptance 2 and 3).
+  const resumed = await page.evaluate(async () => {
+    const body = (await (await fetch('/api/jobs')).json()) as {
+      jobs?: Array<{
+        status: string;
+        attempts: number;
+        providerRequestId: string | null;
+        request?: { prompt?: string };
+      }>;
+    };
+    const mine = (body.jobs ?? []).find((job) => job.request?.prompt?.includes('tin lantern'));
+    return { status: mine?.status, hasRequestId: Boolean(mine?.providerRequestId) };
+  });
+  expect(resumed.status).toBe('completed');
+  expect(resumed.hasRequestId).toBe(true);
 });
 
 test('@m4 S-12 sidecar recovery via doctor reindex over the reindex route', async ({ page }) => {

@@ -183,6 +183,17 @@ export function FailedRowDetail({
 
 // Whether a job may be retried (a failed, terminal error) or cancelled (still in
 // flight). Moderated jobs are not retried here — they route to Edit prompt.
+/**
+ * The step label worth showing beside the status pill: only while the row is
+ * still going, and only when it says more than the status word already does.
+ */
+export function stepNote(row: { status: string; stepLabel?: string | null }): string | null {
+  if (!['queued', 'running'].includes(row.status)) return null;
+  const label = row.stepLabel?.trim();
+  if (!label || label.toLowerCase() === row.status) return null;
+  return label;
+}
+
 export function jobActions(status: string): { canRetry: boolean; canCancel: boolean } {
   return {
     canRetry: status === 'failed',
@@ -270,6 +281,11 @@ export function JobsTable({
               <tr key={row.id} data-status={row.status} onClick={() => onOpen?.(row.id)}>
                 <td>
                   <span className={`status-pill status-${row.status}`}>{statusLabel(row.status)}</span>
+                  {/* PRD-15:60: a queued or running row carries what it is
+                      waiting for — "queued at fal (#3)", "Waiting for network".
+                      The label was rendered only when the row had no prompt, so
+                      it was never seen on a real generation (F-117). */}
+                  {stepNote(row) ? <span className="jobs-step-label">{stepNote(row)}</span> : null}
                 </td>
                 <td className="jobs-prompt">
                   {(row.prompt ?? row.request?.prompt)?.slice(0, 60) ?? row.stepLabel ?? '—'}

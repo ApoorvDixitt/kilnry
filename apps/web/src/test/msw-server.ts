@@ -139,6 +139,35 @@ type TestGlobal = typeof globalThis & {
   __kilnryOpenRouterVideoCount?: number;
 };
 
+/**
+ * The network-denied switch S-10 uses (F-117). While the flag file exists in the
+ * data directory, a request to any host other than this machine rejects exactly
+ * as an unreachable network does: a TypeError whose cause carries getaddrinfo
+ * ENOTFOUND (https://nodejs.org/api/errors.html#common-system-errors, read
+ * 2026-10-07). MSW's own HttpResponse.error() cannot carry that cause — it
+ * attaches a Response — and the engine must tell a DNS failure (nothing left the
+ * machine, so the job can wait) from a connection lost mid-flight (which may
+ * have been received and is never resubmitted automatically).
+ */
+function denyNetworkWhenFlagged(): void {
+  const original = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const dataDir = process.env.KILNRY_DATA_DIR;
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    const { hostname } = new URL(url, 'http://127.0.0.1');
+    const local = hostname === '127.0.0.1' || hostname === 'localhost' || hostname === '[::1]';
+    if (!local && dataDir && existsSync(join(dataDir, 'msw-network-down'))) {
+      const cause = Object.assign(new Error(`getaddrinfo ENOTFOUND ${hostname}`), {
+        code: 'ENOTFOUND',
+        syscall: 'getaddrinfo',
+        hostname,
+      });
+      throw Object.assign(new TypeError('fetch failed'), { cause });
+    }
+    return original(input as RequestInfo, init);
+  }) as typeof globalThis.fetch;
+}
+
 export function startTestMsw(): void {
   const global = globalThis as TestGlobal;
   if (global.__kilnryTestMswStarted) return;
@@ -592,6 +621,9 @@ export function startTestMsw(): void {
       print.error();
     },
   });
+  // After listen(), so this wraps MSW's own patched fetch rather than being
+  // replaced by it.
+  denyNetworkWhenFlagged();
   global.__kilnryTestMswServer = server;
   global.__kilnryTestMswStarted = true;
 }

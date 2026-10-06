@@ -2307,6 +2307,14 @@ kbd {
   height: 100%;
 }
 
+/* What a queued or running row is waiting for (PRD-15:60, F-117). */
+.jobs-step-label {
+  color: var(--text-muted);
+  display: block;
+  font-size: 11px;
+  margin-top: 3px;
+}
+
 .jobs-view {
   display: flex;
   flex-direction: column;

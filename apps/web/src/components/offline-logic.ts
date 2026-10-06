@@ -29,3 +29,15 @@ export function resumedToast(count: number): string {
   const noun = count === 1 ? 'job' : 'jobs';
   return `Back online. Resumed ${count} ${noun}.`;
 }
+
+/**
+ * A request that never left the browser (the local server was unreachable).
+ * `fetch` rejects with a TypeError, whose message is "Failed to fetch" in
+ * Chromium and "NetworkError when attempting to fetch resource." in Firefox.
+ * That string reached the Create tile as the error copy; PRD-15:153 words it as
+ * waiting for the network (F-117).
+ */
+export function isLocalNetworkError(cause: unknown): boolean {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return true;
+  return cause instanceof TypeError && /fetch|network/i.test(cause.message);
+}

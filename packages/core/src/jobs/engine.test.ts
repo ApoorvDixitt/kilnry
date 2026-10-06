@@ -34,6 +34,12 @@ import { readSidecar } from '../library/sidecar.js';
 import { canonicalQueueName, JobEngine, type JobEngineOptions } from './engine.js';
 import { seedPinnedClock } from '../registry/seed/test-clock.js';
 import { PRICE_MAX_AGE_SETTING } from '../registry/price-age.js';
+import {
+  WAITING_FOR_NETWORK,
+  isNetworkOnline,
+  markNetworkOffline,
+  markNetworkOnline,
+} from '../net/network-state.js';
 
 const tinyPng = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
@@ -504,6 +510,54 @@ describe('pg-boss job engine', () => {
       options: { details: { reason: 'stale_price', price_max_age_days: 1 } },
     });
   });
+
+  // F-117: PRD-15 §Offline accepts a generation while the network is down and
+  // keeps it queued under "Waiting for network" until a request reaches the
+  // network. A connection error used to fail the job with TIMEOUT, so nothing
+  // ever waited and nothing resumed, and the promise the bar makes ("Jobs will
+  // resume when you reconnect") was not kept.
+  // What @kilnry/providers' providerNetworkError throws, built here because core
+  // cannot import its own consumer: the mark plus the shape the engine reads.
+  function networkFailure(): KilnryError {
+    markNetworkOffline();
+    return new KilnryError(
+      'TIMEOUT',
+      'Kilnry lost the connection while contacting fal. Kilnry has not resubmitted, so the request will not be sent twice automatically.',
+      {
+        provider: 'fal',
+        provider_code: 'network',
+        retryable: true,
+        details: { ambiguous_submit: false, billed: 'no', unreachable: true },
+      },
+    );
+  }
+
+  it('holds a job that could not reach the network instead of failing it', async () => {
+    const fake = fakeAdapter({
+      submitFailures: [networkFailure(), networkFailure()],
+    });
+    const { engine, state } = await harness(fake.adapter);
+    const created = await createConfirmed(engine, 'offline-hold');
+    // The first attempt fails to reach the network: the job waits rather than
+    // failing, and the exact PRD label is on the row.
+    await expect
+      .poll(
+        async () => {
+          const [row] = await state.db.select().from(jobs).where(eq(jobs.id, created.job_id));
+          return `${row?.status}:${row?.stepLabel}`;
+        },
+        { timeout: 20_000 },
+      )
+      .toBe(`queued:${WAITING_FOR_NETWORK}`);
+    expect(isNetworkOnline()).toBe(false);
+
+    // The held job tries again and, once a request reaches the network, it
+    // submits and completes — one job, no second submission beyond the retries.
+    expect(await engine.waitForJob(created.job_id, 60_000)).toMatchObject({ status: 'completed' });
+    expect(isNetworkOnline()).toBe(true);
+    // The module-level mark is process-wide; leave it as a fresh process has it.
+    markNetworkOnline();
+  }, 90_000);
 
   it('writes a zero ledger entry for moderation', async () => {
     const fake = fakeAdapter({

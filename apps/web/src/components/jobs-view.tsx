@@ -9,7 +9,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { apiFetch } from '../lib/api-client';
 import { message } from '../lib/messages';
 import { JobsTable, filterJobs, type JobRow, type JobTab } from './jobs-table';
-import { WAITING_FOR_NETWORK } from './offline-logic';
 
 const TABS: JobTab[] = ['all', 'running', 'queued', 'waiting', 'failed', 'done', 'blocked'];
 
@@ -26,7 +25,6 @@ const TAB_LABEL: Record<JobTab, string> = {
 export function JobsView(): React.ReactNode {
   const [rows, setRows] = useState<JobRow[]>([]);
   const [tab, setTab] = useState<JobTab>('all');
-  const [offline, setOffline] = useState(false);
   const [resumed, setResumed] = useState<string | null>(null);
 
   const load = useCallback(() => {
@@ -40,16 +38,13 @@ export function JobsView(): React.ReactNode {
     load();
   }, [load]);
 
-  // Offline resilience (F-JOB-05): show the OfflineBar while the network is
-  // down; on reconnect, ask the engine to resume owed jobs — it re-polls each
-  // running job by its provider request id before any resubmission — and show
+  // Offline resilience (F-JOB-05): the bar is the shell's now (F-117); on
+  // reconnect this view asks the engine to resume owed jobs — it re-polls each
+  // running job by its provider request id before any resubmission — and shows
   // "Back online. Resumed N jobs."
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    setOffline(!window.navigator.onLine);
-    const goOffline = (): void => setOffline(true);
     const goOnline = (): void => {
-      setOffline(false);
       void apiFetch('/api/jobs/resume', { method: 'POST' })
         .then((response) => (response.ok ? (response.json() as Promise<{ resumed: number }>) : null))
         .then(async (body) => {
@@ -61,10 +56,8 @@ export function JobsView(): React.ReactNode {
         })
         .catch(() => undefined);
     };
-    window.addEventListener('offline', goOffline);
     window.addEventListener('online', goOnline);
     return () => {
-      window.removeEventListener('offline', goOffline);
       window.removeEventListener('online', goOnline);
     };
   }, [load]);
@@ -105,22 +98,14 @@ export function JobsView(): React.ReactNode {
     [load],
   );
 
-  const shown = useMemo(() => {
-    const filtered = filterJobs(rows, tab);
-    if (!offline) return filtered;
-    // While offline, queued jobs are waiting for the network to return.
-    return filtered.map((row) =>
-      row.status === 'queued' ? { ...row, stepLabel: WAITING_FOR_NETWORK } : row,
-    );
-  }, [rows, tab, offline]);
+  // The waiting label is the server's now: the engine writes "Waiting for
+  // network" on the row it is holding (F-117, D-70). The browser's own offline
+  // hint used to rewrite every queued row's label, which was a guess.
+  const shown = useMemo(() => filterJobs(rows, tab), [rows, tab]);
 
   return (
     <section className="jobs-view">
-      {offline ? (
-        <p className="offline-bar" role="status">
-          {message('jobs.offlineBar')}
-        </p>
-      ) : null}
+      {/* The bar is the shell's now (F-117); this view keeps the queued label. */}
       {resumed ? (
         <p className="jobs-resumed" role="status" onAnimationEnd={() => setResumed(null)}>
           {resumed}

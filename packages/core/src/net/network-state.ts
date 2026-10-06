@@ -13,6 +13,20 @@
 // connection error and online again when one succeeds. Default is online so a
 // fresh process does not hide the spend tools before any request has run.
 
+import { eq } from 'drizzle-orm';
+import { settings, type DatabaseState } from '@kilnry/db';
+
+/**
+ * PRD-15 §Offline: a generation accepted while the network is offline sits
+ * queued under this exact label. The engine held nothing — a connection error
+ * failed the job — so the label existed only in the Jobs view's own copy
+ * (F-117).
+ */
+export const WAITING_FOR_NETWORK = 'Waiting for network';
+
+/** How long a held job waits before looking again (acceptance criterion 2). */
+export const NETWORK_HOLD_SECONDS = 5;
+
 let online = true;
 
 /** True when the last observed provider request reached the network. */
@@ -28,4 +42,41 @@ export function markNetworkOnline(): void {
 /** Record that a provider request failed to reach the network (offline). */
 export function markNetworkOffline(): void {
   online = false;
+}
+
+/**
+ * The state the interface reads. The in-process flag above is the detector, but
+ * a Next route handler does not always share a module instance with the worker
+ * that observed the failure — /api/health answered `stage: starting_workers`
+ * from its own instance while the engine was already holding a job — so the
+ * transition is also written to the settings table, which every instance shares
+ * (F-117).
+ */
+export const NETWORK_STATE_SETTING = 'net.offline_since';
+
+export async function persistNetworkState(state: DatabaseState, offlineSince: string | null): Promise<void> {
+  await state.ready;
+  if (offlineSince === null) {
+    await state.db.delete(settings).where(eq(settings.key, NETWORK_STATE_SETTING));
+    return;
+  }
+  await state.db
+    .insert(settings)
+    .values({ key: NETWORK_STATE_SETTING, value: offlineSince })
+    .onConflictDoUpdate({
+      target: settings.key,
+      set: { value: offlineSince, updatedAt: new Date() },
+    });
+}
+
+/** When the last observed failure happened, or null when the network is up. */
+export async function networkOfflineSince(state: DatabaseState): Promise<string | null> {
+  await state.ready;
+  const rows = await state.db
+    .select({ value: settings.value })
+    .from(settings)
+    .where(eq(settings.key, NETWORK_STATE_SETTING))
+    .limit(1);
+  const value = rows[0]?.value;
+  return typeof value === 'string' ? value : null;
 }

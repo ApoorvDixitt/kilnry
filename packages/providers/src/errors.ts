@@ -192,6 +192,31 @@ export function providerHttpError(
   );
 }
 
+/**
+ * The error codes an operating system reports when the request never left the
+ * machine: no DNS answer, nothing listening, no route. Node puts them on the
+ * `cause` of the TypeError fetch rejects with
+ * (https://nodejs.org/api/errors.html#common-system-errors, read 2026-10-07).
+ */
+const UNREACHABLE_CODES = new Set([
+  'ENOTFOUND',
+  'EAI_AGAIN',
+  'ECONNREFUSED',
+  'ENETUNREACH',
+  'EHOSTUNREACH',
+  'ENETDOWN',
+]);
+
+function isUnreachable(error: unknown): boolean {
+  let current: unknown = error;
+  for (let depth = 0; depth < 4 && current; depth += 1) {
+    const code = (current as { code?: unknown }).code;
+    if (typeof code === 'string' && UNREACHABLE_CODES.has(code)) return true;
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
 export function providerNetworkError(
   provider: ProviderId,
   error: unknown,
@@ -203,14 +228,24 @@ export function providerNetworkError(
   const timedOut = error instanceof DOMException && error.name === 'TimeoutError';
   const aborted = error instanceof DOMException && error.name === 'AbortError';
   const reason = timedOut || aborted ? 'timed out' : 'lost the connection';
+  // A request that never opened a socket cannot have been received, however the
+  // caller rated the risk: there is nothing ambiguous about a DNS or connect
+  // failure. PRD-15 §Offline is keyed on exactly these, so the job engine can
+  // hold the job and submit it when the network is back (F-117).
+  const unreachable = isUnreachable(error);
+  const ambiguous = ambiguousSubmit && !unreachable;
   return new KilnryError(
     'TIMEOUT',
     `Kilnry ${reason} while contacting ${provider}. Kilnry has not resubmitted, so the request will not be sent twice automatically.`,
     {
       provider,
-      provider_code: ambiguousSubmit ? 'ambiguous_submit' : 'network',
+      provider_code: ambiguous ? 'ambiguous_submit' : 'network',
       retryable: true,
-      details: { ambiguous_submit: ambiguousSubmit, billed: ambiguousSubmit ? 'maybe' : 'no' },
+      details: {
+        ambiguous_submit: ambiguous,
+        billed: ambiguous ? 'maybe' : 'no',
+        ...(unreachable ? { unreachable: true } : {}),
+      },
       cause: error,
     },
   );

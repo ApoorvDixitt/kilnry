@@ -4,7 +4,13 @@
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
 import { describe, expect, it } from 'vitest';
-import { WAITING_FOR_NETWORK, isNonTerminal, resumableCount, resumedToast } from './offline-logic';
+import {
+  WAITING_FOR_NETWORK,
+  isLocalNetworkError,
+  isNonTerminal,
+  resumableCount,
+  resumedToast,
+} from './offline-logic';
 
 describe('offline-logic (F-JOB-05)', () => {
   it('treats queued, running and waiting jobs as non-terminal', () => {
@@ -35,5 +41,14 @@ describe('offline-logic (F-JOB-05)', () => {
 
   it('exposes the waiting-for-network label', () => {
     expect(WAITING_FOR_NETWORK).toBe('Waiting for network');
+  });
+
+  // F-117: a generation made while the machine is offline showed the browser's
+  // own "Failed to fetch" on the tile. PRD-15:153 words it as waiting for the
+  // network, and the server keeps the job queued.
+  it('reads a failed local request as offline, not as a provider failure', () => {
+    expect(isLocalNetworkError(new TypeError('Failed to fetch'))).toBe(true);
+    expect(isLocalNetworkError(new TypeError('NetworkError when attempting to fetch resource.'))).toBe(true);
+    expect(isLocalNetworkError(new Error('Kilnry could not price that request.'))).toBe(false);
   });
 });

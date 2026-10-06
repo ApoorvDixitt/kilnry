@@ -29,6 +29,7 @@ import {
 import { AnimatePresence, motion } from 'motion/react';
 import { BrandMark } from './brand-mark';
 import { BudgetMeter } from './budget-meter';
+import { OfflineBar } from './offline-bar';
 import { ChecklistWidget } from './checklist-widget';
 import NumberFlow from '@number-flow/react';
 import { ThemeSwitcher } from './theme-switcher';
@@ -228,6 +229,9 @@ export function AppShell({ children }: { children: ReactNode }): React.ReactNode
           </button>
           <ThemeSwitcher />
         </header>
+        {/* PRD-15:152 and the component inventory put the bar with the shell,
+            not with one page (F-117). */}
+        <OfflineBar />
         <div className="route-stage">{children}</div>
       </main>
 
