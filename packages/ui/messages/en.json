@@ -16,7 +16,9 @@
   "shell": {
     "command": "Command palette",
     "theme": "Theme",
-    "budget": "$0.00 / no cap",
+    "budgetToday": "Today",
+    "budgetNoCap": "No daily cap",
+    "budgetMonth": "This month {spent} / {cap}",
     "checklistTitle": "Getting started",
     "checklistGenerate": "Generate something",
     "checklistFolder": "Save into a folder",

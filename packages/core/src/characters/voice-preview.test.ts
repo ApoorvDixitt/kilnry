@@ -103,6 +103,9 @@ describe('voice preview holds its estimate before synthesis (F-01, F-PRV-04)', (
 
   it('two concurrent previews against a cap with room for one: one plays, one is BUDGET_EXCEEDED', async () => {
     const state = await db();
+    // The migration seeds the $10/day and $100/month defaults (F-08); this
+    // test sets its own cap on an otherwise cap-free database.
+    await state.db.delete(budgets);
     await state.db.insert(budgets).values({ scope: 'daily', capUsd: '1.500000', behavior: 'block' });
     let release: () => void = () => undefined;
     const gate = new Promise<void>((resolve) => (release = resolve));

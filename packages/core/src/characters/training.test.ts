@@ -287,6 +287,9 @@ describe('training holds its estimate before the trainer is called (F-01, F-PRV-
     const state = await db();
     await characterWithRefs(state);
     // Room for one $2.00 fal run, not two.
+    // The migration seeds the $10/day and $100/month defaults (F-08); this
+    // test sets its own cap on an otherwise cap-free database.
+    await state.db.delete(budgets);
     await state.db.insert(budgets).values({ scope: 'daily', capUsd: '3.000000', behavior: 'block' });
     let release: () => void = () => undefined;
     const gate = new Promise<void>((resolve) => (release = resolve));

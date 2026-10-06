@@ -292,6 +292,9 @@ describe('generation tools (F-MCP-02 §3.2, §3.6)', () => {
   it('kilnry_analyze writes no ledger row when the budget cap refuses it', async () => {
     const state = await db();
     const { budgets, spendLedger } = await import('@kilnry/db');
+    // The migration seeds the $10/day and $100/month defaults (F-08); this
+    // test sets its own cap on an otherwise cap-free database.
+    await state.db.delete(budgets);
     await state.db.insert(budgets).values({ scope: 'daily', capUsd: '0.10', behavior: 'block' });
     await state.db.insert(spendLedger).values({
       id: 'seed-spend',
@@ -327,6 +330,9 @@ describe('generation tools (F-MCP-02 §3.2, §3.6)', () => {
   it('kilnry_analyze: two concurrent calls against a cap with room for one run once (F-01)', async () => {
     const state = await db();
     const { budgets, spendLedger } = await import('@kilnry/db');
+    // The migration seeds the $10/day and $100/month defaults (F-08); this
+    // test sets its own cap on an otherwise cap-free database.
+    await state.db.delete(budgets);
     await state.db.insert(budgets).values({ scope: 'daily', capUsd: '0.080000', behavior: 'block' });
     let release: () => void = () => undefined;
     const gate = new Promise<void>((resolve) => (release = resolve));

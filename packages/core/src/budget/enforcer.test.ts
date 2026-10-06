@@ -30,6 +30,9 @@ async function db(): Promise<Awaited<ReturnType<typeof createDatabase>>> {
 describe('budgetStatus', () => {
   it('reports a daily cap with the amount already spent', async () => {
     const state = await db();
+    // The migration seeds the $10/day and $100/month defaults (F-08); this
+    // test sets its own cap on an otherwise cap-free database.
+    await state.db.delete(budgets);
     await state.db.insert(budgets).values({ scope: 'daily', capUsd: '10', behavior: 'block' });
     await state.db
       .insert(spendLedger)
@@ -42,6 +45,9 @@ describe('budgetStatus', () => {
 
   it('omits scopes with no cap set', async () => {
     const state = await db();
+    // The user blanks both seeded caps in Settings › Budget ("blank = no cap"),
+    // which stores a null cap rather than deleting the row.
+    await state.db.update(budgets).set({ capUsd: null });
     const lines = await budgetStatus(state.db);
     expect(lines).toHaveLength(0);
   });
@@ -50,6 +56,9 @@ describe('budgetStatus', () => {
 describe('reserveBudget', () => {
   it('blocks a spend that would exceed a block cap', async () => {
     const state = await db();
+    // The migration seeds the $10/day and $100/month defaults (F-08); this
+    // test sets its own cap on an otherwise cap-free database.
+    await state.db.delete(budgets);
     await state.db.insert(budgets).values({ scope: 'daily', capUsd: '5', behavior: 'block' });
     await state.db
       .insert(spendLedger)
@@ -61,6 +70,9 @@ describe('reserveBudget', () => {
 
   it('allows the same spend when override is set', async () => {
     const state = await db();
+    // The migration seeds the $10/day and $100/month defaults (F-08); this
+    // test sets its own cap on an otherwise cap-free database.
+    await state.db.delete(budgets);
     await state.db.insert(budgets).values({ scope: 'daily', capUsd: '5', behavior: 'block' });
     await state.db
       .insert(spendLedger)
@@ -73,5 +85,28 @@ describe('reserveBudget', () => {
         override_budget: true,
       }),
     ).resolves.toBeUndefined();
+  });
+});
+
+// F-08: PRD-14 promises a $10.00 daily and a $100.00 monthly cap by default; a
+// fresh install had no budgets rows, so no cap check ever ran.
+describe('the default caps on a fresh database (F-08, F-PRV-04)', () => {
+  it('a fresh database has the $10.00 daily and $100.00 monthly blocking caps', async () => {
+    const state = await db();
+    const lines = await budgetStatus(state.db);
+    expect(lines.map(({ scope, cap_usd, behavior }) => ({ scope, cap_usd, behavior }))).toEqual([
+      { scope: 'daily', cap_usd: 10, behavior: 'block' },
+      { scope: 'monthly', cap_usd: 100, behavior: 'block' },
+    ]);
+  });
+
+  it('a fresh database refuses a spend past the default daily cap', async () => {
+    const state = await db();
+    await state.db
+      .insert(spendLedger)
+      .values({ id: ulid(), actualUsd: '9.900000', occurredAt: new Date(), providerId: 'fal' });
+    await expect(
+      reserveBudget(state.db, { estimate_usd: 0.2, provider: 'fal', folder: 'inbox' }),
+    ).rejects.toMatchObject({ code: 'BUDGET_EXCEEDED' });
   });
 });

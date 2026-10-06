@@ -124,6 +124,11 @@ test('@smoke @m3 S-01 AS-01 first run creates a protected local account and Libr
   await page.getByRole('button', { name: 'Open Kilnry' }).click();
   await expect(page).toHaveURL('/create');
   await expect(page.getByRole('heading', { name: 'Create', exact: true })).toBeVisible();
+  // A fresh install has the $10.00 daily cap PRD-14 promises, and the top-bar
+  // meter shows today's spend against it (F-08, F-17).
+  await expect(page.locator('.budget-meter .budget-meter-text')).toHaveText('Today $0.00 / $10.00', {
+    timeout: 15_000,
+  });
 
   expect(existsSync(join(library, '.kilnry', 'library.json'))).toBe(true);
   expect(existsSync(join(library, 'inbox'))).toBe(true);

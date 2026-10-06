@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { BrandMark } from './brand-mark';
+import { BudgetMeter } from './budget-meter';
 import { ChecklistWidget } from './checklist-widget';
 import NumberFlow from '@number-flow/react';
 import { ThemeSwitcher } from './theme-switcher';
@@ -56,6 +57,8 @@ export function AppShell({ children }: { children: ReactNode }): React.ReactNode
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [pendingChord, setPendingChord] = useState(false);
   const [activeJobs, setActiveJobs] = useState(0);
+  // Bumped on every server event so the budget meter re-reads today's spend.
+  const [budgetTick, setBudgetTick] = useState(0);
   const [lanActive, setLanActive] = useState(false);
 
   useEffect(() => setCollapsed(localStorage.getItem('kilnry-sidebar') === 'collapsed'), []);
@@ -89,6 +92,11 @@ export function AppShell({ children }: { children: ReactNode }): React.ReactNode
     if (typeof EventSource === 'undefined') return;
     const source = new EventSource('/api/events');
     source.addEventListener('message', refresh);
+    // The stream sends named events (`event: job.completed`), which a
+    // 'message' listener never receives. Spend lands in the ledger when a job
+    // ends, so the budget meter re-reads on each terminal event (F-17).
+    const spent = (): void => setBudgetTick((tick) => tick + 1);
+    for (const type of ['job.completed', 'job.failed', 'job.moderated']) source.addEventListener(type, spent);
     source.addEventListener('error', () => source.close());
     return () => source.close();
   }, []);
@@ -203,12 +211,7 @@ export function AppShell({ children }: { children: ReactNode }): React.ReactNode
               <Lock size={16} strokeWidth={1.75} />
             </span>
           ) : null}
-          <div className="budget-meter" data-money="true">
-            <span>{message('shell.budget')}</span>
-            <i>
-              <b />
-            </i>
-          </div>
+          <BudgetMeter refreshKey={budgetTick} />
           <button
             className="icon-button"
             type="button"

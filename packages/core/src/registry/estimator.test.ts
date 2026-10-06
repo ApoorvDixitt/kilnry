@@ -363,6 +363,9 @@ describe('TRD-19 estimator goldens', () => {
     disposers.push(() => closeDatabaseState(state));
     await state.ready;
     const now = new Date();
+    // The migration seeds the $10/day and $100/month defaults (F-08); this
+    // test sets its own cap on an otherwise cap-free database.
+    await state.db.delete(budgets);
     await state.db.insert(budgets).values({ scope: 'daily', capUsd: '5.000000', behavior: 'block' });
     await state.db.insert(spendLedger).values({ id: ulid(), actualUsd: '4.700000', occurredAt: now });
     await state.db.insert(jobs).values({

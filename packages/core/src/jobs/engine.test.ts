@@ -385,6 +385,9 @@ describe('pg-boss job engine', () => {
   it('serializes concurrent reservations so the combined estimate cannot cross a cap', async () => {
     const fake = fakeAdapter({ submitDelayMs: 75 });
     const { engine, state } = await harness(fake.adapter);
+    // The migration seeds the $10/day and $100/month defaults (F-08); this
+    // test sets its own cap on an otherwise cap-free database.
+    await state.db.delete(budgets);
     await state.db.insert(budgets).values({
       scope: 'daily',
       capUsd: '0.007500',

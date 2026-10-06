@@ -364,6 +364,9 @@ describe('voice clone budget hold (F-PRV-04)', () => {
   it('two concurrent clones against a cap with room for one: one succeeds, one is BUDGET_EXCEEDED', async () => {
     const state = await db();
     // Room for one $1.50 clone, not two.
+    // The migration seeds the $10/day and $100/month defaults (F-08); this
+    // test sets its own cap on an otherwise cap-free database.
+    await state.db.delete(budgets);
     await state.db.insert(budgets).values({ scope: 'daily', capUsd: '2.000000', behavior: 'block' });
     const gated = gatedMinimaxFetch();
     const input = {
