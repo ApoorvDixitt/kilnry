@@ -64,28 +64,100 @@ describe('MiniMax adapter (F-PRV-01)', () => {
     expect(tested.ok).toBe(true);
   });
 
-  it('submits a video task and polls until it succeeds', async () => {
+  // F-107: the handler below is MiniMax's own documented V2 query — the route
+  // GET /v2/query/video_generation/{task_id} and the envelope { task: { id,
+  // model, status, content: { url }, resolution, duration } } copied from
+  // https://platform.minimax.io/docs/api-reference/video-generation-v2-query
+  // (read 2026-10-06). Nothing answers the path the adapter used to build, so a
+  // wrong path or a top-level status read cannot pass.
+  it('submits a video task and polls the documented V2 query route until it succeeds', async () => {
+    const asked: string[] = [];
     server.use(
       http.post(`${BASE}/v2/video_generation`, () =>
-        HttpResponse.json({ task_id: '2891', base_resp: { status_code: 0 } }),
+        HttpResponse.json({ task_id: '424010985738629', base_resp: { status_code: 0 } }),
       ),
-      http.get(`${BASE}/v2/video_generation/2891`, () =>
-        HttpResponse.json({
-          task_id: '2891',
-          status: 'succeeded',
-          file_id: '3311',
-          video_url: `${BASE}/files/2891.mp4`,
-          duration: 10,
-          resolution: '768P',
-          base_resp: { status_code: 0 },
-        }),
-      ),
+      http.get(`${BASE}/v2/query/video_generation/:taskId`, ({ params, request }) => {
+        asked.push(new URL(request.url).pathname);
+        return HttpResponse.json({
+          task: {
+            id: String(params.taskId),
+            model: 'MiniMax-H3',
+            status: 'succeeded',
+            created_at: 1785125529,
+            updated_at: 1785125946,
+            content: { url: `${BASE}/files/424010985738629.mp4` },
+            resolution: '2K',
+            duration: 5,
+          },
+        });
+      }),
     );
     const handle = await minimaxAdapter.submit(videoRequest(), context());
-    expect(handle.provider_request_id).toBe('2891');
+    expect(handle.provider_request_id).toBe('424010985738629');
+    expect(handle.status_url).toBe(`${BASE}/v2/query/video_generation/424010985738629`);
     const poll = await minimaxAdapter.poll(handle, context());
+    expect(asked).toEqual(['/v2/query/video_generation/424010985738629']);
     expect(poll.state).toBe('completed');
-    if (poll.state === 'completed') expect(poll.result.outputs[0]?.url).toContain('2891.mp4');
+    if (poll.state === 'completed')
+      expect(poll.result.outputs[0]?.url).toBe(`${BASE}/files/424010985738629.mp4`);
+  });
+
+  it('reports the documented running and failed states from task.status', async () => {
+    for (const [status, expected] of [
+      ['queued', 'queued'],
+      ['running', 'running'],
+      ['cancelled', 'cancelled'],
+      ['failed', 'failed'],
+    ] as const) {
+      server.use(
+        http.get(`${BASE}/v2/query/video_generation/:taskId`, () =>
+          HttpResponse.json({ task: { id: '1', status } }),
+        ),
+      );
+      const poll = await minimaxAdapter.poll(
+        {
+          provider: 'minimax',
+          model_id: 'MiniMax-H3',
+          provider_request_id: '1',
+          status_url: `${BASE}/v2/query/video_generation/1`,
+          submitted_at: new Date().toISOString(),
+          payload_redacted: {},
+        },
+        context(),
+      );
+      expect(poll.state, status).toBe(expected);
+    }
+  });
+
+  it('still finishes a legacy V1 handle by fetching the file_id it returns', async () => {
+    // The legacy route answers { status: Success, file_id } and the video is
+    // fetched from /v1/files/retrieve
+    // (https://platform.minimax.io/docs/api-reference/video-generation-query).
+    server.use(
+      http.get(`${BASE}/v1/query/video_generation`, () =>
+        HttpResponse.json({ status: 'Success', file_id: 3311, base_resp: { status_code: 0 } }),
+      ),
+      http.get(`${BASE}/v1/files/retrieve`, ({ request }) => {
+        expect(new URL(request.url).searchParams.get('file_id')).toBe('3311');
+        return HttpResponse.json({
+          file: { file_id: 3311, download_url: `${BASE}/files/legacy.mp4` },
+          base_resp: { status_code: 0 },
+        });
+      }),
+    );
+    const poll = await minimaxAdapter.poll(
+      {
+        provider: 'minimax',
+        model_id: 'MiniMax-H3',
+        provider_request_id: '3311',
+        status_url: `${BASE}/v1/query/video_generation?task_id=3311`,
+        submitted_at: new Date().toISOString(),
+        payload_redacted: {},
+      },
+      context(),
+    );
+    expect(poll.state).toBe('completed');
+    if (poll.state === 'completed') expect(poll.result.outputs[0]?.url).toBe(`${BASE}/files/legacy.mp4`);
   });
 
   it('synthesises speech from the hex audio body', async () => {

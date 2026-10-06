@@ -35,13 +35,34 @@ interface VideoSubmitResponse extends BaseResp {
   task_id?: string;
 }
 
+/**
+ * The documented V2 query response: everything is under `task`, the state is
+ * `task.status` (queued | running | succeeded | failed | cancelled) and the
+ * video is `task.content.url`
+ * (https://platform.minimax.io/docs/api-reference/video-generation-v2-query,
+ * read 2026-10-06). The legacy V1 route answers a flat envelope whose finished
+ * state is `Success` and whose video is a `file_id` to fetch from
+ * /v1/files/retrieve; both shapes are read here so a handle stored by an older
+ * build still completes (F-107).
+ */
 interface VideoStatusResponse extends BaseResp {
+  task?: {
+    id?: string;
+    status?: string;
+    content?: { url?: string };
+    duration?: number;
+    resolution?: string;
+  };
   task_id?: string;
   status?: string;
   file_id?: string;
   video_url?: string;
   duration?: number;
   resolution?: string;
+}
+
+interface FileRetrieveResponse extends BaseResp {
+  file?: { file_id?: number | string; download_url?: string };
 }
 
 interface TtsResponse extends BaseResp {
@@ -172,7 +193,8 @@ export const minimaxAdapter: ProviderAdapter = {
         provider: 'minimax',
         model_id: model,
         provider_request_id: response.task_id,
-        status_url: `${this.base_url}/v2/video_generation/${response.task_id}`,
+        // The documented query route (F-107): /v2/query/video_generation/{id}.
+        status_url: `${this.base_url}/v2/query/video_generation/${response.task_id}`,
         submitted_at: new Date().toISOString(),
         payload_redacted: redact(payload),
       };
@@ -231,12 +253,13 @@ export const minimaxAdapter: ProviderAdapter = {
       url: handle.status_url,
       init: { headers: headers(context.key) },
     });
-    const state = status.status?.toLowerCase();
-    if (state === 'queued') return { state: 'queued' };
+    // V2 nests the task; V1 is flat. Read whichever answered.
+    const state = (status.task?.status ?? status.status)?.toLowerCase();
+    if (state === 'queued' || state === 'queueing' || state === 'preparing') return { state: 'queued' };
     if (state === 'running' || state === 'processing')
       return { state: 'running', step_label: 'Rendering at MiniMax' };
     if (state === 'cancelled') return { state: 'cancelled' };
-    if (state === 'failed')
+    if (state === 'failed' || state === 'fail')
       return {
         state: 'failed',
         error: new KilnryError('PROVIDER_ERROR', 'MiniMax video generation failed.', {
@@ -244,8 +267,22 @@ export const minimaxAdapter: ProviderAdapter = {
           retryable: true,
         }),
       };
-    if (state !== 'succeeded') return { state: 'running', step_label: 'Rendering at MiniMax' };
-    const url = status.video_url;
+    if (state !== 'succeeded' && state !== 'success')
+      return { state: 'running', step_label: 'Rendering at MiniMax' };
+    let url = status.task?.content?.url ?? status.video_url;
+    if (!url && status.file_id !== undefined) {
+      // The legacy route returns the video as a file id to be fetched
+      // (https://platform.minimax.io/docs/api-reference/video-generation-query).
+      const file = await requestJson<FileRetrieveResponse>({
+        provider: 'minimax',
+        fetch: context.fetch,
+        signal: context.signal,
+        url: `${this.base_url}/v1/files/retrieve?file_id=${encodeURIComponent(String(status.file_id))}`,
+        init: { headers: headers(context.key) },
+      });
+      checkBaseResp(file);
+      url = file.file?.download_url;
+    }
     if (!url)
       return {
         state: 'failed',

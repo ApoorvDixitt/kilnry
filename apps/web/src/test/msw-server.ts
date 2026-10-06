@@ -368,7 +368,13 @@ export function startTestMsw(): void {
       const taskId = String(mmState.__kilnryMinimaxTaskCounter!++);
       return HttpResponse.json({ task_id: taskId, base_resp: { status_code: 0, status_msg: 'success' } });
     }),
-    http.get('https://api.minimax.io/v2/video_generation/:taskId', ({ params }) => {
+    // MiniMax's own documented query route and envelope: GET
+    // /v2/query/video_generation/{task_id} answering { task: { id, model,
+    // status, content: { url }, … } }
+    // (https://platform.minimax.io/docs/api-reference/video-generation-v2-query,
+    // read 2026-10-06). Nothing answers the undocumented path the adapter used
+    // to build, so F-107 cannot pass here either (D-57).
+    http.get('https://api.minimax.io/v2/query/video_generation/:taskId', ({ params }) => {
       const taskId = String(params.taskId);
       const count = (minimaxPolls.get(taskId) ?? 0) + 1;
       minimaxPolls.set(taskId, count);
@@ -377,12 +383,17 @@ export function startTestMsw(): void {
       // the same task id) reports the finished video. This is deterministic and
       // drives the ambiguous-timeout scenario (S-11) without wall-clock timing.
       if (count <= MINIMAX_HOLD_POLLS) {
-        return HttpResponse.json({ status: 'processing', base_resp: { status_code: 0 } });
+        return HttpResponse.json({ task: { id: taskId, model: 'MiniMax-H3', status: 'running' } });
       }
       return HttpResponse.json({
-        status: 'succeeded',
-        video_url: FAL_VIDEO_URL,
-        base_resp: { status_code: 0 },
+        task: {
+          id: taskId,
+          model: 'MiniMax-H3',
+          status: 'succeeded',
+          content: { url: FAL_VIDEO_URL },
+          resolution: '768P',
+          duration: 6,
+        },
       });
     }),
     http.get('https://api.minimax.io/v1/query/video_generation', () =>
