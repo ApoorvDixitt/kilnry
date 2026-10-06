@@ -396,3 +396,48 @@ test('@m4 sheet-build: one photo yields a plan that pauses at approval', async (
   expect(approvalAt).toBeGreaterThanOrEqual(0);
   expect(expressionsAt).toBeGreaterThan(approvalAt);
 });
+
+// F-111 and UX-15: the P0 headline path of Characters, "make one from a photo",
+// clicked the way a first-time user clicks it. It answered 500 on every attempt
+// before this (the multipart body parsed as JSON), and no scenario had ever
+// clicked it — every other check creates Characters through the manage API with a
+// pre-seeded asset.
+test('@m4 F-CHR-02 create a Character from a photo, and pick the anchor from the Library', async ({
+  page,
+}) => {
+  await ensureSignedIn(page, '/characters/new');
+  const handle = `lensa${Date.now().toString().slice(-6)}`;
+  await page.getByRole('tab', { name: 'From photo' }).click();
+  await page.getByLabel('Display name').fill('Lensa');
+  await page.getByLabel('Handle').fill(handle);
+  await page.locator('input[type="file"]').setInputFiles({
+    name: 'lensa-anchor.png',
+    mimeType: 'image/png',
+    buffer: PNG,
+  });
+  await expect(page.locator('.create-character-photo .create-character-note')).toContainText('1');
+  await page.getByRole('button', { name: /Create character/i }).click();
+  // The Character page opens with the imported photo as its anchor reference.
+  await page.waitForURL(new RegExp(`/characters/${handle}$`), { timeout: 60_000 });
+  const references = await page.evaluate(async (handle) => {
+    const response = await fetch(`/api/characters/${encodeURIComponent(handle)}`);
+    const body = (await response.json()) as {
+      item?: { references?: Array<{ role: string; asset_id: string }> };
+    };
+    return body.item?.references ?? [];
+  }, handle);
+  expect(references.length).toBeGreaterThan(0);
+  expect(references[0]?.role).toBe('anchor');
+
+  // UX-15: the From Library path offers the Library's images to pick from
+  // instead of asking for a 26-character asset id.
+  await ensureSignedIn(page, '/characters/new');
+  await page.getByRole('tab', { name: 'From Library' }).click();
+  await expect(page.getByTestId('create-character-anchor')).toContainText('Pick one image');
+  await page.locator('.preset-media-library-open').click();
+  const first = page.locator('.preset-media-library-item').first();
+  await expect(first).toBeVisible({ timeout: 20_000 });
+  const pickedId = await first.getAttribute('data-asset-id');
+  await first.click();
+  await expect(page.getByTestId('create-character-anchor')).toContainText(pickedId!);
+});

@@ -1215,7 +1215,10 @@
       "created": "@{handle} is ready. Type @{handle} in any prompt.",
       "needImageProvider": "Generating an anchor needs an image provider. Add a fal or OpenRouter key.",
       "back": "Back to Characters",
-      "cancel": "Cancel"
+      "cancel": "Cancel",
+      "anchorFromLibrary": "Anchor image",
+      "anchorPicked": "Anchor: {id}",
+      "anchorNone": "Pick one image from the Library; it becomes the anchor."
     },
     "detail": {
       "useInCreate": "Use in Create",

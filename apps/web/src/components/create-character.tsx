@@ -13,6 +13,7 @@ import { message } from '../lib/messages';
 import { canCreate, handleValidity, suggestHandle, type CreatePath } from './create-character-logic';
 import { CastBuilder } from './cast-builder';
 import { ProductFromUrl } from './product-from-url';
+import { PresetMediaLibraryPicker } from './preset-drawer';
 
 type ElementKind = 'prop' | 'environment' | 'style';
 
@@ -349,15 +350,19 @@ export function CreateCharacter(): React.ReactNode {
         ) : null}
 
         {path === 'library' ? (
-          <label>
-            {message('characters.create.anchorAssetId')}
-            <input
-              type="text"
-              value={anchorAssetId}
-              onChange={(event) => setAnchorAssetId(event.target.value)}
-              placeholder={message('characters.create.libraryHint')}
-            />
-          </label>
+          <div className="create-character-anchor">
+            {/* UX-15: the anchor is picked from the Library, not typed as a
+                26-character id the user has no way to read off a tile. */}
+            <span className="create-character-anchor-label">
+              {message('characters.create.anchorFromLibrary')}
+            </span>
+            <PresetMediaLibraryPicker imagesOnly onPick={(assetId) => setAnchorAssetId(assetId)} />
+            <p className="create-character-note" data-testid="create-character-anchor">
+              {anchorAssetId
+                ? format(message('characters.create.anchorPicked'), { id: anchorAssetId })
+                : message('characters.create.anchorNone')}
+            </p>
+          </div>
         ) : null}
 
         {path === 'photo' ? (

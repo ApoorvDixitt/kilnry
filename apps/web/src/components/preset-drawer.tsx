@@ -71,7 +71,13 @@ function fieldId(slot: DrawerSlot): string {
 // works when the Library is on screen, and a public address can be pasted, but
 // neither helps when the drawer is the only thing open, so the slot also lists
 // the most recent Library images to pick from (F-PRE-02).
-function PresetMediaLibraryPicker({ onPick }: { onPick: (assetId: string) => void }): React.ReactNode {
+export function PresetMediaLibraryPicker({
+  onPick,
+  imagesOnly = false,
+}: {
+  onPick: (assetId: string) => void;
+  imagesOnly?: boolean;
+}): React.ReactNode {
   const [open, setOpen] = useState(false);
   const [assets, setAssets] = useState<Array<{ id: string; name?: string; kind?: string }>>([]);
 
@@ -83,9 +89,15 @@ function PresetMediaLibraryPicker({ onPick }: { onPick: (assetId: string) => voi
           ? (response.json() as Promise<{ assets?: Array<{ id: string; name?: string; kind?: string }> }>)
           : null,
       )
-      .then((body) => setAssets((body?.assets ?? []).filter((asset) => asset.kind !== 'audio').slice(0, 12)))
+      .then((body) =>
+        setAssets(
+          (body?.assets ?? [])
+            .filter((asset) => (imagesOnly ? asset.kind === 'image' : asset.kind !== 'audio'))
+            .slice(0, 12),
+        ),
+      )
       .catch(() => setAssets([]));
-  }, [open]);
+  }, [open, imagesOnly]);
 
   return (
     <div className="preset-media-library">

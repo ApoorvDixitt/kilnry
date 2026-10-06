@@ -7022,6 +7022,16 @@ html[data-motion='reduced'] *::after {
   font-size: 13px;
 }
 
+.create-character-anchor {
+  display: grid;
+  gap: 6px;
+}
+
+.create-character-anchor-label {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
 .run-stream {
   color: var(--text-muted);
   font-size: 13px;
