@@ -782,4 +782,67 @@ describe('fal sends each model the field names its schema requires (F-PRV-01)', 
     );
     expect(sent.input_references).toEqual([{ url: IMG }, { url: IMG2 }]);
   });
+
+  // F-03: OpenRouter's video protocol as its OpenAPI documents it — POST /videos
+  // answers 202 { id, generation_id, polling_url, status: 'pending' } where
+  // polling_url is a PATH, and GET /videos/{jobId} answers the documented
+  // statuses with unsigned_urls[] and usage.cost
+  // (https://openrouter.ai/docs/api/api-reference/video-generation/{submit-a-video-generation-request,
+  // poll-video-generation-status}.md, read 2026-10-06).
+  it('resolves the documented relative polling_url and completes an OpenRouter video', async () => {
+    const JOB = 'gen-vid-1789480874-Ab3dEf9hIjKlMnOpQrSt';
+    server.use(
+      http.post('https://openrouter.ai/api/v1/videos', () =>
+        HttpResponse.json(
+          { id: JOB, generation_id: JOB, polling_url: `/api/v1/videos/${JOB}`, status: 'pending' },
+          { status: 202 },
+        ),
+      ),
+      http.get(`https://openrouter.ai/api/v1/videos/${JOB}`, () =>
+        HttpResponse.json({
+          id: JOB,
+          generation_id: JOB,
+          polling_url: `/api/v1/videos/${JOB}`,
+          status: 'completed',
+          unsigned_urls: ['https://storage.example.com/video.mp4'],
+          usage: { cost: 0.5 },
+        }),
+      ),
+    );
+    const handle = await openRouterAdapter.submit(
+      mediaRequest('black-forest-labs/flux-video-edit', 'video', 'video2video', [
+        { role: 'video', url: 'https://storage.example.com/source.mp4' },
+      ]),
+      context(),
+    );
+    expect(handle.status_url).toBe(`https://openrouter.ai/api/v1/videos/${JOB}`);
+    const poll = await openRouterAdapter.poll(handle, context());
+    expect(poll.state).toBe('completed');
+    if (poll.state === 'completed') {
+      expect(poll.result.outputs[0]?.url).toBe('https://storage.example.com/video.mp4');
+      expect(poll.result.billing?.actual_usd).toBe(0.5);
+    }
+  });
+
+  it('reports the documented in_progress status as running', async () => {
+    const JOB = 'gen-vid-1789480875-Ab3dEf9hIjKlMnOpQrSt';
+    server.use(
+      http.get(`https://openrouter.ai/api/v1/videos/${JOB}`, () =>
+        HttpResponse.json({ id: JOB, polling_url: `/api/v1/videos/${JOB}`, status: 'in_progress' }),
+      ),
+    );
+    const poll = await openRouterAdapter.poll(
+      {
+        provider: 'openrouter',
+        model_id: 'black-forest-labs/flux-video-edit',
+        provider_request_id: JOB,
+        status_url: `https://openrouter.ai/api/v1/videos/${JOB}`,
+        submitted_at: new Date().toISOString(),
+        payload_redacted: {},
+      },
+      context(),
+    );
+    expect(poll.state).toBe('running');
+    if (poll.state === 'running') expect(poll.step_label).toBe('Rendering at OpenRouter');
+  });
 });

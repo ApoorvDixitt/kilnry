@@ -23,7 +23,7 @@
 // KILNRY_TEST_MSW and in release builds) that drops the cached master key as a
 // boot with the keyring entry missing would, then drives the Providers banner.
 
-import { existsSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
@@ -797,6 +797,7 @@ test('@m7 F-WFL-08 Ad Multiplier refuses an out-of-range source at intake and re
 
   // (3) The driven render: approve → foreach (two variants) → qa → export.
   rmSync(join(dataDir, 'msw-fal-last-submit.json'), { force: true });
+  rmSync(join(dataDir, 'msw-openrouter-last-submit.json'), { force: true });
   const { folder, manifest } = await driveWorkflowRun(page, {
     workflowId: 'kilnry-ad-multiplier',
     folder: 'AdMult_A',
@@ -811,19 +812,36 @@ test('@m7 F-WFL-08 Ad Multiplier refuses an out-of-range source at intake and re
   for (const name of ['version_01.mp4', 'version_02.mp4'])
     expect(probeDuration(folder, name)).toBeGreaterThan(0);
   // W10: output duration equals the source. The mock provider returns a canned
-  // clip, so the check that can hold here is on what the provider was asked for:
-  // the last edit request carried the source's whole-second length as its
-  // duration, with the source as its video. (fal's Wan 2.7 Edit: `duration`,
-  // `video_url`.)
+  // clip, so the check that can hold here is on what the provider was asked for.
+  // F-03: the model the plan priced is the model that ran. The edit went to
+  // OpenRouter's FLUX Video Edit — the route the plan quoted at $0.03/s — and
+  // OpenRouter's video API was asked for the source's whole-second length with
+  // the source as its reference (the documented body: model, prompt, duration,
+  // resolution, input_references[]). Before this the only OpenRouter generation
+  // handler was /images, the submit failed, and the run swapped to fal's Wan 2.7
+  // Edit at $0.10/s with the assertion still passing.
   const sourceSeconds = probeDuration(join(library, 'inbox'), sourceName);
-  const sent = JSON.parse(readFileSync(join(dataDir, 'msw-fal-last-submit.json'), 'utf8')) as {
+  const sent = JSON.parse(readFileSync(join(dataDir, 'msw-openrouter-last-submit.json'), 'utf8')) as {
     model: string;
-    body: { duration?: string | number; video_url?: string; prompt?: string };
+    body: {
+      duration?: string | number;
+      prompt?: string;
+      resolution?: string;
+      input_references?: Array<{ url?: string }>;
+    };
   };
-  expect(sent.model).toBe('fal-ai/wan/v2.7/edit-video');
+  expect(sent.model).toBe('black-forest-labs/flux-video-edit');
   expect(Number(sent.body.duration)).toBe(Math.round(sourceSeconds));
-  expect(sent.body.video_url).toMatch(/^https:\/\//);
+  expect(sent.body.resolution).toBe('1080p');
+  // A Library asset has no public URL, so OpenRouter is sent the bytes inline as
+  // a data URI (the adapter's mediaInputs), which is what its input_references
+  // accepts for a local file.
+  expect(sent.body.input_references?.[0]?.url).toMatch(/^data:video\/mp4;base64,/);
   expect(sent.body.prompt).toMatch(/^Edit this ad: /);
+  // No silent swap: the fal video-edit endpoint was never asked for this run.
+  expect(existsSync(join(dataDir, 'msw-fal-last-submit.json'))).toBe(false);
+  for (const step of manifest.steps ?? [])
+    expect(JSON.stringify(step.adjustments ?? []), step.step_id).not.toContain('model swapped');
   // One spend per variant: two completed generate steps, each with its own job
   // and exactly one ledger row (F-WFL-08 acceptance: one generate call per output).
   const generateSteps = (manifest.steps ?? []).filter(
@@ -836,6 +854,142 @@ test('@m7 F-WFL-08 Ad Multiplier refuses an out-of-range source at intake and re
     expect(typeof step.job_id).toBe('string');
     await expect.poll(() => ledgerRows(page, step.job_id!), { timeout: 20_000 }).toBe(1);
   }
+});
+
+// F-03 second half, with D-61: when the planned model fails and the only
+// alternate costs more than 10 % over the plan, the run pauses and says both
+// figures instead of spending the difference. The planned route here is
+// OpenRouter FLUX Video Edit at $0.03/s; its first alternate is fal's Wan 2.7
+// Edit at $0.10/s, so a 5 s edit goes from ≈ $0.15 to ≈ $0.50. The edit_list
+// text carries SWAPTRIGGER, which the OpenRouter video mock refuses with the
+// documented error envelope.
+test('@m7 F-WFL-05 a model swap that costs more than the plan pauses for approval', async ({ page }) => {
+  test.setTimeout(240_000);
+  await ensureProvider(page, 'fal', FAL_KEY);
+  await ensureProvider(page, 'openrouter', OPENROUTER_KEY);
+  await ensureSignedIn(page, '/workflows');
+  const sourceName = `ad-swap-${Date.now()}.mp4`;
+  const sourceId = await seedLoopedVideo(page, 'inbox', sourceName, 5);
+  const token = await csrf(page);
+  const inputs = { source: sourceId, n: 2, resolution: '1080p' };
+  // Force OpenRouter's video route to refuse this run, so the edit falls to its
+  // first alternate — fal's Wan 2.7 Edit at $0.10/s against the $0.03/s plan.
+  const failFlag = join(dataDir, 'msw-openrouter-video-fail');
+  writeFileSync(failFlag, '1');
+
+  const planned = await page.evaluate(
+    async ({ token, inputs }) => {
+      const response = await fetch('/api/workflows/kilnry-ad-multiplier/plan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Kilnry-CSRF': token },
+        body: JSON.stringify({ inputs }),
+      });
+      const body = (await response.json()) as {
+        run_id?: string;
+        plan?: { total_estimate_usd: number; steps: Array<{ step_id: string; estimate_usd?: number }> };
+      };
+      const edit = body.plan?.steps.find((step) => step.step_id === 'edit_video');
+      return {
+        status: response.status,
+        run_id: body.run_id ?? '',
+        total: body.plan?.total_estimate_usd ?? 0,
+        edit_usd: edit?.estimate_usd,
+      };
+    },
+    { token, inputs },
+  );
+  expect(planned.status).toBe(200);
+  expect(planned.edit_usd).toBeCloseTo(0.15, 6);
+
+  // Approve the plan at its own figure, then wait for the run to stop at the
+  // swap question.
+  const runId = planned.run_id;
+  expect(runId).not.toBe('');
+  const started = await page.evaluate(
+    async ({ token, runId, total }) => {
+      const response = await fetch('/api/workflows/kilnry-ad-multiplier/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Kilnry-CSRF': token },
+        // Run automatically with the checkpoints skipped, so the only thing
+        // that can stop this run is the swap price gate — D-61 pauses for it in
+        // every autonomy mode.
+        body: JSON.stringify({
+          run_id: runId,
+          confirm_cost_usd: total,
+          automatic: true,
+          skip_approvals: true,
+        }),
+      });
+      return { status: response.status, body: await response.text() };
+    },
+    { token, runId, total: planned.total },
+  );
+  expect(started.status, started.body).toBe(200);
+
+  const swap = await (async () => {
+    for (let waited = 0; waited < 180_000; waited += 3_000) {
+      const view = await page.evaluate(async (id) => {
+        const response = await fetch(`/api/runs/${encodeURIComponent(id)}`);
+        if (response.status !== 200) return null;
+        const body = (await response.json()) as {
+          run: {
+            status: string;
+            steps: Array<{
+              step_id: string;
+              status: string;
+              pending_swap?: {
+                from?: string;
+                to: string;
+                planned_usd: number;
+                estimate_usd: number;
+                run_total_usd: number;
+              } | null;
+              adjustments?: string[];
+            }>;
+          };
+        };
+        return body.run;
+      }, runId);
+      const pending = view?.steps.find((step) => step.pending_swap);
+      if (pending?.pending_swap) return { run: view!, swap: pending.pending_swap, stepId: pending.step_id };
+      if (view && ['completed', 'failed', 'cancelled'].includes(view.status))
+        throw new Error(
+          `the run ended ${view.status} without a swap approval: ${JSON.stringify(view.steps)}`,
+        );
+      // The workflow's own checkpoints are cleared the way the user clears them,
+      // so the swap question is the only pause this check waits for.
+      if (view?.status === 'awaiting_approval') {
+        await page.evaluate(
+          async ({ id, csrfToken }) => {
+            await fetch(`/api/runs/${encodeURIComponent(id)}/approve`, {
+              method: 'POST',
+              headers: { 'X-Kilnry-CSRF': csrfToken },
+            });
+          },
+          { id: runId, csrfToken: token },
+        );
+      }
+      await new Promise((resolve) => setTimeout(resolve, 3_000));
+    }
+    const last = await page.evaluate(async (id) => {
+      const response = await fetch(`/api/runs/${encodeURIComponent(id)}`);
+      return response.status === 200 ? await response.text() : `status ${response.status}`;
+    }, runId);
+    throw new Error(`no swap approval within 180 s; run was ${last.slice(0, 1200)}`);
+  })();
+
+  // The run is waiting, and the question carries both prices and the new total:
+  // $0.15 planned, ≈ $0.50 on fal's Wan 2.7 Edit.
+  expect(swap.run.status).toBe('awaiting_approval');
+  expect(swap.swap.from).toBe('black-forest-labs/flux-video-edit');
+  expect(swap.swap.to).toBe('fal-ai/wan/v2.7/edit-video');
+  expect(swap.swap.planned_usd).toBeCloseTo(0.15, 6);
+  expect(swap.swap.estimate_usd).toBeGreaterThan(swap.swap.planned_usd * 1.1);
+  expect(swap.swap.run_total_usd).toBeGreaterThan(swap.swap.planned_usd);
+  // The card the user sees names the swap.
+  await page.goto(`/workflows/runs/${runId}`);
+  await expect(page.getByTestId('approval-swap')).toBeVisible({ timeout: 30_000 });
+  rmSync(failFlag, { force: true });
 });
 
 async function mintToken(page: Page, name: string, scope: 'full' | 'read_only'): Promise<string> {

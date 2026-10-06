@@ -141,7 +141,7 @@ export interface Effects {
    */
   estimate?: (step: RunStep, rendered: Step, scope: Scope) => Promise<number | undefined>;
   /** The figure the approved plan gave this step, and the plan's run total (D-61). */
-  planned?: (step: RunStep) => { step_usd: number; run_total_usd: number } | undefined;
+  planned?: (step: RunStep) => { step_usd: number; run_total_usd: number; model?: string } | undefined;
 }
 
 // ── expansion ────────────────────────────────────────────────────────────────
@@ -841,7 +841,15 @@ async function runWithRetry(
   if (result.status !== 'completed' && node.step.kind === 'generate') {
     const alternates = Array.isArray(node.step.alternates) ? node.step.alternates : [];
     for (const alternate of alternates) {
-      const from = node.model ?? (rendered as { model?: string }).model;
+      // The model the plan priced, so the swap question names it rather than the
+      // template's "auto": a step whose first attempt failed never recorded a
+      // model of its own (D-61).
+      const rendered_model = (rendered as { model?: string }).model;
+      const planned_model = effects.planned?.(node)?.model;
+      const from =
+        node.model ??
+        (rendered_model === undefined || rendered_model === 'auto' ? planned_model : rendered_model) ??
+        rendered_model;
       node.adjustments.push(`model swapped to ${alternate}: ${result.error ?? 'previous model failed'}`);
       const swapped = { ...rendered, model: alternate } as Step;
       const gate = await swapGate(node, swapped, scope, effects, alternate, from);

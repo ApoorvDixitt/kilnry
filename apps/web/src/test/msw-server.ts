@@ -126,11 +126,17 @@ const mmState = globalThis as typeof globalThis & {
 mmState.__kilnryMinimaxTaskCounter ??= 2891;
 mmState.__kilnryMinimaxPolls ??= new Map<string, number>();
 const minimaxPolls = mmState.__kilnryMinimaxPolls;
+const orState = globalThis as typeof globalThis & {
+  __kilnryOpenRouterVideoPolls?: Map<string, number>;
+};
+orState.__kilnryOpenRouterVideoPolls ??= new Map<string, number>();
+const openRouterVideoPolls = orState.__kilnryOpenRouterVideoPolls;
 
 type TestGlobal = typeof globalThis & {
   __kilnryTestMswStarted?: boolean;
   __kilnryTestMswServer?: ReturnType<typeof setupServer>;
   __kilnryFalSubmitCount?: number;
+  __kilnryOpenRouterVideoCount?: number;
 };
 
 export function startTestMsw(): void {
@@ -164,7 +170,95 @@ export function startTestMsw(): void {
         endpoints: [{ pricing: [{ billable: 'output_image', cost_usd: 0.04, unit: 'image' }] }],
       }),
     ),
-    http.get('https://openrouter.ai/api/v1/videos/models', () => HttpResponse.json({ data: [] })),
+    // --- OpenRouter video generation (F-03) ---
+    // OpenRouter's own documented protocol, copied from its OpenAPI pages
+    // (https://openrouter.ai/docs/api/api-reference/video-generation/{submit-a-video-generation-request,
+    // poll-video-generation-status,list-all-video-generation-models}.md, read
+    // 2026-10-06): POST /videos answers 202 { id, generation_id, polling_url,
+    // status: 'pending' }; GET /videos/{jobId} answers { id, generation_id,
+    // polling_url, status: pending|in_progress|completed|failed|cancelled|expired,
+    // unsigned_urls[], usage: { cost } }; GET /videos/models lists each model with
+    // pricing_skus and the durations, resolutions and frame images it supports.
+    // Before this the only OpenRouter generation handler was /images, so an edit
+    // planned on FLUX Video Edit failed at submit and the run silently swapped to
+    // another provider with every shard green.
+    http.get('https://openrouter.ai/api/v1/videos/models', () =>
+      HttpResponse.json({
+        data: [
+          {
+            id: 'black-forest-labs/flux-video-edit',
+            canonical_slug: 'black-forest-labs/flux-video-edit',
+            name: 'FLUX Video Edit',
+            created: 1_780_000_000,
+            description: 'Video-to-video editing model',
+            generate_audio: false,
+            seed: null,
+            allowed_passthrough_parameters: [],
+            pricing_skus: { generate: '0.03' },
+            supported_aspect_ratios: ['16:9', '9:16'],
+            supported_durations: [5, 8],
+            supported_frame_images: [],
+            supported_resolutions: ['720p', '1080p'],
+            supported_sizes: null,
+          },
+        ],
+      }),
+    ),
+    http.post('https://openrouter.ai/api/v1/videos', async ({ request }) => {
+      const body = (await request
+        .clone()
+        .json()
+        .catch(() => ({}))) as Record<string, unknown>;
+      const dataDir = process.env.KILNRY_DATA_DIR;
+      // What OpenRouter was actually sent, so a check can assert the planned
+      // model ran (F-03), the way msw-fal-last-submit.json does for fal.
+      if (dataDir) {
+        writeFileSync(
+          join(dataDir, 'msw-openrouter-last-submit.json'),
+          JSON.stringify({ model: body.model ?? null, body }),
+        );
+      }
+      // A check can force this model to fail by dropping a flag file in the data
+      // directory (the acceptance spec writes it; the prompts a run sends are
+      // written by the planner, so a prompt trigger could not reach the edit
+      // step). The refusal is OpenRouter's documented error envelope, { error: {
+      // code, message } }, so the alternates path and the D-61 price gate can be
+      // driven deterministically (F-03). Nothing else fails here.
+      if (dataDir && existsSync(join(dataDir, 'msw-openrouter-video-fail'))) {
+        return HttpResponse.json(
+          { error: { code: 502, message: 'Upstream provider is unavailable for this model.' } },
+          { status: 502 },
+        );
+      }
+      const id = `gen-vid-1789480874-${String(global.__kilnryOpenRouterVideoCount ?? 0).padStart(20, 'A')}`;
+      global.__kilnryOpenRouterVideoCount = (global.__kilnryOpenRouterVideoCount ?? 0) + 1;
+      return HttpResponse.json(
+        { id, generation_id: id, polling_url: `/api/v1/videos/${id}`, status: 'pending' },
+        { status: 202 },
+      );
+    }),
+    http.get('https://openrouter.ai/api/v1/videos/:jobId', ({ params }) => {
+      const id = String(params.jobId);
+      const count = (openRouterVideoPolls.get(id) ?? 0) + 1;
+      openRouterVideoPolls.set(id, count);
+      // One in_progress poll, then completed with the fixture clip, so the run
+      // view and the engine both see a real transition.
+      if (count < 2)
+        return HttpResponse.json({
+          id,
+          generation_id: id,
+          polling_url: `/api/v1/videos/${id}`,
+          status: 'in_progress',
+        });
+      return HttpResponse.json({
+        id,
+        generation_id: id,
+        polling_url: `/api/v1/videos/${id}`,
+        status: 'completed',
+        unsigned_urls: [FAL_VIDEO_URL],
+        usage: { cost: 0.15 },
+      });
+    }),
     http.get('https://openrouter.ai/api/v1/models', () => HttpResponse.json({ data: [] })),
     http.get('https://api.fal.ai/v1/models/pricing', () =>
       HttpResponse.json({

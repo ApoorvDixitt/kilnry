@@ -348,7 +348,15 @@ export const openRouterAdapter: ProviderAdapter = {
       provider: 'openrouter',
       model_id: model,
       provider_request_id: response.id,
-      status_url: response.polling_url ?? `${this.base_url}/videos/${response.id}`,
+      // OpenRouter documents polling_url as a path, not a URL
+      // ("polling_url: /api/v1/videos/job-abc123",
+      // https://openrouter.ai/docs/api/api-reference/video-generation/submit-a-video-generation-request,
+      // read 2026-10-06), so it is resolved against the base before it is stored:
+      // a relative status URL made every poll fail as a lost connection and the
+      // billed video was never fetched (found by F-03's mock).
+      status_url: response.polling_url
+        ? new URL(response.polling_url, `${this.base_url}/`).toString()
+        : `${this.base_url}/videos/${response.id}`,
       response_url: `${this.base_url}/videos/${response.id}/content?index=0`,
       submitted_at: new Date().toISOString(),
       payload_redacted: redact(payload),
@@ -368,10 +376,10 @@ export const openRouterAdapter: ProviderAdapter = {
     });
     const status = response.status?.toLowerCase();
     if (status === 'pending' || status === 'queued') return { state: 'queued' };
-    if (status === 'processing' || status === 'running' || !status)
+    if (status === 'processing' || status === 'running' || status === 'in_progress' || !status)
       return { state: 'running', step_label: 'Rendering at OpenRouter' };
     if (status === 'cancelled' || status === 'canceled') return { state: 'cancelled' };
-    if (status === 'failed') {
+    if (status === 'failed' || status === 'expired') {
       const isModerated = moderated(response.error);
       const error = new KilnryError(
         isModerated ? 'MODERATION_REJECTED' : 'PROVIDER_ERROR',

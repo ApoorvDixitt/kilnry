@@ -1441,7 +1441,11 @@ export function runEffects(db: DatabaseState, engine: JobEngine, run: RunContext
     planned: (node: RunStep) => {
       const planStep = run.plan.steps.find((step) => step.step_id === node.step_id);
       if (!planStep || typeof planStep.estimate_usd !== 'number') return undefined;
-      return { step_usd: planStep.estimate_usd, run_total_usd: run.plan.total_estimate_usd };
+      return {
+        step_usd: planStep.estimate_usd,
+        run_total_usd: run.plan.total_estimate_usd,
+        ...(planStep.model === undefined ? {} : { model: planStep.model }),
+      };
     },
     estimate: async (_node: RunStep, rendered: Step, scope: Scope): Promise<number | undefined> => {
       try {
