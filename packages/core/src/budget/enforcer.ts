@@ -3,7 +3,8 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
-import { and, eq, gte, inArray, like, lt, sql } from 'drizzle-orm';
+import { and, eq, gte, inArray, like, lt, or, sql, type SQL } from 'drizzle-orm';
+import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import type { DatabaseState } from '@kilnry/db';
 import { budgets, jobs, providers, spendLedger } from '@kilnry/db';
 import { KilnryError } from '../errors.js';
@@ -59,6 +60,17 @@ function startOfMonth(now: Date): Date {
   return new Date(now.getFullYear(), now.getMonth(), 1);
 }
 
+/**
+ * A folder cap covers that folder and its real descendants, nothing else
+ * (PRD-14:172). `LIKE 'inbox%'` also matched inbox_archive, inbox2 and
+ * inboxed/… — a sibling's spend could exhaust a different folder's cap — and an
+ * underscore in a folder name was an unescaped single-character wildcard (F-25).
+ */
+function folderScope<T extends AnyPgColumn>(column: T, folder: string): SQL {
+  const escaped = folder.replace(/([%_\\])/g, '\\$1');
+  return or(eq(column, folder), like(column, `${escaped}/%`))!;
+}
+
 async function ledgerTotal(
   database: BudgetDatabase,
   from: Date,
@@ -67,7 +79,7 @@ async function ledgerTotal(
 ): Promise<number> {
   const conditions = [gte(spendLedger.occurredAt, from)];
   if (provider) conditions.push(eq(spendLedger.providerId, provider));
-  if (folder) conditions.push(like(spendLedger.folder, `${folder}%`));
+  if (folder) conditions.push(folderScope(spendLedger.folder, folder));
   const rows = await database
     .select({ total: sql<string>`coalesce(sum(${spendLedger.actualUsd}), 0)` })
     .from(spendLedger)
@@ -82,7 +94,7 @@ async function openReservations(
 ): Promise<number> {
   const conditions = [inArray(jobs.status, ['queued', 'running', 'waiting'])];
   if (provider) conditions.push(eq(jobs.providerId, provider));
-  if (folder) conditions.push(like(jobs.targetFolder, `${folder}%`));
+  if (folder) conditions.push(folderScope(jobs.targetFolder, folder));
   const rows = await database
     .select({ total: sql<string>`coalesce(sum(${jobs.estimateUsd}), 0)` })
     .from(jobs)

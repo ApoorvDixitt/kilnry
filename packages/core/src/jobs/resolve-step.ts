@@ -88,6 +88,10 @@ export function mergeFragment(
 ): Record<string, unknown> {
   const out: Record<string, unknown> = { ...target };
   for (const [key, value] of Object.entries(source)) {
+    // The same guard the resolver's deepMerge and the workflows templater use:
+    // a fragment with an own __proto__ key must not reach Object.prototype
+    // (F-26).
+    if (key === '__proto__' || key === 'constructor' || key === 'prototype') continue;
     const existing = out[key];
     if (Array.isArray(existing) && Array.isArray(value)) out[key] = [...existing, ...value];
     else if (isRecord(existing) && isRecord(value)) out[key] = mergeFragment(existing, value);

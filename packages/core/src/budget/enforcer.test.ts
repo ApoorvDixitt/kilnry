@@ -110,3 +110,35 @@ describe('the default caps on a fresh database (F-08, F-PRV-04)', () => {
     ).rejects.toMatchObject({ code: 'BUDGET_EXCEEDED' });
   });
 });
+
+// F-25: a folder cap matched `LIKE 'inbox%'`, so inbox_archive, inbox2 and
+// inboxed/… all spent the inbox cap — and an underscore in a folder name was an
+// unescaped single-character wildcard. PRD-14:172 scopes the cap to the folder.
+describe('a per-folder cap (F-PRV-04)', () => {
+  it('counts the folder and its descendants, never a sibling that starts the same way', async () => {
+    const state = await db();
+    await state.db.delete(budgets);
+    await state.db.insert(budgets).values({ scope: 'folder:inbox', capUsd: '1.00', behavior: 'block' });
+    const spend = async (folder: string, usd: string): Promise<void> => {
+      await state.db.insert(spendLedger).values({
+        id: ulid(),
+        jobId: null,
+        providerId: 'fal',
+        modelId: 'fal-ai/example',
+        folder,
+        estimateUsd: usd,
+        actualUsd: usd,
+        occurredAt: new Date(),
+      });
+    };
+    await spend('inbox', '0.10');
+    await spend('inbox/Client_A', '0.20');
+    await spend('inbox_archive', '0.60');
+    await spend('inboxed', '0.50');
+    const lines = await budgetStatus(state.db);
+    const folderLine = lines.find((line) => line.scope === 'folder');
+    expect(folderLine?.label).toBe('inbox');
+    // 0.10 + 0.20 only: the two siblings are a different folder's money.
+    expect(folderLine?.spent_usd).toBeCloseTo(0.3, 6);
+  });
+});

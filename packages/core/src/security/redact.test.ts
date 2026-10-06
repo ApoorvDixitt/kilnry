@@ -39,4 +39,19 @@ describe('redaction', () => {
     const value = ['sk-or-v1-', 'b'.repeat(64)].join('');
     expect(redactString(`provider rejected ${value}`)).not.toContain(value);
   });
+
+  // F-27: TRD-04 §5 invariant 7 names `key` itself. A field called exactly key
+  // or x-key was left in clear unless its value happened to match a known vendor
+  // shape.
+  it('redacts a field named key, x-key or <name>_key, and leaves a word that merely ends in key', () => {
+    expect(redact({ key: 'opaque-credential', 'x-key': 'another', client_key: 'third' })).toEqual({
+      key: '[redacted]',
+      'x-key': '[redacted]',
+      client_key: '[redacted]',
+    });
+    expect(redact({ monkey: 'not a secret', turnkey: 'nor this' })).toEqual({
+      monkey: 'not a secret',
+      turnkey: 'nor this',
+    });
+  });
 });

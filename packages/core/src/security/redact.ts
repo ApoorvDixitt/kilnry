@@ -3,8 +3,11 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
+// TRD-04 §5 invariant 7 names `key` itself, not only api_key: a field called
+// exactly `key`, `x-key` or `<something>_key` is redacted by name, while a word
+// that merely ends in those letters (monkey, turnkey) is not (F-27).
 const sensitiveName =
-  /(?:authorization|cookie|set-cookie|api[_-]?key|secret|token|password|passwd|credential|private[_-]?key)/i;
+  /(?:authorization|cookie|set-cookie|api[_-]?key|secret|token|password|passwd|credential|private[_-]?key|^key$|^x-key$|[-_]key$)/i;
 const fullRedaction = /(?:kmcp_[A-Za-z0-9_-]+|kilnry1[a-z0-9\s-]{45,}|bearer\s+[A-Za-z0-9._~-]+)/gi;
 const shapedSecrets = [
   /sk-or-v1-[0-9a-f]{32,}/gi,

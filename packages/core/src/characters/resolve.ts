@@ -513,8 +513,14 @@ export function voiceUsable(version: LoadedVersion, model: ModelManifest): boole
 
 // Deep-merge an emitter fragment into the accumulating provider fragment,
 // concatenating arrays (elements[], input_references[], image_urls[]).
-function deepMerge(target: Record<string, unknown>, source: Record<string, unknown>): void {
+/** Keys a recursive merge must never follow (the workflows templater's list). */
+const BANNED_MERGE_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
+export function deepMerge(target: Record<string, unknown>, source: Record<string, unknown>): void {
   for (const [key, value] of Object.entries(source)) {
+    // A fragment carrying an own __proto__ key would otherwise merge into
+    // Object.prototype and flip a flag on every object in the process (F-26).
+    if (BANNED_MERGE_KEYS.has(key)) continue;
     const existing = target[key];
     if (Array.isArray(existing) && Array.isArray(value)) {
       target[key] = [...existing, ...value];
@@ -533,5 +539,4 @@ function deepMerge(target: Record<string, unknown>, source: Record<string, unkno
   }
 }
 
-export { deepMerge };
 export type { MediaRole };
