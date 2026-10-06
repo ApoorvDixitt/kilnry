@@ -188,6 +188,7 @@ export async function holdSpend(
     model_id: string;
     kind: string;
     folder: string;
+    character_ids?: string[];
     now?: Date;
     override_budget?: boolean;
   },
@@ -208,6 +209,7 @@ export async function holdSpend(
       modelId: input.model_id,
       folder: input.folder,
       kind: input.kind,
+      ...(input.character_ids ? { characterIds: input.character_ids } : {}),
       estimateUsd: input.estimate_usd.toFixed(6),
       actualUsd: input.estimate_usd.toFixed(6),
       currencyNote: 'pending',
@@ -221,13 +223,14 @@ export async function holdSpend(
 export async function settleHold(
   state: DatabaseState,
   hold: SpendHold,
-  settlement: { actual_usd: number; note: string; occurred_at?: Date },
+  settlement: { actual_usd: number; note: string; occurred_at?: Date; model_id?: string },
 ): Promise<void> {
   await state.db
     .update(spendLedger)
     .set({
       actualUsd: settlement.actual_usd.toFixed(6),
       currencyNote: settlement.note,
+      ...(settlement.model_id ? { modelId: settlement.model_id } : {}),
       ...(settlement.occurred_at ? { occurredAt: settlement.occurred_at } : {}),
     })
     .where(eq(spendLedger.id, hold.ledger_id));

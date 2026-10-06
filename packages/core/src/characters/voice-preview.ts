@@ -11,10 +11,10 @@
 // as `synth`, so this module never depends on the provider adapters.
 
 import { and, eq } from 'drizzle-orm';
-import { auditEvents, characterVoices, spendLedger, voices, type DatabaseState } from '@kilnry/db';
+import { auditEvents, characterVoices, voices, type DatabaseState } from '@kilnry/db';
 import { KilnryError } from '../errors.js';
 import { ulid } from '../ids.js';
-import { assertCostConfirmation, reserveBudget } from '../budget/enforcer.js';
+import { assertCostConfirmation, holdSpend, releaseHold, settleHold } from '../budget/enforcer.js';
 import { estimate as priceEstimate } from '../registry/estimator.js';
 import { loadRegistry } from '../registry/store.js';
 import type { CanonicalRequest, Estimate, ProviderId } from '../types.js';
@@ -80,25 +80,28 @@ export async function previewVoice(
   const text = input.text && input.text.trim() !== '' ? input.text : PREVIEW_SAMPLE;
   const estimate = await pricePreview(services.db, input.provider, text);
   assertCostConfirmation(estimate, estimate.estimate_usd);
-  await reserveBudget(services.db.db, {
+  // Hold the estimate before the synthesis call (F-01, D-60): the cap check and
+  // a pending ledger row are one locked transaction, so two concurrent previews
+  // against a cap with room for one admit exactly one. A failed synthesis
+  // releases it; a finished one settles it as the preview's one ledger row.
+  const hold = await holdSpend(services.db, {
+    ledger_id: ulid(),
     estimate_usd: estimate.estimate_usd,
     provider: input.provider as ProviderId,
+    model_id: PREVIEW_MODEL[input.provider] ?? input.provider,
+    kind: 'voice_preview',
     folder: 'inbox',
     now: now(),
   });
   const chargedUsd = estimate.authoritative_usd ?? estimate.estimate_usd;
-  const audio = await services.synth({ provider: input.provider, voiceId: input.voiceId, text });
-  await services.db.db.insert(spendLedger).values({
-    id: ulid(),
-    providerId: input.provider,
-    modelId: PREVIEW_MODEL[input.provider] ?? null,
-    folder: 'inbox',
-    kind: 'voice_preview',
-    estimateUsd: estimate.estimate_usd.toFixed(6),
-    actualUsd: chargedUsd.toFixed(6),
-    currencyNote: 'voice preview',
-    occurredAt: now(),
-  });
+  let audio: { bytes: Uint8Array; mime: string };
+  try {
+    audio = await services.synth({ provider: input.provider, voiceId: input.voiceId, text });
+  } catch (error) {
+    await releaseHold(services.db, hold);
+    throw error;
+  }
+  await settleHold(services.db, hold, { actual_usd: chargedUsd, note: 'voice preview', occurred_at: now() });
   await services.db.db.insert(auditEvents).values({
     id: ulid(),
     actor: 'user',

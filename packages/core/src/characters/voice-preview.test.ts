@@ -7,7 +7,14 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { closeDatabaseState, createDatabase, characterVoices, spendLedger, voices } from '@kilnry/db';
+import {
+  budgets,
+  closeDatabaseState,
+  createDatabase,
+  characterVoices,
+  spendLedger,
+  voices,
+} from '@kilnry/db';
 import { eq } from 'drizzle-orm';
 import { seedRegistry } from '../registry/store.js';
 import { previewVoice, deleteVoice, PREVIEW_SAMPLE } from './voice-preview.js';
@@ -85,5 +92,59 @@ describe('voice preview and deletion (F-VOI-01)', () => {
     ).toHaveLength(0);
     // Deleting a voice that does not exist reports nothing removed.
     expect(await deleteVoice(state, 'missing')).toBe(false);
+  });
+});
+
+// F-01: a voice preview held no money before the synthesis call, so two
+// concurrent previews against a cap with room for one both reached the provider.
+describe('voice preview holds its estimate before synthesis (F-01, F-PRV-04)', () => {
+  // 10,000 characters at ElevenLabs' $0.10 per 1,000 characters is $1.00.
+  const text = 'a'.repeat(10_000);
+
+  it('two concurrent previews against a cap with room for one: one plays, one is BUDGET_EXCEEDED', async () => {
+    const state = await db();
+    await state.db.insert(budgets).values({ scope: 'daily', capUsd: '1.500000', behavior: 'block' });
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    let calls = 0;
+    const services = {
+      db: state,
+      synth: async () => {
+        calls += 1;
+        await gate;
+        return { bytes: new Uint8Array([1]), mime: 'audio/mpeg' };
+      },
+    };
+    const settle = (promise: Promise<unknown>) =>
+      promise.then(
+        (value) => ({ status: 'fulfilled' as const, value }),
+        (reason: unknown) => ({ status: 'rejected' as const, reason }),
+      );
+    const first = settle(previewVoice(services, { provider: 'elevenlabs', voiceId: 'v1', text }));
+    const second = settle(previewVoice(services, { provider: 'elevenlabs', voiceId: 'v1', text }));
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    release();
+    const outcomes = await Promise.all([first, second]);
+    expect(
+      outcomes.filter(
+        (o) => o.status === 'rejected' && (o.reason as { code?: string }).code === 'BUDGET_EXCEEDED',
+      ),
+    ).toHaveLength(1);
+    expect(calls).toBe(1);
+    const ledger = await state.db.select().from(spendLedger);
+    expect(ledger).toHaveLength(1);
+    expect(ledger[0]?.kind).toBe('voice_preview');
+    expect(ledger[0]?.currencyNote).toBe('voice preview');
+  });
+
+  it('releases the hold when synthesis fails', async () => {
+    const state = await db();
+    await expect(
+      previewVoice(
+        { db: state, synth: () => Promise.reject(new Error('synthesis refused')) },
+        { provider: 'elevenlabs', voiceId: 'v1', text },
+      ),
+    ).rejects.toThrow('synthesis refused');
+    expect(await state.db.select().from(spendLedger)).toHaveLength(0);
   });
 });

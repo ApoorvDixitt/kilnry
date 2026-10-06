@@ -20,14 +20,19 @@ import {
   auditEvents,
   characterVersions,
   characters,
-  spendLedger,
   trainedIdentities,
   type DatabaseState,
 } from '@kilnry/db';
 import type { AdapterContext, ProviderAdapter, SubmitHandle } from '../providers/adapter.js';
 import { KilnryError } from '../errors.js';
 import { ulid } from '../ids.js';
-import { assertCostConfirmation, reserveBudget } from '../budget/enforcer.js';
+import {
+  assertCostConfirmation,
+  holdSpend,
+  releaseHold,
+  settleHold,
+  type SpendHold,
+} from '../budget/enforcer.js';
 import { estimate as priceEstimate } from '../registry/estimator.js';
 import { loadRegistry } from '../registry/store.js';
 import type { CanonicalRequest, Estimate } from '../types.js';
@@ -171,6 +176,18 @@ function adapterContext(key: string, fetchImpl: typeof fetch): AdapterContext {
 
 // Run a submit-then-poll loop against a provider adapter until it reaches a
 // terminal state, returning the completed result or throwing the terminal error.
+// The trainer accepted the run but stopped answering before it finished: it
+// may still bill, so the hold is kept as the charge with a note instead of
+// being released (the voice-clone rule; default; adjustable).
+class TrainingPollTimeout extends KilnryError {
+  constructor(
+    message: string,
+    readonly request_id: string,
+  ) {
+    super('PROVIDER_ERROR', message, { retryable: true });
+  }
+}
+
 async function runToCompletion(
   adapter: ProviderAdapter,
   handle: SubmitHandle,
@@ -184,7 +201,7 @@ async function runToCompletion(
     if (status.state === 'cancelled')
       throw new KilnryError('CANCELLED', 'The training was cancelled.', { retryable: false });
   }
-  throw new KilnryError('PROVIDER_ERROR', 'The training did not finish in time.', { retryable: true });
+  throw new TrainingPollTimeout('The training did not finish in time.', handle.provider_request_id);
 }
 
 // Train an identity for a Character version. Consent is asserted first, so a real
@@ -224,12 +241,6 @@ export async function startTraining(
   const steps = input.steps ?? 1000;
   const trainingEstimate = await priceTraining(services.db, input.trainer, steps);
   assertCostConfirmation(trainingEstimate, input.confirmed_cost_usd);
-  await reserveBudget(services.db.db, {
-    estimate_usd: trainingEstimate.estimate_usd,
-    provider: input.trainer,
-    folder: 'inbox',
-    now: now(),
-  });
   const chargedUsd = trainingEstimate.authoritative_usd ?? trainingEstimate.estimate_usd;
 
   const loaded = await loadVersion(services.db, characterId, version);
@@ -243,15 +254,43 @@ export async function startTraining(
     );
   }
 
+  // Hold the estimate before any provider request (F-01, D-60): the cap check
+  // and a pending spend-ledger row keyed by the identity id are one locked
+  // transaction, so two concurrent runs against a cap with room for one admit
+  // exactly one. The row settles to the charge, or is released when the trainer
+  // refuses or reports a failed run (PRD-14: failed work releases the hold).
   const identityId = ulid();
+  const hold = await holdSpend(services.db, {
+    ledger_id: identityId,
+    estimate_usd: trainingEstimate.estimate_usd,
+    provider: input.trainer,
+    model_id: TRAINER_PRICING[input.trainer].model_id,
+    kind: 'train',
+    folder: 'inbox',
+    character_ids: [characterId],
+    now: now(),
+  });
   const providerDir = join(services.identitiesRoot, characterId, String(version), input.trainer);
 
   // A Soul ID is a hosted reference: create it, poll it, and store only its id.
   if (input.trainer === 'higgsfield') {
-    const remoteId = await trainSoulId(fetchImpl, adapter.base_url, key, {
-      name: `kilnry-${input.handle}-v${version}`,
-      images: sources.slice(0, 80).map((source) => source.url),
-    });
+    let remoteId: string;
+    try {
+      remoteId = await trainSoulId(fetchImpl, adapter.base_url, key, {
+        name: `kilnry-${input.handle}-v${version}`,
+        images: sources.slice(0, 80).map((source) => source.url),
+      });
+    } catch (error) {
+      if (error instanceof TrainingPollTimeout) {
+        await settleHold(services.db, hold, {
+          actual_usd: chargedUsd,
+          note: `ambiguous: higgsfield reference ${error.request_id}`,
+        });
+      } else {
+        await releaseHold(services.db, hold);
+      }
+      throw error;
+    }
     await upsertIdentity(services.db, {
       id: identityId,
       characterId,
@@ -264,8 +303,7 @@ export async function startTraining(
       trainedAt: now(),
       sourceAssetIds: sources.map((source) => source.asset_id),
     });
-    await recordTrainingSpend(services.db, {
-      identityId,
+    await recordTrainingSpend(services.db, hold, {
       trainer: 'higgsfield',
       modelId: TRAINER_PRICING.higgsfield.model_id,
       estimateUsd: trainingEstimate.estimate_usd,
@@ -312,9 +350,14 @@ export async function startTraining(
     source: 'ui' as const,
   } as unknown as import('../types.js').CanonicalRequest;
 
+  // Which side of the provider's charge a failure falls on decides the hold.
+  let accepted = false;
+  let completed = false;
   try {
     const handle = await adapter.submit(request, context);
+    accepted = true;
     const result = await runToCompletion(adapter, handle, context);
+    completed = true;
     const artefactUrl = result.outputs[0]?.url;
     if (!artefactUrl) throw new KilnryError('PROVIDER_ERROR', 'Training returned no artefact URL.');
     const bytes = await downloadArtefact(fetchImpl, artefactUrl);
@@ -359,8 +402,7 @@ export async function startTraining(
       expiresAt,
       sourceAssetIds: sources.map((source) => source.asset_id),
     });
-    await recordTrainingSpend(services.db, {
-      identityId,
+    await recordTrainingSpend(services.db, hold, {
       trainer: input.trainer,
       modelId: TRAINER_PRICING[input.trainer].model_id,
       estimateUsd: trainingEstimate.estimate_usd,
@@ -379,6 +421,18 @@ export async function startTraining(
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Training failed.';
+    if (completed) {
+      // The run finished and was billed; only saving the artefact failed.
+      await settleHold(services.db, hold, { actual_usd: chargedUsd, note: 'training (artefact not saved)' });
+    } else if (accepted && error instanceof TrainingPollTimeout) {
+      await settleHold(services.db, hold, {
+        actual_usd: chargedUsd,
+        note: `ambiguous: ${input.trainer} request ${error.request_id}`,
+      });
+    } else {
+      // Refused at submit, or the trainer reported a failed/cancelled run.
+      await releaseHold(services.db, hold);
+    }
     await upsertIdentity(services.db, {
       id: identityId,
       characterId,
@@ -424,7 +478,7 @@ async function trainSoulId(
     if (state === 'failed')
       throw new KilnryError('PROVIDER_ERROR', 'Higgsfield could not train the Soul ID.', { retryable: true });
   }
-  throw new KilnryError('PROVIDER_ERROR', 'The Soul ID did not finish in time.', { retryable: true });
+  throw new TrainingPollTimeout('The Soul ID did not finish in time.', created.id);
 }
 
 async function fetchJson(fetchImpl: typeof fetch, url: string, init: RequestInit): Promise<unknown> {
@@ -467,14 +521,14 @@ interface IdentityRow {
   error?: string | undefined;
 }
 
-// Record a completed training run as exactly one spend-ledger row and one audit
-// event (F-CHR-07, F-PRV-05, TRD-15). The ledger row has no job id because
-// training does not go through the job queue; it is keyed by the identity id so
-// a run is charged at most once.
+// Settle a completed training run's hold into its one spend-ledger row and
+// write one audit event (F-CHR-07, F-PRV-05, TRD-15). The row has no job id
+// because training does not go through the job queue; it is keyed by the
+// identity id so a run is charged at most once.
 async function recordTrainingSpend(
   db: DatabaseState,
+  hold: SpendHold,
   input: {
-    identityId: string;
     trainer: TrainerId;
     modelId: string;
     estimateUsd: number;
@@ -484,17 +538,11 @@ async function recordTrainingSpend(
     now: Date;
   },
 ): Promise<void> {
-  await db.db.insert(spendLedger).values({
-    id: input.identityId,
-    providerId: input.trainer,
-    modelId: input.modelId,
-    folder: 'inbox',
-    characterIds: [input.characterId],
-    kind: 'train',
-    estimateUsd: input.estimateUsd.toFixed(6),
-    actualUsd: input.actualUsd.toFixed(6),
-    currencyNote: 'training',
-    occurredAt: input.now,
+  await settleHold(db, hold, {
+    actual_usd: input.actualUsd,
+    note: 'training',
+    occurred_at: input.now,
+    model_id: input.modelId,
   });
   await db.db.insert(auditEvents).values({
     id: ulid(),

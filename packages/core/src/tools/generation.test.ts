@@ -321,4 +321,88 @@ describe('generation tools (F-MCP-02 §3.2, §3.6)', () => {
     const rows = await state.db.select().from(spendLedger);
     expect(rows).toHaveLength(1); // only the seed row; the refused call wrote none
   });
+
+  // F-01: kilnry_analyze held no money before the OpenRouter call, so two
+  // concurrent analyses against a cap with room for one both reached it.
+  it('kilnry_analyze: two concurrent calls against a cap with room for one run once (F-01)', async () => {
+    const state = await db();
+    const { budgets, spendLedger } = await import('@kilnry/db');
+    await state.db.insert(budgets).values({ scope: 'daily', capUsd: '0.080000', behavior: 'block' });
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    let calls = 0;
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async () => {
+      calls += 1;
+      await gate;
+      return new Response(JSON.stringify({ choices: [{ message: { content: 'A blue mug.' } }] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }) as unknown as typeof fetch;
+    const engine = {
+      estimate(request: Record<string, unknown>) {
+        return Promise.resolve({
+          request,
+          estimate: {
+            estimate_usd: 0.05,
+            authoritative_usd: 0.05,
+            route: { provider: 'openrouter', model: 'google/gemini-3.1-flash-lite' },
+            eta_s: 5,
+          },
+        });
+      },
+    };
+    const run = () =>
+      analyzeTool.execute(
+        { task: 'describe', instructions: 'What is it?', confirm_cost_usd: 0.05 },
+        { db: state, scope: 'full', engine: engine as never, openrouterKey: 'sk-test' },
+      );
+    try {
+      const first = run();
+      const second = run();
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      release();
+      const results = await Promise.all([first, second]);
+      const codes = results.map((r) => (r.structuredContent.error as { code?: string } | undefined)?.code);
+      expect(codes.filter((code) => code === 'BUDGET_EXCEEDED')).toHaveLength(1);
+      expect(calls).toBe(1);
+      const rows = await state.db.select().from(spendLedger);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.currencyNote).toBe('analyze describe');
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  it('kilnry_analyze releases the hold when the provider call fails (F-01)', async () => {
+    const state = await db();
+    const { spendLedger } = await import('@kilnry/db');
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response('{"error":"upstream"}', { status: 502 })) as unknown as typeof fetch;
+    const engine = {
+      estimate(request: Record<string, unknown>) {
+        return Promise.resolve({
+          request,
+          estimate: {
+            estimate_usd: 0.05,
+            authoritative_usd: 0.05,
+            route: { provider: 'openrouter', model: 'google/gemini-3.1-flash-lite' },
+            eta_s: 5,
+          },
+        });
+      },
+    };
+    try {
+      const result = await analyzeTool.execute(
+        { task: 'describe', instructions: 'What is it?', confirm_cost_usd: 0.05 },
+        { db: state, scope: 'full', engine: engine as never, openrouterKey: 'sk-test' },
+      );
+      expect(result.structuredContent.error).toBeDefined();
+      expect(await state.db.select().from(spendLedger)).toHaveLength(0);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
 });

@@ -14,9 +14,9 @@ import * as z from 'zod';
 import { basename, join } from 'node:path';
 import { FFMPEG_OPS, ffmpegExtension, isSupportedFfmpegOp, runFfmpegOp } from '@kilnry/media';
 import { probeMedia } from '@kilnry/media';
-import { auditEvents, spendLedger } from '@kilnry/db';
+import { auditEvents } from '@kilnry/db';
 import { confirmationDecision } from '../budget/confirmation.js';
-import { reserveBudget } from '../budget/enforcer.js';
+import { holdSpend, releaseHold, settleHold, type SpendHold } from '../budget/enforcer.js';
 import {
   ANALYZE_TASKS,
   DEFAULT_ANALYZE_MODEL,
@@ -504,12 +504,22 @@ export const analyzeTool: KilnryTool = {
       };
     }
 
-    // Reserve against the caps before the provider call, refusing when a cap is
-    // hit so nothing is charged (F-PRV-05). Then run the analysis and record one
-    // spend-ledger row and one audit event — no job, so keyed by its own id.
+    // Hold the estimate before the provider call (F-01, D-60): the cap check and
+    // a pending ledger row are one locked transaction, so two concurrent
+    // analyses against a cap with room for one admit exactly one, and a refused
+    // cap charges nothing (F-PRV-05). The row settles to the charge or is
+    // released when the call fails — no job, so keyed by its own id.
     const provider = prepared.estimate.route.provider;
+    let hold: SpendHold;
     try {
-      await reserveBudget(services.db.db, { estimate_usd: requiredUsd, provider, folder });
+      hold = await holdSpend(services.db, {
+        ledger_id: ulid(),
+        estimate_usd: requiredUsd,
+        provider,
+        model_id: prepared.estimate.route.model,
+        kind: capability,
+        folder,
+      });
     } catch (error) {
       const code =
         error && typeof error === 'object' && 'code' in error ? String(error.code) : 'BUDGET_EXCEEDED';
@@ -525,17 +535,10 @@ export const analyzeTool: KilnryTool = {
         ...(input.schema === undefined ? {} : { schema: input.schema as Record<string, unknown> }),
       });
       const chargedUsd = requiredUsd;
-      const rowId = ulid();
-      await services.db.db.insert(spendLedger).values({
-        id: rowId,
-        providerId: provider,
-        modelId: result.model,
-        folder,
-        kind: capability,
-        estimateUsd: estimateUsd.toFixed(6),
-        actualUsd: chargedUsd.toFixed(6),
-        currencyNote: `analyze ${task}`,
-        occurredAt: new Date(),
+      await settleHold(services.db, hold, {
+        actual_usd: chargedUsd,
+        note: `analyze ${task}`,
+        model_id: result.model,
       });
       await services.db.db.insert(auditEvents).values({
         id: ulid(),
@@ -565,6 +568,7 @@ export const analyzeTool: KilnryTool = {
         },
       };
     } catch (error) {
+      await releaseHold(services.db, hold);
       const code =
         error && typeof error === 'object' && 'code' in error ? String(error.code) : 'PROVIDER_ERROR';
       return toolError(code, error instanceof Error ? error.message : 'The analysis failed.');

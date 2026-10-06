@@ -8,7 +8,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { closeDatabaseState, createDatabase, spendLedger, trainedIdentities } from '@kilnry/db';
+import { budgets, closeDatabaseState, createDatabase, spendLedger, trainedIdentities } from '@kilnry/db';
 import { eq } from 'drizzle-orm';
 import type { ProviderAdapter, SubmitHandle } from '../providers/adapter.js';
 import { seedRegistry } from '../registry/store.js';
@@ -275,5 +275,71 @@ describe('training refuses a Character that reads as a minor (F-07, PRD-07 §7)'
       startTraining(services, { handle: 'teen', trainer: 'fal', confirmed_cost_usd: 2 }),
     ).rejects.toMatchObject({ code: 'INVALID_INPUT', message: 'Kilnry does not train or clone minors.' });
     expect(submits).toBe(0);
+  });
+});
+
+// F-01: training held no money before the provider call (reserveBudget checks
+// the caps but writes nothing), so two concurrent runs against a cap with room
+// for one both reached the trainer. The estimate is now a pending ledger row
+// written inside the locked cap check (holdSpend, D-60).
+describe('training holds its estimate before the trainer is called (F-01, F-PRV-04)', () => {
+  it('two concurrent runs against a cap with room for one: one trains, one is BUDGET_EXCEEDED', async () => {
+    const state = await db();
+    await characterWithRefs(state);
+    // Room for one $2.00 fal run, not two.
+    await state.db.insert(budgets).values({ scope: 'daily', capUsd: '3.000000', behavior: 'block' });
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    let submits = 0;
+    const fetchImpl = (async (url: string) =>
+      String(url).endsWith('lora.safetensors')
+        ? new Response(LORA_BYTES, { status: 200 })
+        : new Response('{}', { status: 200 })) as unknown as typeof fetch;
+    const services = trainingServices(state, fetchImpl);
+    const base = fakeFalAdapter();
+    services.adapters = {
+      fal: {
+        ...base,
+        submit: async (...args: Parameters<typeof base.submit>) => {
+          submits += 1;
+          await gate;
+          return base.submit(...args);
+        },
+      },
+    };
+    const settle = (promise: Promise<unknown>) =>
+      promise.then(
+        (value) => ({ status: 'fulfilled' as const, value }),
+        (reason: unknown) => ({ status: 'rejected' as const, reason }),
+      );
+    const first = settle(startTraining(services, { handle: 'maya', trainer: 'fal', confirmed_cost_usd: 2 }));
+    const second = settle(startTraining(services, { handle: 'maya', trainer: 'fal', confirmed_cost_usd: 2 }));
+    // Let both reach the cap check before the first trainer call returns.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    release();
+    const outcomes = await Promise.all([first, second]);
+    const refused = outcomes.filter(
+      (o) => o.status === 'rejected' && (o.reason as { code?: string }).code === 'BUDGET_EXCEEDED',
+    );
+    expect(refused).toHaveLength(1);
+    expect(submits).toBe(1);
+    const ledger = await state.db.select().from(spendLedger);
+    expect(ledger).toHaveLength(1);
+    expect(ledger[0]?.kind).toBe('train');
+    expect(Number(ledger[0]?.actualUsd)).toBeCloseTo(2, 6);
+    expect(ledger[0]?.currencyNote).toBe('training');
+  });
+
+  it('releases the hold when the trainer refuses the submission', async () => {
+    const state = await db();
+    await characterWithRefs(state);
+    const services = trainingServices(state, (async () => new Response('{}')) as unknown as typeof fetch);
+    const base = fakeFalAdapter();
+    services.adapters = {
+      fal: { ...base, submit: () => Promise.reject(new Error('fal refused the training input')) },
+    };
+    const result = await startTraining(services, { handle: 'maya', trainer: 'fal', confirmed_cost_usd: 2 });
+    expect(result.status).toBe('failed');
+    expect(await state.db.select().from(spendLedger)).toHaveLength(0);
   });
 });
