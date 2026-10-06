@@ -322,9 +322,14 @@ async function indexAssetLocked(
   if (sidecar.tags.length > 0)
     await state.db.insert(assetTags).values(sidecar.tags.map((tag) => ({ assetId: sidecar.asset_id, tag })));
   await state.db.delete(assetLineage).where(eq(assetLineage.childId, sidecar.asset_id));
-  if (sidecar.lineage.made_from.length > 0)
+  // A lineage edge is a set: one parent asset can reach the output through more
+  // than one input (a Character's anchor is both the first frame and the
+  // element's frontal image on Kling v3 image-to-video, D-72), and the table's
+  // primary key is (child, parent, role), so the parents are deduplicated here.
+  const parents = [...new Set(sidecar.lineage.made_from)];
+  if (parents.length > 0)
     await state.db.insert(assetLineage).values(
-      sidecar.lineage.made_from.map((parentId) => ({
+      parents.map((parentId) => ({
         childId: sidecar.asset_id,
         parentId,
         role: 'made_from',

@@ -147,15 +147,18 @@ test('@m4 S-03 @character in a video prompt resolves to references, not the lite
   // The composer keeps the literal @handle; the engine resolves it on generate.
   // A single person shows no three-or-more-people warning (F-CHR-13).
   await page.getByRole('tab', { name: 'Video' }).click();
-  await pickModel(page, /Kling 3\.0 pro text-to-video/);
+  // Auto, not a pinned model: a video that mentions a Character has to reach an
+  // endpoint with a field for one, and on fal that is a reference-to-video
+  // endpoint (D-72 — Kling v3 text-to-video has no elements, reference or frame
+  // field at all, so the Character would be dropped and the video paid for).
   await prompt.fill('Slow dolly-in on @maya at a chai stall');
   await expect(prompt).toHaveValue(/@maya/);
   await expect(page.locator('.composer-warning')).toHaveCount(0);
   // The composer's preview names the strategy, and the price is the resolved
-  // one: Kling pro at the elements rate, 0.112 × 2 per second (PRD-07 §6), for
-  // the engine's 3 s default when the composer sends no duration.
-  await expect(page.getByText('@maya → elements')).toBeVisible({ timeout: 15_000 });
-  await expect(page.locator('.cost-strip .cost-strip-figure-text')).toContainText('$0.672', {
+  // one: Wan 3.0 reference-to-video at $0.05 a second for its own 2 s minimum,
+  // which is the duration the engine uses when the composer sends none.
+  await expect(page.getByText('@maya → reference_images')).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator('.cost-strip .cost-strip-figure-text')).toContainText('$0.100', {
     timeout: 15_000,
   });
   const submitFile = join(dataDir, 'msw-fal-last-submit.json');
@@ -163,24 +166,59 @@ test('@m4 S-03 @character in a video prompt resolves to references, not the lite
   await page.getByRole('button', { name: 'Generate' }).click();
   await expect(page.getByText(/^Saved · \$/)).toBeVisible({ timeout: 90_000 });
 
-  // What fal received (TRD-14 §7 example 1 shape): the anchor uploaded to fal
-  // storage as the element's frontal image, the prompt rewritten to @Element1,
-  // and no literal @maya anywhere in the payload.
+  // What fal received: the anchor uploaded to fal storage and sent under the
+  // field this endpoint's own schema names — reference_image_urls[]
+  // (https://fal.ai/models/alibaba/wan-3.0/reference-to-video/llms.txt, read
+  // 2026-10-06) — the prompt rewritten, and no literal @maya in the payload.
   const sent = JSON.parse(readFileSync(submitFile, 'utf8')) as {
     model: string;
-    body: { prompt: string; elements?: Array<{ frontal_image_url: string; reference_image_urls: string[] }> };
+    body: {
+      prompt: string;
+      reference_image_urls?: string[];
+      elements?: Array<{ frontal_image_url: string; reference_image_urls: string[] }>;
+      start_image_url?: string;
+    };
   };
-  expect(sent.model).toBe('fal-ai/kling-video/v3/pro/text-to-video');
-  expect(sent.body.prompt).toBe('Slow dolly-in on @Element1 at a chai stall');
-  expect(sent.body.elements).toEqual([
-    { frontal_image_url: 'https://v3.fal.media/files/test/kilnry-input', reference_image_urls: [] },
-  ]);
+  expect(sent.model).toBe('alibaba/wan-3.0/reference-to-video');
+  expect(sent.body.reference_image_urls).toEqual(['https://v3.fal.media/files/test/kilnry-input']);
+  expect(sent.body.elements).toBeUndefined();
+  // PRD-07 §4's short form names the Character and its slot; this Character has
+  // no anchor phrases yet, so its name stands alone in the parenthetical.
+  expect(sent.body.prompt).toBe('Slow dolly-in on the person in image 1 (Maya) at a chai stall');
   expect(JSON.stringify(sent.body)).not.toContain('@maya');
 
   // Lineage reaches the Character's Usage tab (F-CHR-11 reads asset_characters).
   await page.goto('/characters/maya');
   await page.getByRole('tab', { name: /^Usage/ }).click();
   await expect(page.locator('.character-usage-cell')).toHaveCount(1, { timeout: 15_000 });
+
+  // Second half (D-72): pinned to Kling v3 image-to-video, whose schema requires
+  // start_image_url and does have elements. With no first frame given, @maya's
+  // anchor opens the video and the same Character rides in elements[], so both
+  // fields fal documents are filled and nothing is sent that fal would ignore.
+  await ensureSignedIn(page, '/create');
+  await page.getByRole('tab', { name: 'Video' }).click();
+  await pickModel(page, /Kling 3\.0 pro image-to-video/);
+  await prompt.fill('Slow dolly-in on @maya at a chai stall');
+  await expect(page.getByText('@maya → start_frame')).toBeVisible({ timeout: 15_000 });
+  rmSync(submitFile, { force: true });
+  await page.getByRole('button', { name: 'Generate' }).click();
+  await expect(page.getByText(/^Saved · \$/)).toBeVisible({ timeout: 90_000 });
+  const pinned = JSON.parse(readFileSync(submitFile, 'utf8')) as {
+    model: string;
+    body: {
+      prompt: string;
+      start_image_url?: string;
+      elements?: Array<{ frontal_image_url: string; reference_image_urls: string[] }>;
+    };
+  };
+  expect(pinned.model).toBe('fal-ai/kling-video/v3/pro/image-to-video');
+  expect(pinned.body.start_image_url).toBe('https://v3.fal.media/files/test/kilnry-input');
+  expect(pinned.body.elements).toEqual([
+    { frontal_image_url: 'https://v3.fal.media/files/test/kilnry-input', reference_image_urls: [] },
+  ]);
+  expect(pinned.body.prompt).toBe('Slow dolly-in on @Element1 at a chai stall');
+  expect(JSON.stringify(pinned.body)).not.toContain('@maya');
 });
 
 async function addReference(page: Page, handle: string, assetId: string): Promise<void> {

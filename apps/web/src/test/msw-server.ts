@@ -221,6 +221,26 @@ export function startTestMsw(): void {
         const value = body[field];
         return value === undefined || value === null || value === '';
       });
+      // A field the endpoint's schema does not have is refused too (D-72). fal's
+      // own validator ignores an unknown field, so Kilnry would pay for a video
+      // with the Character silently dropped; the mock makes that payload fail
+      // where fal would not, which is what the product needs asserted.
+      const absent = (falEndpointSchema(submitted)?.absent ?? []).filter(
+        (field) => body[field] !== undefined,
+      );
+      if (absent.length > 0) {
+        return HttpResponse.json(
+          {
+            detail: absent.map((field) => ({
+              loc: ['body', field],
+              msg: `${submitted} has no ${field} field`,
+              type: 'extra_forbidden',
+              url: 'https://docs.fal.ai/model-apis/errors',
+            })),
+          },
+          { status: 422, headers: { 'X-Fal-Retryable': 'false' } },
+        );
+      }
       if (missing.length > 0) {
         return HttpResponse.json(
           {

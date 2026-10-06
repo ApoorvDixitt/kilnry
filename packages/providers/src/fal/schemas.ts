@@ -45,8 +45,33 @@ export interface FalEndpointSchema {
   fields: FalMediaFields;
   /** Fields fal marks required; a body without them is rejected with a 422. */
   required: string[];
+  /**
+   * Identity and media fields fal's schema for this endpoint does NOT list, so a
+   * body carrying one is wrong even though fal's own validator ignores it
+   * (D-72: Kling v3 text-to-video has no `elements`, references or frames, and
+   * a Character sent there is silently dropped). The integration mock refuses
+   * them so the product cannot ship a payload fal would throw away.
+   */
+  absent?: string[];
   source: string;
 }
+
+// Every identity-bearing or media field any fal video endpoint takes; an
+// endpoint lists in `absent` the ones its own schema has no field for.
+const IDENTITY_FIELDS = [
+  'elements',
+  'start_image_url',
+  'end_image_url',
+  'image_url',
+  'image_urls',
+  'reference_image_urls',
+  'reference_video_urls',
+  'reference_audio_urls',
+  'video_url',
+] as const;
+
+/** A prompt-only video endpoint: nothing in IDENTITY_FIELDS exists on it. */
+const PROMPT_ONLY_VIDEO = { fields: {}, absent: [...IDENTITY_FIELDS] };
 
 const READ_ON = '2026-10-06';
 const page = (id: string): string => `https://fal.ai/models/${id}/llms.txt (read ${READ_ON})`;
@@ -58,6 +83,19 @@ const KLING_V3_I2V: FalMediaFields = {
 };
 
 const SCHEMAS: Record<string, FalEndpointSchema> = {
+  // Kling v3 text-to-video takes prompt, duration, multi_prompt, generate_audio,
+  // shot_type, aspect_ratio, negative_prompt and cfg_scale — and nothing else
+  // (both pages re-read 2026-10-06). `elements` is on image-to-video only.
+  'fal-ai/kling-video/v3/standard/text-to-video': {
+    ...PROMPT_ONLY_VIDEO,
+    required: [],
+    source: page('fal-ai/kling-video/v3/standard/text-to-video'),
+  },
+  'fal-ai/kling-video/v3/pro/text-to-video': {
+    ...PROMPT_ONLY_VIDEO,
+    required: [],
+    source: page('fal-ai/kling-video/v3/pro/text-to-video'),
+  },
   'fal-ai/kling-video/v3/standard/image-to-video': {
     fields: KLING_V3_I2V,
     required: ['start_image_url'],
@@ -74,7 +112,7 @@ const SCHEMAS: Record<string, FalEndpointSchema> = {
     source: page('alibaba/wan-3.0/image-to-video'),
   },
   'alibaba/wan-3.0/text-to-video': {
-    fields: {},
+    ...PROMPT_ONLY_VIDEO,
     required: ['prompt'],
     source: page('alibaba/wan-3.0/text-to-video'),
   },

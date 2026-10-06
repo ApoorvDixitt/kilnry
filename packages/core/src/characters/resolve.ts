@@ -18,6 +18,7 @@ import {
   loraFor,
   orderedReferences,
   soulIdFor,
+  requiresFirstFrame,
 } from './emitters.js';
 import {
   STRATEGY_ORDER,
@@ -105,17 +106,14 @@ export function resolvePrompt(
   const usedTriggers = new Set<string>();
   let emittedElements = 0;
 
-  // Seed the ordered reference list with the user's own attachments so the
-  // character refs are appended after them (TRD-14 §4: "provider list gets
-  // A, R1, R2 appended after the user's own refs"). Video models expose the
-  // ordered list as `input_references`; image editors build `image[]` at the
-  // adapter from the ordered injections, so no fragment key is seeded there.
-  const userRefs = req.medias.filter((m) => isOrderedRefRole(m.role));
+  // The ordered reference list is the request's own medias: the user's
+  // attachments first, the Character's references appended after them (TRD-14
+  // §4). No fragment key is seeded for it — each adapter names the list its
+  // provider uses (input_references[] on OpenRouter, reference_image_urls[] on
+  // fal's Wan 3.0, image_urls[] on Seedance and Veo 3.1), and a name chosen
+  // here would be wrong for every provider but one.
   const personShiftsUserRefs =
     req.kind === 'image_edit' && mentionTargets.some((t) => t.version.kind === 'character');
-  if (kind === 'video' && userRefs.length > 0) {
-    fragment.input_references = userRefs.map((m) => ({ url: mediaUrl(m, ctx) }));
-  }
   if (personShiftsUserRefs) {
     // The person's anchor becomes image 1; the user's refs shift after it.
     slot = 0;
@@ -131,10 +129,48 @@ export function resolvePrompt(
     const version = target.version;
     const order = version.injection_defaults?.[kind] ?? defaultOrder;
     const emitCtx: EmitContext = { slot, refBudget, usedTriggers, ctx, emittedElements };
-    const strategy = order.find((s) => available(s, version, model, req, refBudget, kind, ctx)) ?? 'text';
+    // D-72: an endpoint whose schema requires a first frame cannot run without
+    // one. When the user pinned such a model and gave no start frame, this
+    // Character's anchor opens the video, and where the endpoint also has an
+    // `elements` list (Kling v3 image-to-video) the same Character's images ride
+    // along in it, so identity is not left to the single frame.
+    const firstFrameNeeded =
+      kind === 'video' &&
+      requiresFirstFrame(model) &&
+      !req.medias.some((media) => media.role === 'start_frame') &&
+      !injections.some((injected) => injected.inputs.some((input) => input.role === 'start_frame'));
+    const strategyOrder: Strategy[] = firstFrameNeeded
+      ? ['start_frame', ...order.filter((entry) => entry !== 'start_frame')]
+      : order;
+    const strategy =
+      strategyOrder.find((s) => available(s, version, model, req, refBudget, kind, ctx)) ?? 'text';
     const emitter =
       strategy === 'reference_images' && kind === 'image' ? emitImageReferences : EMITTERS[strategy];
-    const emit = emitter(version, model, req, emitCtx);
+    let emit = emitter(version, model, req, emitCtx);
+    let alsoElements = false;
+    if (strategy === 'start_frame' && firstFrameNeeded) {
+      const note = `${model.display_name} needs a first frame; @${version.handle}'s anchor opens the video.`;
+      const withElements =
+        model.supports.elements && available('elements', version, model, req, refBudget, kind, ctx)
+          ? EMITTERS.elements(version, model, req, emitCtx)
+          : undefined;
+      if (withElements) {
+        alsoElements = true;
+        emit = {
+          // The anchor is the first frame and the element's frontal image; its
+          // other views ride in the element, so count both sets of inputs once.
+          inputs: [...emit.inputs, ...withElements.inputs],
+          fragment: withElements.fragment,
+          replacement: withElements.replacement,
+          refsUsed: emit.refsUsed + withElements.refsUsed,
+          ...(withElements.slot_index === undefined ? {} : { slot_index: withElements.slot_index }),
+          notes: [...emit.notes, ...withElements.notes, note],
+          warnings: [...emit.warnings, ...withElements.warnings],
+        };
+      } else {
+        emit = { ...emit, notes: [...emit.notes, note] };
+      }
+    }
 
     injections.push({
       handle: version.handle,
@@ -160,7 +196,7 @@ export function resolvePrompt(
     deepMerge(fragment, emit.fragment);
     refBudget -= emit.refsUsed;
     slot += emit.refsUsed;
-    if (strategy === 'elements') emittedElements += 1;
+    if (strategy === 'elements' || alsoElements) emittedElements += 1;
 
     if (
       strategy === 'reference_images' &&
@@ -464,16 +500,6 @@ function possessivePronoun(version: LoadedVersion): string {
   if (g === 'woman') return 'her';
   if (g === 'man') return 'his';
   return 'their';
-}
-
-// The provider-facing URL for a user-attached media (explicit url or asset id).
-function mediaUrl(
-  media: { url?: string | undefined; asset_id?: string | undefined },
-  ctx: ResolverCtx,
-): string {
-  if (media.url) return media.url;
-  if (media.asset_id) return ctx.assetUrl(media.asset_id);
-  return '';
 }
 
 // A bound voice is usable only by the provider that made it: Kling's voice_ids[]

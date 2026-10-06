@@ -142,6 +142,19 @@ export function bindFragmentAssets(request: CanonicalRequest): CanonicalRequest 
   return {
     ...request,
     params: { ...request.params, extra: bound },
-    medias: request.medias.filter((media) => !(media.asset_id && used.has(media.asset_id))),
+    // A media the fragment now carries is not sent twice — but only the
+    // reference-shaped roles are in the fragment. A first or last frame, an
+    // audio track or a driving video is its own payload field on the endpoint
+    // (fal's start_image_url), so it stays even when the same asset also rides
+    // in elements[] (D-72: the Character's anchor opens the video and is the
+    // element's frontal image).
+    medias: request.medias.filter(
+      (media) =>
+        !(
+          media.asset_id &&
+          used.has(media.asset_id) &&
+          ['reference', 'style', 'product'].includes(media.role)
+        ),
+    ),
   };
 }

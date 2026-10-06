@@ -748,4 +748,38 @@ describe('fal sends each model the field names its schema requires (F-PRV-01)', 
     );
     expect(body.image_urls).toEqual([IMG, IMG2]);
   });
+
+  // D-72: the resolver names no provider field; it hands the engine ordered
+  // `reference` medias, and each adapter puts them under the list its own schema
+  // uses. These are the two fal lists and OpenRouter's, in media order.
+  it("a video's ordered references go under each provider's own list name", async () => {
+    const wan = await bodyFor(
+      mediaRequest('alibaba/wan-3.0/reference-to-video', 'video', 'reference2video', [
+        { role: 'reference', url: IMG },
+        { role: 'reference', url: IMG2 },
+      ]),
+    );
+    expect(wan.reference_image_urls).toEqual([IMG, IMG2]);
+    expect(wan).not.toHaveProperty('input_references');
+
+    // OpenRouter's video route names the same thing input_references[].
+    let sent: Record<string, unknown> = {};
+    server.use(
+      http.get('https://openrouter.ai/api/v1/key', () =>
+        HttpResponse.json({ data: { label: 'test', usage: 0, limit: null } }),
+      ),
+      http.post('https://openrouter.ai/api/v1/videos', async ({ request: incoming }) => {
+        sent = (await incoming.json()) as Record<string, unknown>;
+        return HttpResponse.json({ id: 'or-refs', status: 'queued' });
+      }),
+    );
+    await openRouterAdapter.submit(
+      mediaRequest('bytedance/seedance-2.5', 'video', 'reference2video', [
+        { role: 'reference', url: IMG },
+        { role: 'reference', url: IMG2 },
+      ]),
+      context(),
+    );
+    expect(sent.input_references).toEqual([{ url: IMG }, { url: IMG2 }]);
+  });
 });

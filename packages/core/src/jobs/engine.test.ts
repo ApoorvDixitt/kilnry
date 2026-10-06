@@ -796,7 +796,11 @@ describe('F-CHR-09 the engine resolves @mentions', () => {
     return { head, anchorId };
   }
 
-  it('turns @maya into one Kling element, prices it, and records lineage on the output', async () => {
+  // D-72: fal's Kling v3 text-to-video schema has no elements, references or
+  // frame fields, so a Character pinned there is text-only; the elements list
+  // exists on image-to-video, beside its required start_image_url, and a pinned
+  // image-to-video with no start frame opens the video on the anchor.
+  it('turns @maya into one Kling element on the image-to-video endpoint, prices it, and records lineage', async () => {
     const submitted: CanonicalRequest[] = [];
     const fake = fakeAdapter({
       result: {
@@ -823,7 +827,7 @@ describe('F-CHR-09 the engine resolves @mentions', () => {
       target_folder: 'inbox',
       source: 'ui',
     });
-    const constraints = { pinned_model: 'fal-ai/kling-video/v3/pro/text-to-video' };
+    const constraints = { pinned_model: 'fal-ai/kling-video/v3/pro/image-to-video' };
     const plain = await engine.estimate(
       { ...request, prompt: 'Slow dolly-in on a woman at a chai stall' },
       constraints,
@@ -837,9 +841,14 @@ describe('F-CHR-09 the engine resolves @mentions', () => {
     expect(priced.request.original_prompt).toBe('Slow dolly-in on @maya at a chai stall');
     expect(priced.request.negative_prompt).toBe('glasses, beard');
     expect(priced.request.injections).toEqual([
-      { handle: 'maya', version: 1, strategy: 'elements', inputs: [anchorId] },
+      { handle: 'maya', version: 1, strategy: 'start_frame', inputs: [anchorId, anchorId] },
     ]);
-    expect(priced.request.medias).toEqual([{ role: 'reference', asset_id: anchorId }]);
+    // The anchor opens the video (the endpoint's required first frame) and is
+    // the element's frontal image.
+    expect(priced.request.medias).toEqual([
+      { role: 'start_frame', asset_id: anchorId },
+      { role: 'reference', asset_id: anchorId },
+    ]);
     expect(priced.request.params.extra?.elements).toEqual([
       { frontal_image_url: `kilnry-asset://${anchorId}`, reference_image_urls: [] },
     ]);
@@ -856,7 +865,7 @@ describe('F-CHR-09 the engine resolves @mentions', () => {
     const row = (await state.db.select().from(jobs).where(eq(jobs.id, created.job_id)))[0]!;
     expect((row.request as CanonicalRequest).prompt).toBe('Slow dolly-in on @Element1 at a chai stall');
     expect(row.characters).toEqual([
-      { handle: 'maya', version: 1, strategy: 'elements', inputs: [anchorId] },
+      { handle: 'maya', version: 1, strategy: 'start_frame', inputs: [anchorId, anchorId] },
     ]);
 
     const terminal = await engine.waitForJob(created.job_id, 5000);
@@ -867,7 +876,11 @@ describe('F-CHR-09 the engine resolves @mentions', () => {
     const sent = submitted[0]!;
     const elements = sent.params.extra?.elements as Array<{ frontal_image_url: string }>;
     expect(elements[0]!.frontal_image_url).toMatch(/^data:image\/png;base64,/);
-    expect(sent.medias).toEqual([]);
+    // The anchor reaches fal twice, under the two fields the endpoint has for
+    // it: the required first frame as a start_frame media, and inside elements[].
+    // It is not sent a third time as a bare reference.
+    expect(sent.medias.map((media) => media.role)).toEqual(['start_frame']);
+    expect(sent.medias[0]!.url).toMatch(/^data:image\/png;base64,/);
     expect(sent.prompt).toBe('Slow dolly-in on @Element1 at a chai stall');
 
     // Lineage: an asset_characters row per output, and both prompts in the sidecar.
@@ -878,7 +891,7 @@ describe('F-CHR-09 the engine resolves @mentions', () => {
       .from(assetCharacters)
       .where(eq(assetCharacters.assetId, outputs[0]!.id));
     expect(links).toEqual([
-      expect.objectContaining({ characterId: head.id, version: 1, strategy: 'elements' }),
+      expect.objectContaining({ characterId: head.id, version: 1, strategy: 'start_frame' }),
     ]);
     const sidecar = await readSidecar(join(library, outputs[0]!.path));
     expect(sidecar.ok && sidecar.value.generation?.prompt).toBe('Slow dolly-in on @maya at a chai stall');

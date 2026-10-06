@@ -4,11 +4,17 @@
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
 import { KilnryError } from '../errors.js';
-import type { CanonicalRequest, Estimate, ProviderId } from '../types.js';
+import type { Capability, CanonicalRequest, Estimate, ProviderId } from '../types.js';
 import { estimate } from './estimator.js';
 import type { ModelManifest, PriceSnapshot, Resolution } from './manifest.js';
 
 export interface RouteConstraints {
+  /**
+   * The request carries a Character or Element mention, so the routed endpoint
+   * must have a field that can carry an identity (D-72). The engine sets it
+   * from mentionsPossible() before it routes.
+   */
+  identity_mention?: boolean;
   needs_audio?: boolean;
   refs_count?: number;
   refs_kinds?: Array<'image' | 'video' | 'audio'>;
@@ -138,6 +144,21 @@ function rejection(
   return undefined;
 }
 
+/**
+ * The capability a video that carries an identity must be served as (D-72).
+ * fal's prompt-only endpoints have no field for a Character at all, so a
+ * mention-bearing video is never served as text2video: with no first frame it
+ * is a reference-to-video request, and with one it is image-to-video, where the
+ * endpoints that take identity references beside the frame (Kling v3's
+ * `elements`) rank first.
+ */
+export function identityCapability(request: CanonicalRequest): Capability {
+  if (request.kind !== 'video') return request.capability;
+  if (!['text2video', 'image2video', 'reference2video'].includes(request.capability))
+    return request.capability;
+  return request.medias.some((media) => media.role === 'start_frame') ? 'image2video' : 'reference2video';
+}
+
 export function route(
   request: CanonicalRequest,
   constraints: RouteConstraints,
@@ -152,13 +173,19 @@ export function route(
   },
 ): RouteResult {
   const now = context.now ?? new Date();
+  // A pinned model is served as the user pinned it; the resolver tells them what
+  // the identity could and could not reach there (TRD-14 §2).
+  const capability =
+    constraints.identity_mention && !constraints.pinned_model
+      ? identityCapability(request)
+      : request.capability;
   const requested = constraints.pinned_model
     ? context.models.filter(
         (model) =>
           model.model_id === constraints.pinned_model ||
           `${model.provider}/${model.model_id}` === constraints.pinned_model,
       )
-    : context.models.filter((model) => model.capabilities.includes(request.capability));
+    : context.models.filter((model) => model.capabilities.includes(capability));
   if (constraints.pinned_model && requested.length === 0)
     throw new KilnryError('NOT_FOUND', `Model ${constraints.pinned_model} is not in the registry.`);
 
@@ -200,6 +227,14 @@ export function route(
   }
 
   candidates.sort((left, right) => {
+    // An identity-bearing image-to-video request prefers an endpoint that also
+    // takes identity references beside the first frame (D-72): on Kling v3 the
+    // Character's own images ride in `elements`, which no other first-frame
+    // endpoint has a field for.
+    if (constraints.identity_mention && capability === 'image2video') {
+      const elements = Number(right.model.supports.elements) - Number(left.model.supports.elements);
+      if (elements !== 0) return elements;
+    }
     if (constraints.quality === 'premium' && left.model.quality_tier !== right.model.quality_tier)
       return tierRank[right.model.quality_tier] - tierRank[left.model.quality_tier];
     const difference = left.estimate.estimate_usd - right.estimate.estimate_usd;

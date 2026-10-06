@@ -178,10 +178,14 @@ function emitVideoReferences(
     ...(ref.label ? { label: ref.label } : {}),
     ...(ref.weight !== 1 ? { weight: ref.weight } : {}),
   }));
-  const urls = chosen.map((ref) => ({ url: ctx.ctx.assetUrl(ref.asset_id) }));
   let replacement: string;
   if (version.kind === 'character') {
-    replacement = `the ${personNoun(version)} in image ${anchorSlot} (${NAME(version)}: ${anchorsShort(version.appearance)})`;
+    // PRD-07 §4's short form. A Character with no anchors yet gets its name
+    // alone: "(Maya: )" with nothing after the colon went to the provider.
+    const anchors = anchorsShort(version.appearance);
+    replacement = `the ${personNoun(version)} in image ${anchorSlot} (${NAME(version)}${
+      anchors ? `: ${anchors}` : ''
+    })`;
   } else if (version.kind === 'environment') {
     replacement = `the place in image ${anchorSlot}`;
   } else {
@@ -189,7 +193,12 @@ function emitVideoReferences(
   }
   return {
     inputs,
-    fragment: { input_references: urls },
+    // No payload fragment: the references travel as `reference` media inputs and
+    // each adapter names the list its own schema uses (TRD-14 §4 names a
+    // different one per provider — OpenRouter input_references[], fal Wan 3.0
+    // reference_image_urls[], Seedance image_urls[], Veo 3.1 image_urls[]). A
+    // hardcoded input_references[] reached fal untranslated and was ignored.
+    fragment: {},
     replacement,
     refsUsed: chosen.length,
     slot_index: anchorSlot,
@@ -326,12 +335,7 @@ function emitIdentity(
 }
 
 // ── start_frame ────────────────────────────────────────────────────────────
-function emitStartFrame(
-  version: LoadedVersion,
-  model: ModelManifest,
-  req: CanonicalRequest,
-  ctx: EmitContext,
-): EmitResult {
+function emitStartFrame(version: LoadedVersion, model: ModelManifest, req: CanonicalRequest): EmitResult {
   const ordered = orderedReferences(version, req.prompt);
   const anchor = ordered[0];
   if (!anchor) return emitText(version, model);
@@ -339,7 +343,11 @@ function emitStartFrame(
     inputs: [
       { role: 'start_frame', asset_id: anchor.asset_id, ...(anchor.view ? { view: anchor.view } : {}) },
     ],
-    fragment: { image_url: ctx.ctx.assetUrl(anchor.asset_id) },
+    // No payload fragment: the start_frame media input carries the anchor, and
+    // each adapter names the field its own schema uses (fal's Kling v3 and
+    // Wan 3.0 image-to-video want start_image_url, not image_url — which the
+    // fal adapter also refuses as a passthrough override).
+    fragment: {},
     replacement: 'the person in the first frame',
     refsUsed: 1,
     notes: [],
@@ -382,6 +390,28 @@ function emitVoice(version: LoadedVersion, model: ModelManifest): EmitResult {
 }
 
 // ── text (safety net) ─────────────────────────────────────────────────────────
+function isVideoModel(model: ModelManifest): boolean {
+  return model.capabilities.some((capability) =>
+    ['text2video', 'image2video', 'reference2video', 'video2video'].includes(capability),
+  );
+}
+
+/** No way at all to carry an identity: no references, no elements, no frames. */
+export function noIdentitySlot(model: ModelManifest): boolean {
+  return (
+    model.supports.references_max === 0 &&
+    !model.supports.elements &&
+    !model.supports.start_end_frame &&
+    !model.supports.lora &&
+    model.supports.identity_ids.length === 0
+  );
+}
+
+/** The endpoint cannot run without a first frame (fal's required start image). */
+export function requiresFirstFrame(model: ModelManifest): boolean {
+  return model.media_roles.some((role) => role.role === 'start_frame' && (role.min ?? 0) >= 1);
+}
+
 function emitText(version: LoadedVersion, model: ModelManifest): EmitResult {
   const anchors = version.appearance.anchors.join(', ');
   const descriptor = version.appearance.descriptor.trim();
@@ -390,6 +420,13 @@ function emitText(version: LoadedVersion, model: ModelManifest): EmitResult {
   if (model.model_id === 'higgsfield-ai/soul/v2/standard') {
     notes.push(
       'Soul 2 standard has no reference slot; identity is text-only. Train a Soul ID ($2.50) for a locked face.',
+    );
+  } else if (noIdentitySlot(model) && isVideoModel(model)) {
+    // TRD-14 §2 (D-72), Example 6's form: say what this endpoint cannot do and
+    // the one thing the user can do about it. fal's prompt-only video endpoints
+    // have no elements, reference or frame field at all.
+    notes.push(
+      `${model.display_name} has no reference slot; identity is text-only. Add a first frame to use @${version.handle}'s images.`,
     );
   }
   return { inputs: [], fragment: {}, replacement, refsUsed: 0, notes, warnings: [] };

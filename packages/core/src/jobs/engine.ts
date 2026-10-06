@@ -423,6 +423,11 @@ export class JobEngine {
       ...(durationSeconds === undefined ? {} : { duration_s: durationSeconds }),
       ...(aspectRatio === undefined ? {} : { aspect_ratio: aspectRatio }),
       ...(minimumResolution === undefined ? {} : { min_resolution: minimumResolution }),
+      // D-72: a video that mentions a Character or Element must reach an
+      // endpoint that has a field for it, so the router serves it as
+      // reference2video (no first frame) or image2video (one), not as the
+      // text2video the caller asked for.
+      ...(mentionsPossible(request) ? { identity_mention: true } : {}),
     };
     const selected = route(request, inferred, {
       models: registry.models,

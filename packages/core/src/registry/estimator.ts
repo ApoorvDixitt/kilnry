@@ -173,10 +173,13 @@ function price(ruleInput: PriceRule, input: EstimateInput, adjustments: string[]
           : request.params.audio && selected.audio !== undefined
             ? selected.audio
             : selected.no_audio;
-      if (
-        request.injections.some((injection) => injection.strategy === 'elements') &&
-        rule.elements_multiplier
-      ) {
+      // Priced on what the payload carries, not only on the strategy name: a
+      // Character that opens the video on its anchor and also rides in
+      // `elements` (D-72) is an elements request to fal, so it costs like one.
+      const sendsElements =
+        request.injections.some((injection) => injection.strategy === 'elements') ||
+        Array.isArray((request.params.extra as { elements?: unknown } | undefined)?.elements);
+      if (sendsElements && rule.elements_multiplier) {
         rate *= rule.elements_multiplier;
         adjustments.push('elements roughly double Kling per-second price on I2V');
       }

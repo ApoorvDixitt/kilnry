@@ -10,8 +10,11 @@ import {
   KilnryError,
   capabilityFor,
   findModelManifest,
+  identityCapability,
   loadRegistry,
+  providerRouteStates,
   resolvePromptFromDb,
+  route,
   type Kind,
 } from '@kilnry/core';
 import { errorResponse, requireSession } from '../../../../server/http';
@@ -33,16 +36,6 @@ export async function POST(request: Request): Promise<Response> {
     const services = await runtimeServices();
     const kind = body.kind as Kind;
 
-    let model;
-    if (body.model) {
-      model = await findModelManifest(services.database, body.model);
-    } else {
-      const registry = await loadRegistry(services.database);
-      const wantCapability = capabilityFor(kind, []);
-      model = registry.models.find((m) => m.capabilities.includes(wantCapability)) ?? registry.models[0];
-      if (!model) throw new KilnryError('NO_PROVIDER', 'No model is available to preview against.');
-    }
-
     const req = {
       ...CanonicalRequestSchema.parse({
         kind,
@@ -51,6 +44,29 @@ export async function POST(request: Request): Promise<Response> {
       }),
       ...(body.characters ? { characters: body.characters } : {}),
     };
+
+    let model;
+    if (body.model) {
+      model = await findModelManifest(services.database, body.model);
+    } else {
+      // Auto must preview against the model Auto would actually use, or the chip
+      // promises a strategy the run will not take: the first registry row with
+      // the capability was a prompt-only video endpoint, which can only ever say
+      // "text" (D-72). Route the request the way the engine does, identity and
+      // all, and resolve against the winner.
+      const registry = await loadRegistry(services.database);
+      const picked = route(
+        { ...req, capability: identityCapability(req) },
+        { identity_mention: true },
+        {
+          models: registry.models,
+          snapshots: registry.snapshots,
+          providers: await providerRouteStates(services.database),
+        },
+      );
+      model = registry.models.find((m) => m.provider === picked.provider && m.model_id === picked.model_id);
+      if (!model) throw new KilnryError('NO_PROVIDER', 'No model is available to preview against.');
+    }
     const resolved = await resolvePromptFromDb(services.database, req, model);
     return NextResponse.json({
       resolution: {

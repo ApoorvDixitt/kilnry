@@ -283,12 +283,17 @@ describe('resolvePrompt §7 worked examples', () => {
     expect(r.prompt).toBe(
       "the woman in image 2 (Maya: blunt fringe bob, chin scar, gold hoops) hands the glass in image 4 (appearance reference only; ignore its background and lighting) to a customer, handheld, morning light. Compose from the storyboard in image 1. Keep the woman's face identical to images 2\u20133.",
     );
-    expect(r.provider_fragment.input_references).toEqual([
-      { url: url(BOARD) },
-      { url: url(ANCH) },
-      { url: url(TQL) },
-      { url: url(GLAS) },
+    // The references travel as ordered `reference` medias; the OpenRouter
+    // adapter turns them into input_references[] in this order (TRD-14 §4 names
+    // a different list per provider, so the resolver does not name one — see
+    // the adapter test "sends a video's ordered references as input_references").
+    expect(r.medias).toEqual([
+      { role: 'reference', asset_id: BOARD, label: 'storyboard' },
+      { role: 'reference', asset_id: ANCH },
+      { role: 'reference', asset_id: TQL },
+      { role: 'reference', asset_id: GLAS },
     ]);
+    expect(r.provider_fragment.input_references).toBeUndefined();
     expect(r.warnings).toEqual([]);
   });
 
@@ -575,5 +580,78 @@ describe('voice pass honours the voice provider (F-VOI-04, F-CHR-08)', () => {
       voice_id: 'kx7',
     });
     expect(r.voice_mismatch).toBeUndefined();
+  });
+});
+
+// D-72: fal's Kling v3 text-to-video schema has no elements, references or
+// frame fields, and image-to-video requires start_image_url
+// (https://fal.ai/models/fal-ai/kling-video/v3/{standard,pro}/{text,image}-to-video/llms.txt,
+// read 2026-10-06). A pinned model is served as pinned, so the resolver is what
+// tells the user what their Character could reach there.
+describe('a pinned Kling v3 endpoint (D-72)', () => {
+  const klingV3ProText = manifest({
+    model_id: 'fal-ai/kling-video/v3/pro/text-to-video',
+    provider: 'fal',
+    capabilities: ['text2video'],
+    supports: { elements: false, references_max: 0, start_end_frame: false, voice_ids: true },
+  });
+  const klingV3ProImage = manifest({
+    model_id: 'fal-ai/kling-video/v3/pro/image-to-video',
+    provider: 'fal',
+    capabilities: ['image2video'],
+    supports: { elements: true, references_max: 4, start_end_frame: true, voice_ids: true },
+    media_roles: [
+      { role: 'start_frame', min: 1, max: 1, kinds: ['image'] },
+      { role: 'end_frame', min: 0, max: 1, kinds: ['image'] },
+      { role: 'reference', min: 0, max: 4, kinds: ['image'] },
+    ],
+  });
+  const request = () =>
+    req({
+      kind: 'video',
+      capability: 'text2video',
+      prompt: 'Slow dolly-in on @maya at a chai stall',
+      medias: [],
+      params: { duration_s: 5 },
+    });
+
+  it('text-to-video carries the identity as text and says so (Example 6 form)', () => {
+    const r = resolvePrompt(request(), klingV3ProText, makeCtx());
+    expect(r.injections[0]).toMatchObject({ handle: 'maya', strategy: 'text' });
+    expect(r.injections[0]!.notes).toContain(
+      "fal-ai/kling-video/v3/pro/text-to-video has no reference slot; identity is text-only. Add a first frame to use @maya's images.",
+    );
+    expect(r.provider_fragment.elements).toBeUndefined();
+    expect(r.prompt).toContain('A woman in her early thirties');
+    expect(r.prompt).not.toContain('@maya');
+  });
+
+  it('image-to-video with no first frame opens the video on the anchor and still sends elements', () => {
+    const r = resolvePrompt(request(), klingV3ProImage, makeCtx());
+    expect(r.injections[0]).toMatchObject({ handle: 'maya', strategy: 'start_frame' });
+    expect(r.injections[0]!.notes).toContain(
+      "fal-ai/kling-video/v3/pro/image-to-video needs a first frame; @maya's anchor opens the video.",
+    );
+    expect(r.injections[0]!.inputs[0]).toMatchObject({ role: 'start_frame', asset_id: ANCH });
+    expect(r.provider_fragment.elements).toEqual([
+      { frontal_image_url: url(ANCH), reference_image_urls: [url(TQL), url(PROL)] },
+    ]);
+    expect(r.prompt).toContain('@Element1');
+  });
+
+  it('image-to-video with a first frame given keeps it and uses elements for the Character', () => {
+    const r = resolvePrompt(
+      req({
+        kind: 'video',
+        capability: 'image2video',
+        prompt: 'Slow dolly-in on @maya at a chai stall',
+        medias: [{ role: 'start_frame', asset_id: COUNTER }],
+        params: { duration_s: 5 },
+      }),
+      klingV3ProImage,
+      makeCtx(),
+    );
+    expect(r.injections[0]).toMatchObject({ handle: 'maya', strategy: 'elements' });
+    expect(r.injections[0]!.notes).toEqual([]);
   });
 });
