@@ -15,6 +15,7 @@ import { handleMcpRequest } from '@kilnry/mcp';
 import { KILNRY_TOOLS, libraryMarker, loadConfig } from '@kilnry/core';
 import { adapters } from '@kilnry/providers';
 import { authenticateMcp, isAllowedMcpHost } from '../../server/mcp';
+import { takeRateLimit } from '../../server/rate-limit';
 import { presetServices } from '../../server/presets';
 import { skillRoots } from '../../server/skills';
 import { trainingRunner } from '../../server/training';
@@ -46,6 +47,25 @@ async function handle(request: Request): Promise<Response> {
       status: 401,
       headers: { 'Content-Type': 'application/json', 'WWW-Authenticate': 'Bearer' },
     });
+  }
+
+  // TRD-15 §7: 120 requests a minute per token, 429 with Retry-After. The
+  // rate-limit block in the proxy only covers /api/*, and /mcp is not under it,
+  // so this endpoint had no request throttle at all (F-31).
+  const limited = takeRateLimit(`mcp:${auth.id}`, 120);
+  if (!limited.allowed) {
+    return new Response(
+      JSON.stringify({
+        error: { message: 'Too many MCP requests. Wait a moment and try again.' },
+      }),
+      {
+        status: 429,
+        headers: {
+          'Content-Type': 'application/json',
+          'Retry-After': String(limited.retry_after_s),
+        },
+      },
+    );
   }
 
   const services = await runtimeServices();

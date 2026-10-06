@@ -54,4 +54,14 @@ describe('redaction', () => {
       turnkey: 'nor this',
     });
   });
+
+  // F-30: tokens are minted with the `kiln_` prefix (D-65) and the pattern named
+  // only `kmcp_`, so a raw token in a free-text log survived.
+  it('redacts a kiln_ token wherever it appears in a string', () => {
+    const token = `kiln_${'A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8S9t0U1v'}`;
+    expect(redact({ note: `client sent ${token} to /mcp` })).toEqual({
+      note: 'client sent [redacted] to /mcp',
+    });
+    expect(redact(`Bearer ${token}`)).toBe('[redacted]');
+  });
 });

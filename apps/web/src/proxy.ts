@@ -5,11 +5,12 @@
 
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { existsSync, readFileSync, statSync } from 'node:fs';
+import { hostname as osHostname, networkInterfaces } from 'node:os';
 import { join } from 'node:path';
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 import { ulid } from '@kilnry/core';
-import { defaultDataDir } from '@kilnry/core/config';
+import { defaultDataDir, loadConfig } from '@kilnry/core/config';
 import { takeRateLimit } from './server/rate-limit';
 import { message } from './lib/messages';
 
@@ -24,10 +25,55 @@ function hostOnly(value: string | null): string | undefined {
   }
 }
 
+/**
+ * The Host values LAN mode accepts: this machine's own addresses, enumerated
+ * from os.networkInterfaces() and refreshed every 60 s, plus the hosts the user
+ * confirmed in Settings › Security (TRD-15 §2). The check used to accept any
+ * literal in an RFC1918 block, so a page that rebound an attacker-controlled
+ * name to 10.0.0.1 passed it, and the confirmed list was written but never read
+ * (F-28).
+ */
+const LAN_HOST_TTL_MS = 60_000;
+let lanHostCache: { hosts: Set<string>; at: number } | undefined;
+
+export function machineLanHosts(now = Date.now()): Set<string> {
+  if (lanHostCache && now - lanHostCache.at < LAN_HOST_TTL_MS) return lanHostCache.hosts;
+  const hosts = new Set<string>();
+  for (const entries of Object.values(networkInterfaces())) {
+    for (const entry of entries ?? []) {
+      if (entry.internal) continue;
+      hosts.add(entry.address.toLowerCase());
+      // An IPv6 literal reaches the Host header in brackets.
+      if (entry.family === 'IPv6') hosts.add(`[${entry.address.toLowerCase()}]`);
+    }
+  }
+  const hostname = osHostname().toLowerCase();
+  if (hostname) {
+    hosts.add(hostname);
+    hosts.add(`${hostname}.local`);
+  }
+  for (const configured of configuredLanHosts()) hosts.add(configured);
+  lanHostCache = { hosts, at: now };
+  return hosts;
+}
+
+function configuredLanHosts(): string[] {
+  try {
+    const config = loadConfig() as { allowed_hosts?: unknown };
+    const list = Array.isArray(config.allowed_hosts) ? config.allowed_hosts : [];
+    return list
+      .filter((entry): entry is string => typeof entry === 'string')
+      .map((entry) => hostOnly(entry) ?? entry.toLowerCase());
+  } catch {
+    return [];
+  }
+}
+
 function allowedHost(host: string | undefined): boolean {
   if (!host) return false;
   if (loopback.has(host)) return true;
-  return process.env.KILNRY_LAN === '1' && /^(?:10\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.)/.test(host);
+  if (process.env.KILNRY_LAN !== '1') return false;
+  return machineLanHosts().has(host);
 }
 
 function scriptSource(nonce: string): string {

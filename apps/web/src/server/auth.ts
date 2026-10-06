@@ -8,6 +8,7 @@ import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import { APIError } from 'better-auth/api';
 import { betterAuth } from 'better-auth';
+import { machineLanHosts } from '../proxy';
 import { drizzleAdapter } from '@better-auth/drizzle-adapter';
 import { defaultDataDir, ensureDataDir } from '@kilnry/core/config';
 import { ulid } from '@kilnry/core/ids';
@@ -36,6 +37,14 @@ function authSecret(): string {
 // base-server.js:1433); a module-level `database()` there opened a second
 // PGlite on the live data directory, which the data-directory lock now
 // refuses (F-101). Only a request handler calls getAuth().
+function trustedOrigins(port: number): string[] {
+  const hosts = ['127.0.0.1', 'localhost', '[::1]', 'kilnry.local'];
+  if (process.env.KILNRY_LAN === '1') {
+    for (const host of machineLanHosts()) hosts.push(host);
+  }
+  return [...new Set(hosts)].map((host) => `http://${host}:${port}`);
+}
+
 function createAuth() {
   const state = database(defaultDataDir());
   const port = Number(process.env.KILNRY_PORT ?? process.env.PORT ?? 3123);
@@ -43,7 +52,12 @@ function createAuth() {
     appName: 'Kilnry',
     baseURL: `http://127.0.0.1:${port}`,
     secret: authSecret(),
-    trustedOrigins: [`http://127.0.0.1:${port}`, `http://localhost:${port}`],
+    // The same hosts the proxy accepts (TRD-15 §4): loopback in both families,
+    // kilnry.local, and in LAN mode this machine's own addresses and the hosts
+    // the user confirmed. Without them a sign-in over [::1] or a LAN address was
+    // refused with "Invalid origin", so LAN login — the feature LAN mode exists
+    // for — could not complete (F-29).
+    trustedOrigins: trustedOrigins(port),
     database: drizzleAdapter(state.db, {
       provider: 'pg',
       schema: { account: accounts, session: sessions, user: users, verification: verifications },

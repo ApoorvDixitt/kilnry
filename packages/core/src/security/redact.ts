@@ -8,7 +8,10 @@
 // that merely ends in those letters (monkey, turnkey) is not (F-27).
 const sensitiveName =
   /(?:authorization|cookie|set-cookie|api[_-]?key|secret|token|password|passwd|credential|private[_-]?key|^key$|^x-key$|[-_]key$)/i;
-const fullRedaction = /(?:kmcp_[A-Za-z0-9_-]+|kilnry1[a-z0-9\s-]{45,}|bearer\s+[A-Za-z0-9._~-]+)/gi;
+// D-65 keeps the minted prefix `kiln_`; the redaction pattern named only the
+// `kmcp_` of an earlier draft, so a raw token in a free-text log survived (F-30).
+const fullRedaction =
+  /(?:kiln_[A-Za-z0-9_-]+|kmcp_[A-Za-z0-9_-]+|kilnry1[a-z0-9\s-]{45,}|bearer\s+[A-Za-z0-9._~-]+)/gi;
 const shapedSecrets = [
   /sk-or-v1-[0-9a-f]{32,}/gi,
   /sk-(?:proj-|svcacct-)?[A-Za-z0-9_-]{16,}/g,

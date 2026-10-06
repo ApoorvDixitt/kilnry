@@ -3,9 +3,10 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
+import { hostname, networkInterfaces } from 'node:os';
 import { NextRequest } from 'next/server';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { proxy, ratePolicy } from './proxy';
+import { machineLanHosts, proxy, ratePolicy } from './proxy';
 import { resetRateLimits } from './server/rate-limit';
 
 const original = {
@@ -199,5 +200,24 @@ describe('pre-session rate limit keys on the peer, not X-Forwarded-For (F-ONB-02
       );
       expect(response.status).not.toBe(429);
     }
+  });
+});
+
+// F-28: LAN mode accepted any Host literal in an RFC1918 block, so a page that
+// rebound an attacker-controlled name to 10.0.0.1 passed the check, and the
+// hosts the user confirmed in Settings › Security were written but never read.
+// TRD-15 §2 names this machine's own addresses, refreshed every 60 s.
+describe('the LAN Host allowlist (F-SET-02)', () => {
+  it("is this machine's own addresses and hostname, not a private-range pattern", () => {
+    const hosts = machineLanHosts(Date.now());
+    const own = Object.values(networkInterfaces())
+      .flatMap((entries) => entries ?? [])
+      .filter((entry) => !entry.internal)
+      .map((entry) => entry.address.toLowerCase());
+    for (const address of own) expect(hosts.has(address), address).toBe(true);
+    expect(hosts.has(hostname().toLowerCase())).toBe(true);
+    // A private address this machine does not hold is not on the list.
+    const stranger = own.includes('10.99.99.99') ? '10.99.99.98' : '10.99.99.99';
+    expect(hosts.has(stranger)).toBe(false);
   });
 });
