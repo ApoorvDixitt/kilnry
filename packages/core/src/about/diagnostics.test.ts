@@ -25,7 +25,8 @@ function stageDataDir(logLine: string): string {
 
 describe('diagnostics bundle (F-SET-11)', () => {
   it('contains no stored key prefix and no generation prompt value', () => {
-    const key = 'sk-or-v1-0123456789abcdef0123456789abcdef0123456789abcdef';
+    // A fake key in the provider's shape, for the redactor to remove (F-51).
+    const key = 'sk-or-v1-0123456789abcdef0123456789abcdef0123456789abcdef'; // gitleaks:allow
     const dataDir = stageDataDir(
       `{"level":"info","msg":"generate","prompt":"a cat astronaut, cinematic","model":"flux"}\n` +
         `{"level":"info","Authorization":"Bearer ${key}"}\n`,

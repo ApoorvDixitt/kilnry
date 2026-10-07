@@ -45,7 +45,7 @@ jobs:
           path: |
             /usr/local/bin/ffmpeg
             /usr/local/bin/ffprobe
-          key: ffmpeg-static-7.0.2-${{ runner.os }}
+          key: ffmpeg-static-7.0.2-r2-${{ runner.os }}
       - name: Install FFmpeg 7.0.2
         if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
         # johnvansickle.com serves the version-pinned FFmpeg 7.0.2 amd64 static
@@ -64,11 +64,22 @@ jobs:
           command: |
             set -euo pipefail
             tmp="$(mktemp -d)"
-            curl -fsSL --retry 3 --retry-delay 5 -o "$tmp/ffmpeg.tar.xz" \
-              https://johnvansickle.com/ffmpeg/releases/ffmpeg-7.0.2-amd64-static.tar.xz
-            # MD5 published by johnvansickle for the 7.0.2 amd64 static build,
-            # verified against ffmpeg-release-amd64-static.tar.xz.md5 while 7.0.2
-            # was the current release.
+            # The versioned 7.0.2 tarball lives under releases/ while 7.0.2 is the
+            # host's current release and moves to old-releases/ when a newer one
+            # ships; TRD-02 §6 names the old-releases path. Try that first, then
+            # releases/; either way it is the same file, checked by its MD5 below
+            # (F-52).
+            for url in \
+              https://johnvansickle.com/ffmpeg/old-releases/ffmpeg-7.0.2-amd64-static.tar.xz \
+              https://johnvansickle.com/ffmpeg/releases/ffmpeg-7.0.2-amd64-static.tar.xz; do
+              rm -f "$tmp/ffmpeg.tar.xz"
+              if curl -fsSL --retry 3 --retry-delay 5 -o "$tmp/ffmpeg.tar.xz" "$url"; then break; fi
+            done
+            test -s "$tmp/ffmpeg.tar.xz" || { echo "FFmpeg 7.0.2 was at neither johnvansickle path." >&2; exit 1; }
+            # MD5 published by johnvansickle for the 7.0.2 amd64 static build:
+            # releases/ffmpeg-release-amd64-static.tar.xz.md5 read
+            # 7fa72b652e19bf84c9461e332ea1cdf3 on 2026-10-07, and the downloaded
+            # 7.0.2 tarball hashed to the same value.
             echo "7fa72b652e19bf84c9461e332ea1cdf3  $tmp/ffmpeg.tar.xz" | md5sum -c -
             tar -xf "$tmp/ffmpeg.tar.xz" -C "$tmp"
             dir="$tmp/ffmpeg-7.0.2-amd64-static"
@@ -79,6 +90,19 @@ jobs:
           set -euo pipefail
           ffmpeg -version | head -n1
           ffprobe -version | head -n1
+      # The secret scan the milestone checklist names (AGENTS.md §7, F-51): the
+      # whole history, with fingerprints triaged in .gitleaksignore. The binary
+      # is the publisher's release, checked against its published SHA-256.
+      - name: Scan for committed secrets
+        run: |
+          set -euo pipefail
+          tmp="$(mktemp -d)"
+          curl -fsSL --retry 3 --retry-delay 5 -o "$tmp/gitleaks.tar.gz" \
+            https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz
+          # gitleaks_8.30.1_checksums.txt from the same release, read 2026-10-07.
+          echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  $tmp/gitleaks.tar.gz" | sha256sum -c -
+          tar -xzf "$tmp/gitleaks.tar.gz" -C "$tmp" gitleaks
+          "$tmp/gitleaks" git --no-banner --redact .
       - name: Check licence headers
         run: pnpm check:headers
       - name: Check provenance
@@ -184,7 +208,7 @@ jobs:
           path: |
             /usr/local/bin/ffmpeg
             /usr/local/bin/ffprobe
-          key: ffmpeg-static-7.0.2-${{ runner.os }}
+          key: ffmpeg-static-7.0.2-r2-${{ runner.os }}
       - name: Install FFmpeg 7.0.2
         if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
         uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
@@ -195,8 +219,18 @@ jobs:
           command: |
             set -euo pipefail
             tmp="$(mktemp -d)"
-            curl -fsSL --retry 3 --retry-delay 5 -o "$tmp/ffmpeg.tar.xz" \
-              https://johnvansickle.com/ffmpeg/releases/ffmpeg-7.0.2-amd64-static.tar.xz
+            # The versioned 7.0.2 tarball lives under releases/ while 7.0.2 is the
+            # host's current release and moves to old-releases/ when a newer one
+            # ships; TRD-02 §6 names the old-releases path. Try that first, then
+            # releases/; either way it is the same file, checked by its MD5 below
+            # (F-52).
+            for url in \
+              https://johnvansickle.com/ffmpeg/old-releases/ffmpeg-7.0.2-amd64-static.tar.xz \
+              https://johnvansickle.com/ffmpeg/releases/ffmpeg-7.0.2-amd64-static.tar.xz; do
+              rm -f "$tmp/ffmpeg.tar.xz"
+              if curl -fsSL --retry 3 --retry-delay 5 -o "$tmp/ffmpeg.tar.xz" "$url"; then break; fi
+            done
+            test -s "$tmp/ffmpeg.tar.xz" || { echo "FFmpeg 7.0.2 was at neither johnvansickle path." >&2; exit 1; }
             echo "7fa72b652e19bf84c9461e332ea1cdf3  $tmp/ffmpeg.tar.xz" | md5sum -c -
             tar -xf "$tmp/ffmpeg.tar.xz" -C "$tmp"
             dir="$tmp/ffmpeg-7.0.2-amd64-static"

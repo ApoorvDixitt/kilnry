@@ -21,6 +21,14 @@ set -eu
 pnpm check:headers
 pnpm check:provenance
 pnpm check:canon
+# Scan the staged change for secrets before it becomes a commit (AGENTS.md §2,
+# F-51). CI runs the same scan over the whole history, so a machine without
+# gitleaks is told so rather than blocked.
+if command -v gitleaks >/dev/null 2>&1; then
+  gitleaks git --pre-commit --staged --redact --no-banner .
+else
+  echo "gitleaks is not installed, so this commit was not scanned for secrets here; CI scans it." >&2
+fi
 `;
 const path = join(gitDir, 'hooks', 'pre-commit');
 writeFileSync(path, hook, { encoding: 'utf8', mode: 0o755 });

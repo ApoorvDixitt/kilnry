@@ -1,0 +1,12 @@
+# Kilnry — https://github.com/ApoorvDixitt/kilnry
+# Copyright (c) 2026 Apoorv Dixit. Licensed under the Sustainable Use License 1.0.
+# SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
+# See LICENSE.md in the repository root. You may not remove or obscure this notice.
+#
+# Findings triaged as not secrets (F-51). Each line is a gitleaks fingerprint,
+# commit:file:rule:line, so a new occurrence anywhere else is still reported.
+#
+# The diagnostics test's deliberately fake OpenRouter-shaped key, which the test
+# feeds to the redactor to prove it never reaches the bundle. Later edits of the
+# line carry an inline `gitleaks:allow`.
+52366ff972817c84d6a71f03fa813565e27687a0:packages/core/src/about/diagnostics.test.ts:generic-api-key:28
