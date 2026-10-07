@@ -3,8 +3,8 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
-import { and, eq, isNotNull, ne, sql } from 'drizzle-orm';
-import { assets, jobs, mcpTokens, runs, type DatabaseState } from '@kilnry/db';
+import { and, eq, isNotNull, isNull, like, ne, not, sql } from 'drizzle-orm';
+import { assets, folders, jobs, mcpTokens, runs, type DatabaseState } from '@kilnry/db';
 
 export interface ChecklistStatus {
   generate: boolean;
@@ -33,12 +33,38 @@ export async function checklistStatus(state: DatabaseState): Promise<ChecklistSt
       .where(and(eq(jobs.status, 'completed'), eq(jobs.source, 'ui'))),
   );
 
-  const organise = await firstExists(
+  // PRD-04:231 checks this item on the first folder the user created (not inbox
+  // or Trash) OR the first asset moved out of inbox. The folders table was never
+  // queried, so creating a folder left the item unchecked against acceptance 3,
+  // and `!= 'inbox'` counted a trashed asset — deleting a file checked "Save
+  // into a folder" (F-34).
+  const userFolder = await firstExists(
+    state.db
+      .select({ n: count })
+      .from(folders)
+      .where(
+        and(
+          ne(folders.path, 'inbox'),
+          ne(folders.path, 'Trash'),
+          not(like(folders.path, 'Trash/%')),
+          not(like(folders.path, 'inbox/%')),
+        ),
+      ),
+  );
+  const movedAsset = await firstExists(
     state.db
       .select({ n: count })
       .from(assets)
-      .where(and(ne(assets.folderPath, 'inbox'), isNotNull(assets.folderPath))),
+      .where(
+        and(
+          ne(assets.folderPath, 'inbox'),
+          isNotNull(assets.folderPath),
+          isNull(assets.trashedAt),
+          not(like(assets.folderPath, 'Trash%')),
+        ),
+      ),
   );
+  const organise = userFolder || movedAsset;
 
   const workflow = await firstExists(
     state.db.select({ n: count }).from(runs).where(eq(runs.status, 'completed')),
