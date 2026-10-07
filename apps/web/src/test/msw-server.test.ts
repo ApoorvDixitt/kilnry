@@ -154,3 +154,46 @@ describe('OpenRouter price catalogue fixture (F-PRV-07, F-97)', () => {
     });
   });
 });
+
+// F-98: the suite's OpenRouter image handler only ever answered a success, so
+// OpenRouter's documented moderation answers — 403 with `metadata.reasons` for
+// an image, a `failed` job with the provider's safety text for a video — never
+// reached the adapter.
+describe('OpenRouter moderation fixture (F-CRE-14, F-98)', () => {
+  it('refuses a flagged image with 403 metadata.reasons: blocked, not charged', async () => {
+    const refused = adapters.openrouter!.submit(
+      {
+        kind: 'image',
+        capability: 'text2image',
+        prompt: 'a TRIGGER scene the checker rejects',
+        count: 1,
+        medias: [],
+        params: { aspect_ratio: '1:1', extra: { model: 'bytedance-seed/seedream-4.5' } },
+      } as never,
+      context as never,
+    );
+    await expect(refused).rejects.toMatchObject({
+      code: 'MODERATION_REJECTED',
+      options: expect.objectContaining({
+        provider_code: 'moderation',
+        details: expect.objectContaining({ http_status: 403, billed: 'no' }),
+      }),
+    });
+  });
+
+  it('a flagged video finishes moderated with the provider text, not charged', async () => {
+    const handle = await adapters.openrouter!.submit(
+      {
+        kind: 'video',
+        capability: 'text2video',
+        prompt: 'a TRIGGER scene the checker rejects',
+        count: 1,
+        medias: [],
+        params: { aspect_ratio: '16:9', duration_s: 5, extra: { model: 'bytedance/seedance-2.0-fast' } },
+      } as never,
+      context as never,
+    );
+    const result = await adapters.openrouter!.poll(handle, context as never);
+    expect(result).toMatchObject({ state: 'moderated', billed: 'no' });
+  });
+});

@@ -172,6 +172,8 @@ function denyNetworkWhenFlagged(): void {
 
 // Status polls seen per fal request id, for the queue progression above.
 const falStatusPolls = new Map<string, number>();
+// OpenRouter video jobs whose prompt the provider refuses (F-98).
+const openRouterModeratedVideos = new Set<string>();
 // Status polls seen per Replicate training id (F-92).
 const replicateTrainingPolls = new Map<string, number>();
 
@@ -185,12 +187,36 @@ export function startTestMsw(): void {
       HttpResponse.json({ data: { label: 'Kilnry test', limit_remaining: 10 } }),
     ),
     chatCompletionHandler,
-    http.post('https://openrouter.ai/api/v1/images', () =>
-      HttpResponse.json({
+    // A prompt with the word TRIGGER is refused the way OpenRouter refuses a
+    // moderated image: HTTP 403 { error: { code, message, metadata: { reasons[],
+    // flagged_input, provider_name, model_slug } } }, not billed (reference doc
+    // §2 Errors and its moderation table's "OpenRouter (LLM/image)" row; TRD-19's
+    // OpenRouter row). It only ever answered a success, so the "blocked, not
+    // charged" branch was never driven for OpenRouter (F-98).
+    http.post('https://openrouter.ai/api/v1/images', async ({ request }) => {
+      const body = (await request.json().catch(() => ({}))) as { prompt?: string; model?: string };
+      if (typeof body.prompt === 'string' && /\bTRIGGER\b/.test(body.prompt)) {
+        return HttpResponse.json(
+          {
+            error: {
+              code: 403,
+              message: 'Your request was flagged by the content moderation of the provider.',
+              metadata: {
+                reasons: ['sexual'],
+                flagged_input: body.prompt.slice(0, 100),
+                provider_name: 'ByteDance',
+                model_slug: body.model ?? 'bytedance-seed/seedream-4.5',
+              },
+            },
+          },
+          { status: 403 },
+        );
+      }
+      return HttpResponse.json({
         data: [{ b64_json: png.toString('base64'), media_type: 'image/png' }],
         usage: { cost: 0.014, prompt_tokens: 20, completion_tokens: 100, total_tokens: 120 },
-      }),
-    ),
+      });
+    }),
     http.get('https://openrouter.ai/api/v1/images/models', () =>
       HttpResponse.json({
         data: [
@@ -292,6 +318,11 @@ export function startTestMsw(): void {
       }
       const id = `gen-vid-1789480874-${String(global.__kilnryOpenRouterVideoCount ?? 0).padStart(20, 'A')}`;
       global.__kilnryOpenRouterVideoCount = (global.__kilnryOpenRouterVideoCount ?? 0) + 1;
+      // A prompt with the word TRIGGER finishes `failed` with the upstream
+      // provider's safety text (F-98; reference doc moderation table, "OpenRouter
+      // (video)": job status `failed` with provider error text, e.g. Google RAI).
+      if (typeof body.prompt === 'string' && /\bTRIGGER\b/.test(body.prompt))
+        openRouterModeratedVideos.add(id);
       return HttpResponse.json(
         { id, generation_id: id, polling_url: `/api/v1/videos/${id}`, status: 'pending' },
         { status: 202 },
@@ -301,6 +332,15 @@ export function startTestMsw(): void {
       const id = String(params.jobId);
       const count = (openRouterVideoPolls.get(id) ?? 0) + 1;
       openRouterVideoPolls.set(id, count);
+      if (openRouterModeratedVideos.has(id)) {
+        return HttpResponse.json({
+          id,
+          generation_id: id,
+          polling_url: `/api/v1/videos/${id}`,
+          status: 'failed',
+          error: "The video was blocked by Google's Responsible AI (RAI) safety filters.",
+        });
+      }
       // One in_progress poll, then completed with the fixture clip, so the run
       // view and the engine both see a real transition.
       if (count < 2)
