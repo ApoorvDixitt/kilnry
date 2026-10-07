@@ -21,15 +21,7 @@
 // rebuilt from run_steps and a live job is re-attached by its provider request
 // id rather than resubmitted (F-JOB-05).
 
-import {
-  readFileSync,
-  readdirSync,
-  mkdirSync,
-  writeFileSync,
-  renameSync,
-  existsSync,
-  copyFileSync,
-} from 'node:fs';
+import { readFileSync, readdirSync, mkdirSync, writeFileSync, existsSync, copyFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -345,15 +337,9 @@ function planContext(
 }
 
 /** Plan a workflow and persist the plan so a run can check its freshness. */
-/**
- * The temporary file a run manifest is written to before its rename. It was
- * `run.kilnry.json.tmp`, which the Library watcher's rule
- * (`/\.kilnry\.json\.tmp-.*$/`, watcher.ts) does not match, so every manifest
- * write enqueued an import of a file that was gone by the time it ran (F-102).
- */
-export function manifestTempPath(target: string): string {
-  return `${target}.tmp-${process.pid}`;
-}
+// The manifest's temporary name lives with its writer (run-manifest-file.ts).
+export { manifestTempPath } from './run-manifest-file';
+import { writeRunManifestFile } from './run-manifest-file';
 
 export async function planWorkflow(
   db: DatabaseState,
@@ -2236,12 +2222,7 @@ async function persistRun(
       ...(finished ? { finishedAt: new Date().toISOString() } : {}),
     });
     try {
-      const dir = join(libraryRoot, folder);
-      mkdirSync(dir, { recursive: true });
-      const target = join(dir, 'run.kilnry.json');
-      const tmp = manifestTempPath(target);
-      writeFileSync(tmp, JSON.stringify(manifest, null, 2), 'utf8');
-      renameSync(tmp, target);
+      writeRunManifestFile(join(libraryRoot, folder), manifest);
     } catch {
       // A manifest write failure does not fail the run; the database row is the
       // authoritative record and a reindex can rebuild the manifest.
