@@ -281,21 +281,32 @@ test('@gate keyboard shortcuts from the design contract §2.12', async ({ page }
   await page.keyboard.press('ControlOrMeta+\\');
   await expect.poll(() => page.evaluate(() => localStorage.getItem('kilnry-sidebar'))).toBe('collapsed');
 
-  // i toggles the inspector on the viewer route.
+  // i toggles the inspector on the viewer route (DES-01 rule 12). The check
+  // used to open /library/<id>, which is a 404, and assert only the URL, so it
+  // could not fail (F-105). The viewer is /library/asset/<id>.
   const assetId = await firstAssetId(page);
-  if (assetId) {
-    await ensureSignedIn(page, `/library/${assetId}`);
-    await page.keyboard.press('i');
-    // The viewer's info overlay toggles; the route stays on the asset.
-    expect(page.url()).toContain(assetId);
-  }
+  expect(assetId, 'an image asset to open in the viewer').not.toBeNull();
+  await ensureSignedIn(page, `/library/asset/${assetId}`);
+  const info = page.locator('.viewer-info');
+  await expect(page.locator('.viewer-missing')).toHaveCount(0);
+  await expect(info).toBeHidden();
+  await page.keyboard.press('i');
+  await expect(info).toBeVisible();
+  await page.keyboard.press('i');
+  await expect(info).toBeHidden();
 });
 
-test('@gate accessibility has zero critical or serious issues on touched routes', async ({ page }) => {
+test('@gate accessibility has zero critical or serious issues on touched routes', async ({
+  page,
+  browser,
+}) => {
   await ensureOpenRouter(page);
   await ensureGateCharacters(page);
   const runRoute = await plannedRunRoute(page);
-  const routes = runRoute ? [...TOUCHED_ROUTES, runRoute] : [...TOUCHED_ROUTES];
+  // F-86: the asset viewer, a media-heavy dialog-rich route, was never scanned.
+  const assetId = await firstAssetId(page);
+  expect(assetId, 'an image asset for the viewer route').not.toBeNull();
+  const routes = [...TOUCHED_ROUTES, `/library/asset/${assetId}`, ...(runRoute ? [runRoute] : [])];
   const violations: Record<string, number> = {};
   for (const route of routes) {
     await ensureSignedIn(page, route);
@@ -306,6 +317,24 @@ test('@gate accessibility has zero critical or serious issues on touched routes'
     // eslint-disable-next-line no-console
     if (serious.length > 0) console.log(`AXE ${route}`, JSON.stringify(serious.map((v) => v.id)));
   }
+  // F-86: the signed-out pages too — sign-in, the first-run page and the root —
+  // in a context without the session cookie.
+  const signedOut = await browser.newContext();
+  const outside = await signedOut.newPage();
+  for (const route of ['/', '/login', '/welcome']) {
+    await outside.goto(route);
+    await outside.waitForTimeout(300);
+    const key = `${route} (signed out, at ${new URL(outside.url()).pathname})`;
+    const result = await new AxeBuilder({ page: outside })
+      .withTags(['wcag2a', 'wcag2aa', 'wcag22aa'])
+      .analyze();
+    const serious = result.violations.filter((v) => v.impact === 'critical' || v.impact === 'serious');
+    violations[key] = serious.length;
+    // eslint-disable-next-line no-console
+    if (serious.length > 0) console.log(`AXE ${key}`, JSON.stringify(serious.map((v) => v.id)));
+    routes.push(key);
+  }
+  await signedOut.close();
   for (const route of routes) expect(violations[route], `axe on ${route}`).toBe(0);
 });
 
