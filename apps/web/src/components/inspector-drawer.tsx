@@ -25,6 +25,21 @@ export function hasGeneration(detail: Pick<AssetDetail, 'generation'>): boolean 
   return detail.generation !== null && Object.keys(detail.generation).length > 0;
 }
 
+/**
+ * The provider's copy has expired and the local file is gone (PRD-14:223).
+ * Both facts were stored and neither was reported, so this state was invisible
+ * (F-45).
+ */
+export function providerCopyExpired(
+  detail: Pick<AssetDetail, 'retention_until' | 'file_present'>,
+  now: number = Date.now(),
+): boolean {
+  if (detail.file_present !== false) return false;
+  if (!detail.retention_until) return false;
+  const until = Date.parse(detail.retention_until);
+  return Number.isFinite(until) && until < now;
+}
+
 export function InspectorDrawer({
   detail,
   onPatch,
@@ -94,6 +109,19 @@ export function InspectorDrawer({
           </button>
         ) : null}
       </header>
+
+      {/* PRD-14:223's seven-day warning: the provider's copy is gone and the
+          local file is missing too, so there is nothing to fetch and Recover is
+          shown disabled with the hint to check Trash (F-45). */}
+      {providerCopyExpired(detail) ? (
+        <div className="inspector-expired" role="status">
+          <p>{message('library.inspector.providerCopyExpired')}</p>
+          <button type="button" disabled title={message('library.inspector.recoverDisabledHint')}>
+            {message('library.inspector.recoverFromProvider')}
+          </button>
+          <small>{message('library.inspector.recoverDisabledHint')}</small>
+        </div>
+      ) : null}
 
       {detail.kind === 'image' || detail.kind === 'video' ? (
         <a className="inspector-edit" href={`/create?edit=${encodeURIComponent(detail.id)}`}>

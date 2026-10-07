@@ -926,6 +926,9 @@
     },
     "inspector": {
       "title": "Inspector",
+      "providerCopyExpired": "Provider copy expired; local file missing",
+      "recoverFromProvider": "Recover from provider",
+      "recoverDisabledHint": "The provider deleted its copy, so there is nothing to fetch. Check Trash for the local file.",
       "tabInfo": "Info",
       "tabProvenance": "Provenance",
       "tabActivity": "Activity",

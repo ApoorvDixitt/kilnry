@@ -175,6 +175,23 @@ export interface AssetDetail extends AssetListItem {
   lineage: { made_from: string[]; used_in: string[] };
   sidecar_path: string;
   activity: AssetActivity[];
+  /**
+   * When the provider's own copy expires (PRD-14:223's seven-day Higgsfield
+   * window), and whether the local file is still on disk. Both were stored and
+   * neither was reported, so nothing could show "Provider copy expired; local
+   * file missing" (F-45).
+   */
+  retention_until: string | null;
+  file_present: boolean;
+}
+
+async function fileExists(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // The full detail an inspector needs for one asset: the index row, the metadata
@@ -223,6 +240,8 @@ export async function getAssetDetail(
     generation: sidecar.ok ? sidecar.value.generation : null,
     lineage: sidecar.ok ? sidecar.value.lineage : { made_from: [], used_in: [] },
     sidecar_path: `${row.path}.kilnry.json`,
+    retention_until: row.retentionUntil ? row.retentionUntil.toISOString() : null,
+    file_present: await fileExists(resolved.abs),
     activity: events.map((event) => ({
       action: event.action,
       actor: event.actor,

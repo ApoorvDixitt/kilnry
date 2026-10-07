@@ -6,7 +6,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it } from 'vitest';
-import { InspectorDrawer, hasGeneration } from './inspector-drawer';
+import { InspectorDrawer, hasGeneration, providerCopyExpired } from './inspector-drawer';
 import type { AssetDetail, MetadataPatch } from '../lib/composer-types';
 
 let root: Root | undefined;
@@ -16,6 +16,8 @@ function detail(overrides: Partial<AssetDetail> = {}): AssetDetail {
   return {
     id: 'asset-1',
     path: 'inbox/hero.png',
+    retention_until: null,
+    file_present: true,
     folder_path: 'inbox',
     kind: 'image',
     mime: 'image/png',
@@ -119,5 +121,38 @@ describe('InspectorDrawer', () => {
     ) as HTMLButtonElement;
     await act(async () => tab.click());
     expect(host.querySelector('.inspector-activity')?.textContent).toContain('Saved');
+  });
+
+  // F-45: PRD-14:223 promises "Provider copy expired; local file missing" with
+  // Recover disabled and a hint to check Trash. Both facts were stored on the
+  // row and neither was reported, so the state was invisible — a user could not
+  // tell an unrecoverable asset from a healthy one.
+  it('shows the expired provider copy with Recover disabled', async () => {
+    expect(
+      providerCopyExpired(
+        { retention_until: '2026-09-30T00:00:00.000Z', file_present: false },
+        Date.parse('2026-10-07T00:00:00.000Z'),
+      ),
+    ).toBe(true);
+    // A file still on disk, or a window that has not passed, is not this state.
+    expect(providerCopyExpired({ retention_until: '2026-09-30T00:00:00.000Z', file_present: true })).toBe(
+      false,
+    );
+    expect(
+      providerCopyExpired(
+        { retention_until: '2026-12-31T00:00:00.000Z', file_present: false },
+        Date.parse('2026-10-07T00:00:00.000Z'),
+      ),
+    ).toBe(false);
+
+    const host = await render({
+      detail: detail({ retention_until: '2026-09-30T00:00:00.000Z', file_present: false }),
+      onPatch: () => {},
+    });
+    const banner = host.querySelector('.inspector-expired');
+    expect(banner?.querySelector('p')?.textContent).toBe('Provider copy expired; local file missing');
+    const recover = banner?.querySelector('button') as HTMLButtonElement;
+    expect(recover.disabled).toBe(true);
+    expect(recover.title).toContain('Check Trash for the local file');
   });
 });

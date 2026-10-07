@@ -16,6 +16,8 @@ function detail(overrides: Partial<AssetDetail> = {}): AssetDetail {
   return {
     id: 'asset-1',
     path: 'inbox/hero.png',
+    retention_until: null,
+    file_present: true,
     folder_path: 'inbox',
     kind: 'image',
     mime: 'image/png',
