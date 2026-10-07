@@ -1,0 +1,484 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`PRD-07 §6 model rows and §16 examples (F-CHR-09, F-91) > §6 row 1 · Kling 3.0 std image-to-video (fal) 1`] = `
+{
+  "fragment": [
+    "elements",
+  ],
+  "injections": [
+    {
+      "handle": "maya",
+      "inputs": [
+        "01JAK7ANCH0000000000000000",
+        "01JAK73QL00000000000000000",
+        "01JAK7PROL0000000000000000",
+      ],
+      "strategy": "elements",
+    },
+  ],
+  "prompt": "@Element1 pours chai into a glass at dawn",
+  "warnings": [],
+}
+`;
+
+exports[`PRD-07 §6 model rows and §16 examples (F-CHR-09, F-91) > §6 row 2 · Seedance 2.5 (OpenRouter) 1`] = `
+{
+  "fragment": [],
+  "injections": [
+    {
+      "handle": "maya",
+      "inputs": [
+        "01JAK7ANCH0000000000000000",
+        "01JAK73QL00000000000000000",
+      ],
+      "strategy": "reference_images",
+    },
+  ],
+  "prompt": "the woman in image 1 (Maya: blunt fringe bob, chin scar, gold hoops) pours chai into a glass at dawn. Keep the woman's face identical to images 1–2.",
+  "warnings": [],
+}
+`;
+
+exports[`PRD-07 §6 model rows and §16 examples (F-CHR-09, F-91) > §6 row 3 · Veo 3.1 reference-to-video (fal) 1`] = `
+{
+  "fragment": [],
+  "injections": [
+    {
+      "handle": "maya",
+      "inputs": [
+        "01JAK7ANCH0000000000000000",
+        "01JAK73QL00000000000000000",
+      ],
+      "strategy": "reference_images",
+    },
+  ],
+  "prompt": "the woman in image 1 (Maya: blunt fringe bob, chin scar, gold hoops) pours chai into a glass at dawn. Keep the woman's face identical to images 1–2.",
+  "warnings": [],
+}
+`;
+
+exports[`PRD-07 §6 model rows and §16 examples (F-CHR-09, F-91) > §6 row 4 · MiniMax H3 reference-to-video (fal) 1`] = `
+{
+  "fragment": [],
+  "injections": [
+    {
+      "handle": "maya",
+      "inputs": [
+        "01JAK7ANCH0000000000000000",
+        "01JAK73QL00000000000000000",
+      ],
+      "strategy": "reference_images",
+    },
+  ],
+  "prompt": "the woman in image 1 (Maya: blunt fringe bob, chin scar, gold hoops) pours chai into a glass at dawn. Keep the woman's face identical to images 1–2.",
+  "warnings": [],
+}
+`;
+
+exports[`PRD-07 §6 model rows and §16 examples (F-CHR-09, F-91) > §6 row 5 · Nano Banana 2 edit (fal) 1`] = `
+{
+  "fragment": [],
+  "injections": [
+    {
+      "handle": "maya",
+      "inputs": [
+        "01JAK7ANCH0000000000000000",
+      ],
+      "strategy": "reference_images",
+    },
+  ],
+  "prompt": "the woman in image 1 (Maya: blunt fringe bob, chin scar, gold hoops) pours chai into a glass at dawn. Keep her face and hair identical to image 1.",
+  "warnings": [],
+}
+`;
+
+exports[`PRD-07 §6 model rows and §16 examples (F-CHR-09, F-91) > §6 row 6 · Nano Banana Pro (Google) 1`] = `
+{
+  "fragment": [],
+  "injections": [
+    {
+      "handle": "maya",
+      "inputs": [
+        "01JAK7ANCH0000000000000000",
+      ],
+      "strategy": "reference_images",
+    },
+  ],
+  "prompt": "the woman in image 1 (Maya: blunt fringe bob, chin scar, gold hoops) pours chai into a glass at dawn. Keep her face and hair identical to image 1.",
+  "warnings": [],
+}
+`;
+
+exports[`PRD-07 §6 model rows and §16 examples (F-CHR-09, F-91) > §6 row 7 · GPT Image 2.5 (OpenAI) 1`] = `
+{
+  "fragment": [],
+  "injections": [
+    {
+      "handle": "maya",
+      "inputs": [
+        "01JAK7ANCH0000000000000000",
+      ],
+      "strategy": "reference_images",
+    },
+  ],
+  "prompt": "the person in image 1 (Maya: blunt fringe bob, chin scar, gold hoops) pours chai into a glass at dawn. Keep her face and hair identical to image 1.",
+  "warnings": [],
+}
+`;
+
+exports[`PRD-07 §6 model rows and §16 examples (F-CHR-09, F-91) > §6 row 8 · Seedream 4.5 edit (fal) 1`] = `
+{
+  "fragment": [],
+  "injections": [
+    {
+      "handle": "maya",
+      "inputs": [
+        "01JAK7ANCH0000000000000000",
+      ],
+      "strategy": "reference_images",
+    },
+  ],
+  "prompt": "the woman in image 1 (Maya: blunt fringe bob, chin scar, gold hoops) pours chai into a glass at dawn. Keep her face and hair identical to image 1.",
+  "warnings": [],
+}
+`;
+
+exports[`PRD-07 §6 model rows and §16 examples (F-CHR-09, F-91) > §6 row 9 · FLUX.1 dev LoRA (fal), LoRA ready 1`] = `
+{
+  "fragment": [
+    "loras",
+  ],
+  "injections": [
+    {
+      "handle": "maya",
+      "inputs": [],
+      "strategy": "lora",
+    },
+  ],
+  "prompt": "mayak, blunt fringe bob, chin scar, gold hoops, navy kurta, pours chai into a glass at dawn",
+  "warnings": [],
+}
+`;
+
+exports[`PRD-07 §6 model rows and §16 examples (F-CHR-09, F-91) > §6 row 10 · Soul 2 character (Higgsfield), Soul ID ready 1`] = `
+{
+  "fragment": [
+    "custom_reference_id",
+    "custom_reference_strength",
+    "image_reference_url",
+  ],
+  "injections": [
+    {
+      "handle": "maya",
+      "inputs": [
+        "01JAK7ANCH0000000000000000",
+      ],
+      "strategy": "identity_id",
+    },
+  ],
+  "prompt": "A woman in her early thirties, medium-brown skin, dark chin-length bob with a blunt fringe, small scar on the left side of the chin, gold hoop earrings, navy linen kurta, pours chai into a glass at dawn",
+  "warnings": [],
+}
+`;
+
+exports[`PRD-07 §6 model rows and §16 examples (F-CHR-09, F-91) > §6 row 11 · ElevenLabs v3 TTS 1`] = `
+{
+  "fragment": [
+    "voice_id",
+  ],
+  "injections": [
+    {
+      "handle": "maya",
+      "inputs": [],
+      "strategy": "voice_id",
+    },
+  ],
+  "prompt": "@maya says: "Chai is ready."",
+  "warnings": [],
+}
+`;
+
+exports[`PRD-07 §6 model rows and §16 examples (F-CHR-09, F-91) > §6 row 12 · Wan 3.0 reference-to-video (fal) 1`] = `
+{
+  "fragment": [],
+  "injections": [
+    {
+      "handle": "maya",
+      "inputs": [
+        "01JAK7ANCH0000000000000000",
+        "01JAK73QL00000000000000000",
+      ],
+      "strategy": "reference_images",
+    },
+  ],
+  "prompt": "the woman in image 1 (Maya: blunt fringe bob, chin scar, gold hoops) pours chai into a glass at dawn. Keep the woman's face identical to images 1–2.",
+  "warnings": [],
+}
+`;
+
+exports[`PRD-07 §6 model rows and §16 examples (F-CHR-09, F-91) > §6 row 13 · Qwen Image Edit 2511 (fal) 1`] = `
+{
+  "fragment": [],
+  "injections": [
+    {
+      "handle": "maya",
+      "inputs": [
+        "01JAK7ANCH0000000000000000",
+      ],
+      "strategy": "reference_images",
+    },
+  ],
+  "prompt": "the woman in image 1 (Maya: blunt fringe bob, chin scar, gold hoops) pours chai into a glass at dawn. Keep her face and hair identical to image 1.",
+  "warnings": [],
+}
+`;
+
+exports[`PRD-07 §6 model rows and §16 examples (F-CHR-09, F-91) > §6 row 14 · FLUX.2 klein 4b text-to-image (fal), no reference slot 1`] = `
+{
+  "fragment": [],
+  "injections": [
+    {
+      "handle": "maya",
+      "inputs": [],
+      "strategy": "text",
+    },
+  ],
+  "prompt": "A woman in her early thirties, medium-brown skin, dark chin-length bob with a blunt fringe, small scar on the left side of the chin, gold hoop earrings, navy linen kurta. Keep: blunt fringe bob, chin scar, gold hoops, navy kurta. pours chai into a glass at dawn. Avoid: glasses, beard.",
+  "warnings": [],
+}
+`;
+
+exports[`PRD-07 §6 model rows and §16 examples (F-CHR-09, F-91) > §6 row 15 · Kokoro TTS (fal) with a clone it cannot use: the default preset 1`] = `
+{
+  "fragment": [
+    "voice",
+  ],
+  "injections": [
+    {
+      "handle": "maya",
+      "inputs": [],
+      "strategy": "text",
+    },
+  ],
+  "prompt": "A woman in her early thirties, medium-brown skin, dark chin-length bob with a blunt fringe, small scar on the left side of the chin, gold hoop earrings, navy linen kurta. Keep: blunt fringe bob, chin scar, gold hoops, navy kurta. says: "Chai is ready." Avoid: glasses, beard.",
+  "warnings": [
+    "fal-ai/kokoro/hindi cannot use Maya (clone). Using preset 'hf_alpha'.",
+  ],
+}
+`;
+
+exports[`PRD-07 §6 model rows and §16 examples (F-CHR-09, F-91) > §16 example 1 · FLUX.1 dev LoRA 1`] = `
+{
+  "fragment": [
+    "loras",
+  ],
+  "injections": [
+    {
+      "handle": "maya",
+      "inputs": [],
+      "strategy": "lora",
+    },
+  ],
+  "prompt": "mayak, blunt fringe bob, chin scar, gold hoops, navy kurta, smiling at the camera, studio portrait",
+  "warnings": [],
+}
+`;
+
+exports[`PRD-07 §6 model rows and §16 examples (F-CHR-09, F-91) > §16 example 2 · FLUX.2 klein 4b (fal) 1`] = `
+{
+  "fragment": [],
+  "injections": [
+    {
+      "handle": "maya",
+      "inputs": [],
+      "strategy": "text",
+    },
+  ],
+  "prompt": "A woman in her early thirties, medium-brown skin, dark chin-length bob with a blunt fringe, small scar on the left side of the chin, gold hoop earrings, navy linen kurta. Keep: blunt fringe bob, chin scar, gold hoops, navy kurta. smiling at the camera, studio portrait. Avoid: glasses, beard.",
+  "warnings": [],
+}
+`;
+
+exports[`PRD-07 §6 model rows and §16 examples (F-CHR-09, F-91) > §16 example 3 · Nano Banana 2 with a prop 1`] = `
+{
+  "fragment": [],
+  "injections": [
+    {
+      "handle": "maya",
+      "inputs": [
+        "01JAK7ANCH0000000000000000",
+      ],
+      "strategy": "reference_images",
+    },
+    {
+      "handle": "chai_glass",
+      "inputs": [
+        "01JAK7GLAS0000000000000000",
+      ],
+      "strategy": "reference_images",
+    },
+  ],
+  "prompt": "the woman in image 1 (Maya: blunt fringe bob, chin scar, gold hoops) pours chai into the glass in image 2 (appearance reference only; ignore its background and lighting) on a marble counter. Keep her face and hair identical to image 1.",
+  "warnings": [],
+}
+`;
+
+exports[`PRD-07 §6 model rows and §16 examples (F-CHR-09, F-91) > §16 example 4 · Kling 3.0 pro with an environment 1`] = `
+{
+  "fragment": [
+    "elements",
+    "voice_ids",
+  ],
+  "injections": [
+    {
+      "handle": "maya",
+      "inputs": [
+        "01JAK7ANCH0000000000000000",
+        "01JAK73QL00000000000000000",
+        "01JAK7PROL0000000000000000",
+      ],
+      "strategy": "elements",
+    },
+    {
+      "handle": "maya",
+      "inputs": [],
+      "strategy": "voice_id",
+    },
+  ],
+  "prompt": "Slow dolly-in on @Element1 laughing",
+  "warnings": [],
+}
+`;
+
+exports[`PRD-07 §6 model rows and §16 examples (F-CHR-09, F-91) > §16 example 5 · Seedance 2.5 (OpenRouter) 1`] = `
+{
+  "fragment": [],
+  "injections": [
+    {
+      "handle": "maya",
+      "inputs": [
+        "01JAK7ANCH0000000000000000",
+        "01JAK73QL00000000000000000",
+      ],
+      "strategy": "reference_images",
+    },
+  ],
+  "prompt": "Slow dolly-in on the woman in image 1 (Maya: blunt fringe bob, chin scar, gold hoops) laughing. Keep the woman's face identical to images 1–2.",
+  "warnings": [],
+}
+`;
+
+exports[`PRD-07 §6 model rows and §16 examples (F-CHR-09, F-91) > §16 example 6 · Nano Banana Pro, two people 1`] = `
+{
+  "fragment": [],
+  "injections": [
+    {
+      "handle": "maya",
+      "inputs": [
+        "01JAK7ANCH0000000000000000",
+      ],
+      "strategy": "reference_images",
+    },
+    {
+      "handle": "chai_glass",
+      "inputs": [
+        "01JAK7GLAS0000000000000000",
+      ],
+      "strategy": "reference_images",
+    },
+  ],
+  "prompt": "the woman in image 1 (Maya: blunt fringe bob, chin scar, gold hoops) and the glass in image 2 (appearance reference only; ignore its background and lighting) clink glasses. Keep her face and hair identical to image 1.",
+  "warnings": [],
+}
+`;
+
+exports[`PRD-07 §6 model rows and §16 examples (F-CHR-09, F-91) > §16 example 7 · Seedream 4.5 1`] = `
+{
+  "fragment": [],
+  "injections": [
+    {
+      "handle": "maya",
+      "inputs": [
+        "01JAK7ANCH0000000000000000",
+      ],
+      "strategy": "reference_images",
+    },
+    {
+      "handle": "chai_glass",
+      "inputs": [
+        "01JAK7GLAS0000000000000000",
+      ],
+      "strategy": "reference_images",
+    },
+  ],
+  "prompt": "the woman in image 1 (Maya: blunt fringe bob, chin scar, gold hoops) and the glass in image 2 (appearance reference only; ignore its background and lighting) dance in a kitchen. Keep her face and hair identical to image 1.",
+  "warnings": [],
+}
+`;
+
+exports[`PRD-07 §6 model rows and §16 examples (F-CHR-09, F-91) > §16 example 8 · GPT Image 2.5, pinned @maya@v1 1`] = `
+{
+  "fragment": [],
+  "injections": [
+    {
+      "handle": "maya",
+      "inputs": [
+        "01JAK7ANCH1000000000000000",
+      ],
+      "strategy": "reference_images",
+    },
+  ],
+  "prompt": "the person in image 1 (Maya: blunt fringe bob, chin scar, gold hoops) in her old red saree. Keep her face and hair identical to image 1.",
+  "warnings": [],
+}
+`;
+
+exports[`PRD-07 §6 model rows and §16 examples (F-CHR-09, F-91) > §16 example 9 · ElevenLabs v3 1`] = `
+{
+  "fragment": [
+    "voice_id",
+  ],
+  "injections": [
+    {
+      "handle": "maya",
+      "inputs": [],
+      "strategy": "voice_id",
+    },
+  ],
+  "prompt": "@maya says: 'Chai is ready, come down!'",
+  "warnings": [],
+}
+`;
+
+exports[`PRD-07 §6 model rows and §16 examples (F-CHR-09, F-91) > §16 example 11 · Soul 2 standard without a Soul ID 1`] = `
+{
+  "fragment": [],
+  "injections": [
+    {
+      "handle": "maya",
+      "inputs": [],
+      "strategy": "text",
+    },
+  ],
+  "prompt": "A woman in her early thirties, medium-brown skin, dark chin-length bob with a blunt fringe, small scar on the left side of the chin, gold hoop earrings, navy linen kurta. Keep: blunt fringe bob, chin scar, gold hoops, navy kurta. presenting, Soul portrait. Avoid: glasses, beard.",
+  "warnings": [],
+}
+`;
+
+exports[`PRD-07 §6 model rows and §16 examples (F-CHR-09, F-91) > §16 example 12 · Veo 3.1 fast reference-to-video (fal) 1`] = `
+{
+  "fragment": [],
+  "injections": [
+    {
+      "handle": "maya",
+      "inputs": [
+        "01JAK7ANCH0000000000000000",
+        "01JAK73QL00000000000000000",
+      ],
+      "strategy": "reference_images",
+    },
+  ],
+  "prompt": "the woman in image 1 (Maya: blunt fringe bob, chin scar, gold hoops) flies through a neon market. Keep the woman's face identical to images 1–2.",
+  "warnings": [],
+}
+`;

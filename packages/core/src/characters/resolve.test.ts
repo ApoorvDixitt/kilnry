@@ -701,3 +701,277 @@ describe('a pinned Kling v3 endpoint (D-72)', () => {
     expect(r.injections[0]!.notes).toEqual([]);
   });
 });
+
+// F-91: PRD-07 §6's acceptance asks for snapshot tests of all fifteen model rows
+// and §16's twelve examples; only §7's six worked examples existed. Each case
+// below names the row or example, the strategy the PRD gives, and the shape of
+// what is emitted; the full resolved request is snapshotted so a change in
+// what any row sends is seen in review.
+describe('PRD-07 §6 model rows and §16 examples (F-CHR-09, F-91)', () => {
+  const video = (prompt: string, start = false): CanonicalRequest =>
+    req({
+      kind: 'video',
+      capability: start ? 'image2video' : 'reference2video',
+      prompt,
+      ...(start ? { medias: [{ role: 'start_frame', asset_id: COUNTER }] } : {}),
+    });
+  const image = (
+    prompt: string,
+    capability: CanonicalRequest['capability'] = 'image_edit',
+  ): CanonicalRequest => req({ kind: 'image', capability, prompt });
+  const refsModel = (
+    model_id: string,
+    provider: ModelManifest['provider'],
+    capability: ModelManifest['capabilities'][number],
+    max: number,
+  ) =>
+    manifest({
+      model_id,
+      provider,
+      capabilities: [capability],
+      supports: { references_max: max },
+      media_roles: [{ role: 'reference', min: 0, max, kinds: ['image'] }],
+    });
+  const voiced = (voice: { provider: string; voice_id: string; engine?: string }): ResolverCtx => {
+    const base = makeCtx();
+    return { ...base, loadVersion: (id, version) => ({ ...base.loadVersion(id, version), voice }) };
+  };
+  const PROMPT = '@maya pours chai into a glass at dawn';
+
+  const cases: Array<{
+    name: string;
+    request: CanonicalRequest;
+    model: ModelManifest;
+    ctx?: ResolverCtx;
+    strategy: string;
+    fragment?: string;
+  }> = [
+    {
+      name: '§6 row 1 · Kling 3.0 std image-to-video (fal)',
+      request: video(PROMPT, true),
+      model: manifest({
+        model_id: 'fal-ai/kling-video/v3/standard/image-to-video',
+        provider: 'fal',
+        capabilities: ['image2video'],
+        supports: { elements: true, references_max: 4, start_end_frame: true },
+      }),
+      strategy: 'elements',
+      fragment: 'elements',
+    },
+    {
+      name: '§6 row 2 · Seedance 2.5 (OpenRouter)',
+      request: video(PROMPT),
+      model: seedance,
+      strategy: 'reference_images',
+    },
+    {
+      name: '§6 row 3 · Veo 3.1 reference-to-video (fal)',
+      request: video(PROMPT),
+      model: refsModel('fal-ai/veo3.1/reference-to-video', 'fal', 'reference2video', 3),
+      strategy: 'reference_images',
+    },
+    {
+      name: '§6 row 4 · MiniMax H3 reference-to-video (fal)',
+      request: video(PROMPT),
+      model: refsModel('minimax/h3/reference-to-video', 'fal', 'reference2video', 5),
+      strategy: 'reference_images',
+    },
+    {
+      name: '§6 row 5 · Nano Banana 2 edit (fal)',
+      request: image(PROMPT),
+      model: refsModel('fal-ai/nano-banana-2/edit', 'fal', 'image_edit', 14),
+      strategy: 'reference_images',
+    },
+    {
+      name: '§6 row 6 · Nano Banana Pro (Google)',
+      request: image(PROMPT),
+      model: nanoBanana,
+      strategy: 'reference_images',
+    },
+    {
+      name: '§6 row 7 · GPT Image 2.5 (OpenAI)',
+      request: image(PROMPT),
+      model: gptImage,
+      strategy: 'reference_images',
+    },
+    {
+      name: '§6 row 8 · Seedream 4.5 edit (fal)',
+      request: image(PROMPT),
+      model: refsModel('fal-ai/bytedance/seedream/v4.5/edit', 'fal', 'image_edit', 10),
+      strategy: 'reference_images',
+    },
+    {
+      name: '§6 row 9 · FLUX.1 dev LoRA (fal), LoRA ready',
+      request: image(PROMPT, 'text2image'),
+      model: fluxLora,
+      strategy: 'lora',
+      fragment: 'loras',
+    },
+    {
+      name: '§6 row 10 · Soul 2 character (Higgsfield), Soul ID ready',
+      request: image(PROMPT, 'text2image'),
+      model: soulCharacter,
+      strategy: 'identity_id',
+    },
+    {
+      name: '§6 row 11 · ElevenLabs v3 TTS',
+      request: req({ kind: 'audio', capability: 'tts', prompt: '@maya says: "Chai is ready."' }),
+      model: manifest({
+        model_id: 'eleven_v3',
+        provider: 'elevenlabs',
+        capabilities: ['tts'],
+        supports: { references_max: 0 },
+      }),
+      ctx: voiced({ provider: 'elevenlabs', voice_id: 'el_riya' }),
+      strategy: 'voice_id',
+    },
+    {
+      name: '§6 row 12 · Wan 3.0 reference-to-video (fal)',
+      request: video(PROMPT),
+      model: refsModel('alibaba/wan-3.0/reference-to-video', 'fal', 'reference2video', 4),
+      strategy: 'reference_images',
+    },
+    {
+      name: '§6 row 13 · Qwen Image Edit 2511 (fal)',
+      request: image(PROMPT),
+      model: refsModel('fal-ai/qwen-image-edit-2511', 'fal', 'image_edit', 3),
+      strategy: 'reference_images',
+    },
+    {
+      name: '§6 row 14 · FLUX.2 klein 4b text-to-image (fal), no reference slot',
+      request: image(PROMPT, 'text2image'),
+      model: manifest({
+        model_id: 'fal-ai/flux-2/klein/4b',
+        provider: 'fal',
+        capabilities: ['text2image'],
+        supports: { references_max: 0 },
+      }),
+      strategy: 'text',
+    },
+    {
+      name: '§6 row 15 · Kokoro TTS (fal) with a clone it cannot use: the default preset',
+      request: req({ kind: 'audio', capability: 'tts', prompt: '@maya says: "Chai is ready."' }),
+      model: manifest({
+        model_id: 'fal-ai/kokoro/hindi',
+        provider: 'fal',
+        capabilities: ['tts'],
+        supports: { references_max: 0 },
+        params_schema: { voice: { enum: ['hf_alpha', 'hf_beta'] } },
+      }),
+      ctx: voiced({ provider: 'fal', voice_id: 'mm_clone_1', engine: 'minimax' }),
+      strategy: 'text',
+      fragment: 'voice',
+    },
+    {
+      name: '§16 example 1 · FLUX.1 dev LoRA',
+      request: image('@maya smiling at the camera, studio portrait', 'text2image'),
+      model: fluxLora,
+      strategy: 'lora',
+    },
+    {
+      name: '§16 example 2 · FLUX.2 klein 4b (fal)',
+      request: image('@maya smiling at the camera, studio portrait', 'text2image'),
+      model: manifest({
+        model_id: 'fal-ai/flux-2/klein/4b',
+        provider: 'fal',
+        capabilities: ['text2image'],
+        supports: { references_max: 0 },
+      }),
+      strategy: 'text',
+    },
+    {
+      name: '§16 example 3 · Nano Banana 2 with a prop',
+      request: image('@maya pours chai into @chai_glass on a marble counter'),
+      model: refsModel('fal-ai/nano-banana-2/edit', 'fal', 'image_edit', 14),
+      strategy: 'reference_images',
+    },
+    {
+      name: '§16 example 4 · Kling 3.0 pro with an environment',
+      request: video('Slow dolly-in on @maya laughing', true),
+      model: klingV3Pro,
+      strategy: 'elements',
+    },
+    {
+      name: '§16 example 5 · Seedance 2.5 (OpenRouter)',
+      request: video('Slow dolly-in on @maya laughing'),
+      model: seedance,
+      strategy: 'reference_images',
+    },
+    {
+      name: '§16 example 6 · Nano Banana Pro, two people',
+      request: image('@maya and @chai_glass clink glasses'),
+      model: nanoBanana,
+      strategy: 'reference_images',
+    },
+    {
+      name: '§16 example 7 · Seedream 4.5',
+      request: image('@maya and @chai_glass dance in a kitchen'),
+      model: refsModel('fal-ai/bytedance/seedream/v4.5/edit', 'fal', 'image_edit', 10),
+      strategy: 'reference_images',
+    },
+    {
+      name: '§16 example 8 · GPT Image 2.5, pinned @maya@v1',
+      request: image('@maya@v1 in her old red saree'),
+      model: gptImage,
+      strategy: 'reference_images',
+    },
+    {
+      name: '§16 example 9 · ElevenLabs v3',
+      request: req({ kind: 'audio', capability: 'tts', prompt: "@maya says: 'Chai is ready, come down!'" }),
+      model: manifest({
+        model_id: 'eleven_v3',
+        provider: 'elevenlabs',
+        capabilities: ['tts'],
+        supports: { references_max: 0 },
+      }),
+      ctx: voiced({ provider: 'elevenlabs', voice_id: 'el_riya' }),
+      strategy: 'voice_id',
+    },
+    {
+      name: '§16 example 11 · Soul 2 standard without a Soul ID',
+      request: image('@maya presenting, Soul portrait', 'text2image'),
+      model: soulStandard,
+      ctx: makeCtx({ identitiesFor: () => [] }),
+      strategy: 'text',
+    },
+    {
+      name: '§16 example 12 · Veo 3.1 fast reference-to-video (fal)',
+      request: video('@maya flies through a neon market'),
+      model: refsModel('fal-ai/veo3.1/fast/reference-to-video', 'fal', 'reference2video', 3),
+      strategy: 'reference_images',
+    },
+  ];
+
+  for (const entry of cases) {
+    it(entry.name, () => {
+      const r = resolvePrompt(entry.request, entry.model, entry.ctx ?? makeCtx());
+      const maya = r.injections.find(
+        (injection) => injection.handle === 'maya' && injection.strategy !== 'voice_id',
+      );
+      const strategies = r.injections
+        .filter((injection) => injection.handle === 'maya')
+        .map((i) => i.strategy);
+      expect(strategies, `${entry.name}: strategies ${JSON.stringify(strategies)}`).toContain(entry.strategy);
+      if (entry.strategy !== 'voice_id') expect(maya?.strategy).toBe(entry.strategy);
+      // A TTS prompt keeps "@maya says:" today; see the todo below.
+      if (entry.request.capability !== 'tts') expect(r.prompt).not.toMatch(/@maya\b/);
+      if (entry.fragment) expect(r.provider_fragment).toHaveProperty(entry.fragment);
+      expect({
+        prompt: r.prompt,
+        injections: r.injections.map(({ handle, strategy, inputs }) => ({
+          handle,
+          strategy,
+          inputs: inputs.map((i) => i.asset_id),
+        })),
+        fragment: Object.keys(r.provider_fragment).sort(),
+        warnings: r.warnings,
+      }).toMatchSnapshot();
+    });
+  }
+
+  // PRD-07 §16 example 9 resolves '@maya says: "Chai is ready, come down!"' to
+  // the text "Chai is ready, come down!"; the resolver leaves the mention in a
+  // TTS prompt and the ElevenLabs adapter speaks the prompt. Found gap recorded
+  // in the progress file for STATUS (task 65).
+  it.todo('§16 example 9 · the TTS text is the spoken line, without "@maya says:"');
+});
