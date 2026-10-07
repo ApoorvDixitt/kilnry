@@ -30,6 +30,8 @@ const FAL_AUDIO_URL = 'https://v3.fal.media/files/test/kilnry-fixture.mp3';
 const FAL_LORA_URL = 'https://v3.fal.media/files/test/kilnry-lora.safetensors';
 // Where a completed fal image-to-3D job points at its GLB (F-CRE-15).
 const FAL_GLB_URL = 'https://v3.fal.media/files/test/kilnry-fixture.glb';
+// Where a completed Veo operation points at its video (F-92).
+const GOOGLE_VIDEO_URL = 'https://generativelanguage.googleapis.com/v1beta/files/kilnry-fixture:download';
 
 // A valid binary glTF holding one triangle, so the finalizer embeds its metadata
 // and the viewer tile can actually draw it (F-CRE-15).
@@ -170,6 +172,8 @@ function denyNetworkWhenFlagged(): void {
 
 // Status polls seen per fal request id, for the queue progression above.
 const falStatusPolls = new Map<string, number>();
+// Status polls seen per Replicate training id (F-92).
+const replicateTrainingPolls = new Map<string, number>();
 
 export function startTestMsw(): void {
   const global = globalThis as TestGlobal;
@@ -628,6 +632,145 @@ export function startTestMsw(): void {
         status: 'completed',
         images: [{ url: FAL_VIDEO_URL.replace('.mp4', '.png') }],
         usd: '0.094',
+      }),
+    ),
+    // --- OpenAI, Replicate and Google (F-92): PRD-14 §11 criterion 1 asks every
+    // §1 provider to connect with its documented test call in the MSW-mocked
+    // suite; these three had no handler, so any call reached print.error().
+    // OpenAI: `GET /v1/models` list and `POST /v1/images/generations` with
+    // inline `b64_json` (https://developers.openai.com/api/docs, reference doc
+    // §OpenAI rows "Base" and "Images"); TRD-19's moderation row is the 400
+    // `moderation_blocked` envelope.
+    http.get('https://api.openai.com/v1/models', () =>
+      HttpResponse.json({
+        object: 'list',
+        data: [{ id: 'gpt-image-2', object: 'model', created: 1767225600, owned_by: 'openai' }],
+      }),
+    ),
+    http.post('https://api.openai.com/v1/images/generations', async ({ request }) => {
+      const body = (await request.json().catch(() => ({}))) as { prompt?: string; n?: number };
+      if (typeof body.prompt === 'string' && body.prompt.includes('TRIGGER')) {
+        return HttpResponse.json(
+          {
+            error: {
+              message: 'Your request was rejected as a result of our safety system.',
+              type: 'user_error',
+              param: null,
+              code: 'moderation_blocked',
+            },
+          },
+          { status: 400 },
+        );
+      }
+      return HttpResponse.json({
+        created: Math.floor(Date.now() / 1000),
+        data: Array.from({ length: body.n ?? 1 }, () => ({ b64_json: png.toString('base64') })),
+        usage: { input_tokens: 20, output_tokens: 1056, total_tokens: 1076 },
+      });
+    }),
+    // Replicate: `GET /v1/account` as the test call, and a training created on a
+    // model version, polled at `urls.get` through `starting → processing →
+    // succeeded` with `output.{version,weights}`
+    // (https://replicate.com/docs/reference/http — account.get, trainings.create,
+    // trainings.get).
+    http.get('https://api.replicate.com/v1/account', () =>
+      HttpResponse.json({ type: 'user', username: 'kilnry-test', name: 'Kilnry test', github_url: null }),
+    ),
+    http.post(
+      'https://api.replicate.com/v1/models/:owner/:name/versions/:version/trainings',
+      ({ params }) => {
+        const id = `rt_${crypto.randomUUID().slice(0, 8)}`;
+        return HttpResponse.json(
+          {
+            id,
+            model: `${String(params.owner)}/${String(params.name)}`,
+            version: String(params.version),
+            status: 'starting',
+            created_at: new Date().toISOString(),
+            urls: {
+              get: `https://api.replicate.com/v1/trainings/${id}`,
+              cancel: `https://api.replicate.com/v1/trainings/${id}/cancel`,
+            },
+          },
+          { status: 201 },
+        );
+      },
+    ),
+    http.get('https://api.replicate.com/v1/trainings/:id', ({ params }) => {
+      const id = String(params.id);
+      const seen = (replicateTrainingPolls.get(id) ?? 0) + 1;
+      replicateTrainingPolls.set(id, seen);
+      if (seen === 1)
+        return HttpResponse.json({ id, status: 'processing', logs: 'flux_train_replicate: step 1/1000' });
+      return HttpResponse.json({
+        id,
+        status: 'succeeded',
+        output: { version: 'kilnry-test/maya-kilnry:fixture1', weights: FAL_LORA_URL },
+        metrics: { predict_time: 412.7 },
+      });
+    }),
+    // Google: `GET /models?pageSize=1` as the test call; Gemini image through
+    // `:generateContent` with `inlineData` parts
+    // (https://ai.google.dev/gemini-api/docs/image-generation); Veo through
+    // `:predictLongRunning` → operation `name`, polled until `done` with
+    // `generateVideoResponse.generatedSamples[0].video.uri`, downloaded with
+    // the key (https://ai.google.dev/gemini-api/docs/veo). TRD-19's moderation
+    // row is `promptFeedback.blockReason`.
+    http.get('https://generativelanguage.googleapis.com/v1beta/models', () =>
+      HttpResponse.json({
+        models: [{ name: 'models/gemini-3.1-flash-image', displayName: 'Nano Banana 2' }],
+        nextPageToken: 'fixture-next',
+      }),
+    ),
+    http.post(
+      'https://generativelanguage.googleapis.com/v1beta/models/:call',
+      async ({ params, request }) => {
+        const call = String(params.call);
+        const model = call.split(':')[0] ?? '';
+        if (call.endsWith(':predictLongRunning')) {
+          return HttpResponse.json({
+            name: `models/${model}/operations/${crypto.randomUUID().slice(0, 12)}`,
+          });
+        }
+        const body = (await request.json().catch(() => ({}))) as {
+          contents?: Array<{ parts?: Array<{ text?: string }> }>;
+        };
+        const text =
+          body.contents
+            ?.flatMap((entry) => entry.parts ?? [])
+            .map((part) => part.text ?? '')
+            .join(' ') ?? '';
+        if (text.includes('TRIGGER')) return HttpResponse.json({ promptFeedback: { blockReason: 'SAFETY' } });
+        return HttpResponse.json({
+          candidates: [
+            {
+              content: {
+                role: 'model',
+                parts: [{ inlineData: { mimeType: 'image/png', data: png.toString('base64') } }],
+              },
+              finishReason: 'STOP',
+            },
+          ],
+          usageMetadata: { promptTokenCount: 18, candidatesTokenCount: 1290, totalTokenCount: 1308 },
+          modelVersion: model,
+        });
+      },
+    ),
+    http.get('https://generativelanguage.googleapis.com/v1beta/models/:model/operations/:op', ({ params }) =>
+      HttpResponse.json({
+        name: `models/${String(params.model)}/operations/${String(params.op)}`,
+        done: true,
+        response: {
+          generateVideoResponse: {
+            generatedSamples: [{ video: { uri: GOOGLE_VIDEO_URL } }],
+            raiMediaFilteredCount: 0,
+          },
+        },
+      }),
+    ),
+    http.get(GOOGLE_VIDEO_URL, () =>
+      HttpResponse.arrayBuffer(mp4.buffer.slice(mp4.byteOffset, mp4.byteOffset + mp4.byteLength), {
+        headers: { 'Content-Type': 'video/mp4' },
       }),
     ),
     // The safetensors bytes a completed fal LoRA training points at (F-CHR-07).

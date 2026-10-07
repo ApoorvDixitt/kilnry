@@ -61,3 +61,77 @@ describe('fal queue status fixture (F-JOB-01, F-93, F-94)', () => {
     expect(done.state).toBe('completed');
   });
 });
+
+// F-92: PRD-14 §11 criterion 1 — every §1 provider connects with its documented
+// test call in the MSW-mocked suite. OpenAI, Replicate and Google had no
+// handler in this server, so their calls reached onUnhandledRequest's error.
+describe('OpenAI, Replicate and Google fixtures (F-PRV-01, F-92)', () => {
+  const run = { ...context };
+  const base = {
+    kind: 'image',
+    prompt: 'a small tin lantern on a windowsill',
+    count: 1,
+    medias: [],
+    params: { aspect_ratio: '1:1' },
+  };
+
+  it('each answers its test call', async () => {
+    for (const id of ['openai', 'replicate', 'google'] as const) {
+      const tested = await adapters[id]!.testKey('test-key', { fetch: context.fetch });
+      expect(tested, id).toMatchObject({ ok: true });
+    }
+  });
+
+  it('OpenAI generates an inline image', async () => {
+    const handle = await adapters.openai!.submit(
+      {
+        ...base,
+        capability: 'text2image',
+        params: { ...base.params, extra: { model: 'gpt-image-2' } },
+      } as never,
+      run as never,
+    );
+    const result = await adapters.openai!.poll(handle, run as never);
+    expect(result.state).toBe('completed');
+  });
+
+  it('Google generates a Gemini image inline and a Veo video through an operation', async () => {
+    const image = await adapters.google!.submit(
+      {
+        ...base,
+        capability: 'text2image',
+        params: { ...base.params, extra: { model: 'gemini-3.1-flash-image' } },
+      } as never,
+      run as never,
+    );
+    expect((await adapters.google!.poll(image, run as never)).state).toBe('completed');
+    const video = await adapters.google!.submit(
+      {
+        ...base,
+        kind: 'video',
+        capability: 'text2video',
+        params: { ...base.params, duration_s: 4, extra: { model: 'veo-3.1-fast-generate-preview' } },
+      } as never,
+      run as never,
+    );
+    const done = await adapters.google!.poll(video, run as never);
+    expect(done).toMatchObject({ state: 'completed' });
+    const url = (done as { result: { outputs: Array<{ url: string }> } }).result.outputs[0]!.url;
+    expect((await fetch(url)).headers.get('content-type')).toBe('video/mp4');
+  });
+
+  it('Replicate trains through processing to a version', async () => {
+    const handle = await adapters.replicate!.submit(
+      {
+        ...base,
+        kind: 'training',
+        capability: 'train_lora',
+        params: { extra: { model: 'ostris/flux-dev-lora-trainer/fixture', training_input: { steps: 1000 } } },
+      } as never,
+      run as never,
+    );
+    expect(await adapters.replicate!.poll(handle, run as never)).toMatchObject({ state: 'running' });
+    const done = await adapters.replicate!.poll(handle, run as never);
+    expect(done.state).toBe('completed');
+  });
+});
