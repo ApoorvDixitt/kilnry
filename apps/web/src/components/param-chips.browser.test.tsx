@@ -6,7 +6,14 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it } from 'vitest';
-import { ParamChips, clampCount, snapParams, type ComposerParams, type ParamsSchema } from './param-chips';
+import {
+  ParamChips,
+  chipSchema,
+  clampCount,
+  snapParams,
+  type ComposerParams,
+  type ParamsSchema,
+} from './param-chips';
 
 let root: Root | undefined;
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -130,5 +137,57 @@ describe('ParamChips', () => {
     ) as HTMLButtonElement;
     await act(async () => option.click());
     expect(changes.at(-1)).toMatchObject({ duration_s: 8 });
+  });
+});
+
+// F-63: the adapter sends `params.seed` and `negative_prompt`, but the composer
+// never offered either, so a Create user could not repeat a result or say what
+// to leave out.
+async function renderChips(schema: ParamsSchema, params: ComposerParams): Promise<HTMLElement> {
+  return render({ schema, params, onChange: () => {} });
+}
+
+describe('seed and negative-prompt chips (F-CRE-04, F-63)', () => {
+  const pinned: ParamsSchema = {
+    properties: {
+      seed: { type: 'integer', minimum: 0 },
+      negative_prompt: { type: 'string', maxLength: 20_000 },
+    },
+  };
+  const base: ParamsSchema = { properties: { aspect_ratio: { type: 'string', enum: ['1:1'] } } };
+
+  it('offers both only when the pinned model lists them', async () => {
+    const withBoth = await renderChips(chipSchema(base, pinned), { count: 1 });
+    const labels = [...withBoth.querySelectorAll('.param-chip-label')].map((label) => label.textContent);
+    expect(labels).toContain('Seed');
+    expect(labels).toContain('Avoid');
+    await act(async () => root?.unmount());
+    root = undefined;
+    const onAuto = await renderChips(chipSchema(base, undefined), { count: 1 });
+    const autoLabels = [...onAuto.querySelectorAll('.param-chip-label')].map((label) => label.textContent);
+    expect(autoLabels).not.toContain('Seed');
+    expect(autoLabels).not.toContain('Avoid');
+  });
+
+  it('keeps a seed and a negative prompt the model takes and drops them where it does not', () => {
+    const requested = { count: 1, seed: 42.4, negative_prompt: 'text, watermarks' };
+    expect(snapParams(chipSchema(base, pinned), requested).params).toEqual({
+      count: 1,
+      seed: 42,
+      negative_prompt: 'text, watermarks',
+    });
+    expect(snapParams(chipSchema(base, undefined), requested).params).toEqual({ count: 1 });
+  });
+
+  it('carries the seed in params and the negative prompt beside the prompt', async () => {
+    const { toEstimatePayload } = await import('./create-composer');
+    expect(
+      toEstimatePayload({
+        mode: 'image',
+        prompt: 'a cat',
+        model: 'fal-ai/flux/dev',
+        params: { count: 1, seed: 7, negative_prompt: 'blur' },
+      }),
+    ).toMatchObject({ prompt: 'a cat', negative_prompt: 'blur', params: { seed: 7 } });
   });
 });

@@ -187,7 +187,15 @@
       "off": "Off",
       "snapAspect": "{from} isn't offered here; using {to}.",
       "snapResolution": "{from} isn't offered here; using {to}.",
-      "snapDuration": "{from} s isn't offered here; using {to} s."
+      "snapDuration": "{from} s isn't offered here; using {to} s.",
+      "seed": "Seed",
+      "seedRandom": "Random",
+      "seedLabel": "Seed number",
+      "seedClear": "Use a random seed",
+      "negative": "Avoid",
+      "negativeNone": "Nothing",
+      "negativeLabel": "What to leave out",
+      "negativePlaceholder": "e.g. text, watermarks, extra fingers"
     },
     "cost": {
       "image": "{n} image",

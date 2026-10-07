@@ -1453,6 +1453,18 @@ kbd {
   z-index: 40;
 }
 
+.param-chip-field {
+  display: grid;
+  gap: 8px;
+  min-width: 224px;
+}
+
+.param-chip-field label {
+  display: grid;
+  font-size: 12px;
+  gap: 4px;
+}
+
 .param-chip-options {
   display: flex;
   flex-wrap: wrap;

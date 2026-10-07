@@ -46,7 +46,7 @@ async function json<T>(response: Response): Promise<T> {
   return body;
 }
 
-function toEstimatePayload(
+export function toEstimatePayload(
   state: {
     mode: ComposerMode;
     prompt: string;
@@ -60,6 +60,9 @@ function toEstimatePayload(
   if (state.params.resolution) params.resolution = state.params.resolution;
   if (state.params.duration_s !== undefined) params.duration_s = state.params.duration_s;
   if (state.params.audio !== undefined) params.audio = state.params.audio;
+  // F-63: the seed travels in params (TRD-04 CanonicalRequest) and the negative
+  // prompt beside the prompt, where the fal adapter reads both.
+  if (state.params.seed !== undefined) params.seed = state.params.seed;
   if (state.mode === 'image') {
     params.width = 1024;
     params.height = 1024;
@@ -72,6 +75,7 @@ function toEstimatePayload(
   return {
     kind: state.mode === 'workflow' ? 'image' : state.mode,
     prompt: state.prompt,
+    ...(state.params.negative_prompt ? { negative_prompt: state.params.negative_prompt } : {}),
     model: state.model,
     params,
     count: state.params.count,

@@ -22,6 +22,7 @@ export interface ParamProperty {
   minimum?: number;
   maximum?: number;
   multipleOf?: number;
+  maxLength?: number;
 }
 
 export interface ComposerParams {
@@ -30,6 +31,10 @@ export interface ComposerParams {
   duration_s?: number;
   count: number;
   audio?: boolean;
+  // Offered only when the pinned model's schema lists them (F-63): a fixed seed
+  // repeats a result; a negative prompt says what to leave out.
+  seed?: number;
+  negative_prompt?: string;
 }
 
 export interface Adjustment {
@@ -131,7 +136,39 @@ export function snapParams(
 
   if (properties.audio && requested.audio !== undefined) params.audio = requested.audio;
 
+  // A seed or negative prompt the model does not take is dropped rather than
+  // sent where it would be refused or silently ignored (F-63).
+  if (properties.seed && requested.seed !== undefined && Number.isFinite(requested.seed)) {
+    params.seed = Math.max(properties.seed.minimum ?? 0, Math.round(requested.seed));
+  }
+  if (properties.negative_prompt && requested.negative_prompt) {
+    params.negative_prompt = requested.negative_prompt.slice(
+      0,
+      properties.negative_prompt.maxLength ?? 10_000,
+    );
+  }
+
   return { params, adjustments };
+}
+
+function truncate(text: string, max: number): string {
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
+/**
+ * The chips' schema: Auto's per-mode controls, plus the seed and negative-prompt
+ * fields of a pinned model whose schema lists them (F-63). On Auto the routed
+ * model is not known yet, so neither is offered there.
+ */
+export function chipSchema(base: ParamsSchema, pinned?: ParamsSchema): ParamsSchema {
+  const extra = pinned?.properties ?? {};
+  return {
+    properties: {
+      ...(base.properties ?? {}),
+      ...(extra.seed ? { seed: extra.seed } : {}),
+      ...(extra.negative_prompt ? { negative_prompt: extra.negative_prompt } : {}),
+    },
+  };
 }
 
 export function clampCount(count: number): number {
@@ -293,6 +330,77 @@ export function ParamChips({
           </div>
         )}
       </Chip>
+
+      {properties.seed ? (
+        <Chip
+          label={message('create.chips.seed')}
+          value={params.seed === undefined ? message('create.chips.seedRandom') : String(params.seed)}
+        >
+          {(close) => (
+            <div className="param-chip-field">
+              <label>
+                {message('create.chips.seedLabel')}
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min={properties.seed?.minimum ?? 0}
+                  step={1}
+                  value={params.seed ?? ''}
+                  onChange={(event) => {
+                    const raw = event.target.value;
+                    const next = { ...params };
+                    if (raw === '') delete next.seed;
+                    else next.seed = Math.max(properties.seed?.minimum ?? 0, Math.round(Number(raw)));
+                    onChange(next);
+                  }}
+                />
+              </label>
+              <button
+                type="button"
+                onClick={() => {
+                  const next = { ...params };
+                  delete next.seed;
+                  onChange(next);
+                  close();
+                }}
+              >
+                {message('create.chips.seedClear')}
+              </button>
+            </div>
+          )}
+        </Chip>
+      ) : null}
+
+      {properties.negative_prompt ? (
+        <Chip
+          label={message('create.chips.negative')}
+          value={
+            params.negative_prompt
+              ? truncate(params.negative_prompt, 18)
+              : message('create.chips.negativeNone')
+          }
+        >
+          {() => (
+            <div className="param-chip-field">
+              <label>
+                {message('create.chips.negativeLabel')}
+                <input
+                  type="text"
+                  maxLength={properties.negative_prompt?.maxLength ?? 10_000}
+                  placeholder={message('create.chips.negativePlaceholder')}
+                  value={params.negative_prompt ?? ''}
+                  onChange={(event) => {
+                    const next = { ...params };
+                    if (event.target.value === '') delete next.negative_prompt;
+                    else next.negative_prompt = event.target.value;
+                    onChange(next);
+                  }}
+                />
+              </label>
+            </div>
+          )}
+        </Chip>
+      ) : null}
 
       {properties.audio ? (
         <button

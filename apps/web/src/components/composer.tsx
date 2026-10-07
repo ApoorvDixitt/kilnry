@@ -9,7 +9,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { apiFetch } from '../lib/api-client';
 import { message } from '../lib/messages';
 import { ModelPicker, type ComposerMode, type PickerModel } from './model-picker';
-import { ParamChips, type ComposerParams, type ParamsSchema } from './param-chips';
+import { chipSchema, ParamChips, type ComposerParams, type ParamsSchema } from './param-chips';
 import { CostStrip, capReset, capScopeLabel, money, type BudgetLine, type CostEstimate } from './cost-strip';
 import {
   acceptMention,
@@ -280,7 +280,30 @@ export function Composer({
   const hasAnyKey = models.some((model) => model.connected);
   const hasModelForMode = available.some((model) => model.connected);
 
-  const activeSchema: ParamsSchema = useMemo(() => buildAutoSchema(mode), [mode]);
+  // F-63: a pinned model's own schema adds its seed and negative-prompt fields.
+  const activeSchema: ParamsSchema = useMemo(() => {
+    const pinned =
+      selectedModel === 'auto' ? undefined : available.find((model) => model.model_id === selectedModel);
+    return chipSchema(buildAutoSchema(mode), pinned?.params_schema as ParamsSchema | undefined);
+  }, [mode, selectedModel, available]);
+
+  // A seed or negative prompt set for one model does not follow the user to a
+  // model that does not take it (F-63).
+  useEffect(() => {
+    setParams((current) => {
+      const properties = activeSchema.properties ?? {};
+      if (
+        (current.seed === undefined || properties.seed) &&
+        (current.negative_prompt === undefined || properties.negative_prompt)
+      ) {
+        return current;
+      }
+      const next = { ...current };
+      if (!properties.seed) delete next.seed;
+      if (!properties.negative_prompt) delete next.negative_prompt;
+      return next;
+    });
+  }, [activeSchema]);
 
   const overBudgetLine = useMemo(() => {
     if (!estimate) return null;
