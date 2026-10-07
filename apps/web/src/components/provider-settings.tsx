@@ -11,6 +11,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { detectProviderKey } from '@kilnry/core/security/key-detection';
 import { apiFetch } from '../lib/api-client';
 import { message } from '../lib/messages';
+import { priceAgeLine } from './provider-settings-logic';
 import { RecoveryProof } from './recovery-proof';
 
 type ProviderId = 'fal' | 'openrouter' | 'pollinations' | 'higgsfield';
@@ -581,18 +582,12 @@ export function ProviderSettings({
                 />
               </label>
               <div>
+                {/* UX-10: "Prices 16 days old" from the first day reads as a
+                    warning with no threshold. The age appears in the last ten
+                    days before the limit, with the limit named; before that the
+                    line says the prices are current. */}
                 <span className={item.price_stale ? 'is-stale' : ''}>
-                  {item.price_fetched_at
-                    ? message('settings.providers.priceAge').replace(
-                        '{days}',
-                        String(
-                          Math.max(
-                            0,
-                            Math.floor((Date.now() - new Date(item.price_fetched_at).getTime()) / 86_400_000),
-                          ),
-                        ),
-                      )
-                    : message('settings.providers.priceUnknown')}
+                  {priceAgeLine(item.price_fetched_at, Number(priceMaxAge) || 30)}
                 </span>
                 <button type="button" disabled={pending} onClick={() => void saveControls(item)}>
                   {message('settings.providers.saveControls')}

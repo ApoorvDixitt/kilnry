@@ -21,13 +21,25 @@ export function gb(bytes: number): string {
   return `${Math.round(bytes / GB)} GB`;
 }
 
-// The warning banner copy for a warn-level status (PRD-06 §14, exact wording):
-// "Your disk is 92 % full (18 GB free). Free space or clear Kilnry's cache
-// (2.1 GB)."
+/**
+ * The warning copy. It used to lead with a percentage computed from the bytes
+ * the filesystem reports as available, which on APFS excludes purgeable space:
+ * a machine 69 % full by `df` was told it was 98 % full, and it was offered a
+ * Clear cache button for a cache of 0.0 GB that would clear nothing (UX-06).
+ * The free figure and the pause threshold are the facts the user can act on,
+ * and the cache is only mentioned when there is some to clear.
+ */
 export function warnBannerText(status: DiskStatusView): string {
-  const percent = Math.round(status.used_fraction * 100);
+  const free = `${(status.free_bytes / GB).toFixed(1)} GB free on this disk`;
+  const pause = 'Kilnry pauses imports under 1 GB.';
+  if (status.cache_bytes < 0.05 * GB) return `${free}; ${pause}`;
   const cacheGb = (status.cache_bytes / GB).toFixed(1);
-  return `Your disk is ${percent} % full (${gb(status.free_bytes)} free). Free space or clear Kilnry's cache (${cacheGb} GB).`;
+  return `${free}; ${pause} Kilnry's cache holds ${cacheGb} GB.`;
+}
+
+/** Whether there is enough cache to be worth offering to clear (UX-06). */
+export function cacheWorthClearing(status: DiskStatusView): boolean {
+  return status.cache_bytes >= 0.05 * GB;
 }
 
 // The coral pause banner copy when under 1 GB free.

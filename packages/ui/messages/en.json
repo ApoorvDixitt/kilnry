@@ -509,6 +509,8 @@
       "noCap": "No cap",
       "concurrency": "Concurrency",
       "priceAge": "Prices {days} days old",
+      "priceAgeWarn": "Prices {days} days old · refresh before {limit}",
+      "priceCurrent": "Prices current",
       "priceUnknown": "Price age unavailable",
       "priceMaxAge": "Treat prices older than {days} days as stale",
       "priceMaxAgeSaved": "Prices older than {days} days are now treated as stale",

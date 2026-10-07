@@ -12,7 +12,13 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { message } from '../lib/messages';
-import { pauseBannerText, shouldShowBanner, warnBannerText, type DiskStatusView } from './disk-banner-logic';
+import {
+  cacheWorthClearing,
+  pauseBannerText,
+  shouldShowBanner,
+  warnBannerText,
+  type DiskStatusView,
+} from './disk-banner-logic';
 import { apiFetch } from '../lib/api-client';
 
 export function DiskBanner(): React.ReactNode {
@@ -52,9 +58,12 @@ export function DiskBanner(): React.ReactNode {
       </span>
       {status.level === 'warn' ? (
         <span className="disk-banner-actions">
-          <button type="button" className="btn" disabled={clearing} onClick={clear}>
-            {clearing ? message('library.disk.clearing') : message('library.disk.clearCache')}
-          </button>
+          {/* UX-06: a Clear cache button for an empty cache clears nothing. */}
+          {cacheWorthClearing(status) ? (
+            <button type="button" className="btn" disabled={clearing} onClick={clear}>
+              {clearing ? message('library.disk.clearing') : message('library.disk.clearCache')}
+            </button>
+          ) : null}
           <a href="/settings/workspace" className="disk-banner-link">
             {message('library.disk.openSettings')}
           </a>
