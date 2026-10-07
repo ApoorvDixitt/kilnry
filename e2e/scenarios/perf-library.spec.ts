@@ -59,9 +59,31 @@ test('@perf Library grid scrolls 10,000 assets under one frame at the 95th perce
     await route.fulfill({ status: 200, contentType: 'image/png', body: TINY_PNG });
   });
 
+  // Warm the route once (the dev server compiles on first request), then time a
+  // second load. PRD-19 NFR row "Library grid of 10,000 assets": "first paint
+  // < 1 s; … memory growth < 150 MB during scroll". Only the frame time was
+  // asserted (F-89).
   await ensureSignedIn(page, '/library');
+  await expect(page.locator('.asset-scroll')).toBeVisible({ timeout: 30_000 });
+  await page.goto('/library');
   const scroll = page.locator('.asset-scroll');
   await expect(scroll).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator('.asset-tile').first()).toBeVisible({ timeout: 15_000 });
+  const gridShownMs = await page.evaluate(() => performance.now());
+  const firstPaintMs = await page.evaluate(
+    () => performance.getEntriesByName('first-contentful-paint')[0]?.startTime ?? Number.POSITIVE_INFINITY,
+  );
+  expect(firstPaintMs, 'first contentful paint of /library with 10,000 assets').toBeLessThan(1000);
+  // The grid's first tile is on screen within a second of navigation.
+  expect(gridShownMs, 'first tile of the 10,000-asset grid on screen').toBeLessThan(1000);
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Performance.enable');
+  const heap = async (): Promise<number> => {
+    await cdp.send('HeapProfiler.collectGarbage');
+    const { metrics } = await cdp.send('Performance.getMetrics');
+    return metrics.find((metric) => metric.name === 'JSHeapUsedSize')?.value ?? 0;
+  };
+  const heapBefore = await heap();
   // The virtualiser renders only a window of rows; confirm it is not rendering
   // all ten thousand tiles at once.
   const renderedRows = await page.locator('.asset-tile-row').count();
@@ -89,12 +111,15 @@ test('@perf Library grid scrolls 10,000 assets under one frame at the 95th perce
     return busy.slice(5);
   });
 
+  const heapGrowthMb = ((await heap()) - heapBefore) / (1024 * 1024);
+  expect(heapGrowthMb, 'JS heap growth during the scroll').toBeLessThan(150);
+
   frameTimes.sort((a, b) => a - b);
   const p95 = frameTimes[Math.floor(frameTimes.length * 0.95)] ?? 0;
   const p50 = frameTimes[Math.floor(frameTimes.length * 0.5)] ?? 0;
   // eslint-disable-next-line no-console
   console.log(
-    `PERF_RESULT assets=${ASSET_COUNT} frames=${frameTimes.length} p50=${p50.toFixed(2)}ms p95=${p95.toFixed(2)}ms`,
+    `PERF_RESULT assets=${ASSET_COUNT} frames=${frameTimes.length} p50=${p50.toFixed(2)}ms p95=${p95.toFixed(2)}ms fcp=${firstPaintMs.toFixed(0)}ms grid=${gridShownMs.toFixed(0)}ms heap_growth=${heapGrowthMb.toFixed(1)}MB`,
   );
   expect(p95).toBeLessThan(16.7);
 });
