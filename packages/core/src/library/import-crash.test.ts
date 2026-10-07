@@ -89,56 +89,53 @@ const exited = (child: ChildProcess): Promise<void> =>
     ? Promise.resolve()
     : new Promise((resolve) => child.once('close', () => resolve()));
 
-// On the CI runner the import child exits 0 before printing anything (runs
-// 37613489449, 37615053119, 37616629975), while every local run passes. That is
-// an OWNER DECISION NEEDED in the progress file; until it is answered this half
-// runs locally and in the release checklist, and not on CI (default; adjustable).
-describe.skipIf(process.platform === 'win32' || process.env.CI === 'true')(
-  'SIGKILL during a Library import (F-LIB-04, F-70)',
-  () => {
-    it('leaves no partial sidecar, keeps the ids already written, and the next import completes', async () => {
-      const root = mkdtempSync(join(tmpdir(), 'kilnry-import-crash-'));
-      roots.push(root);
-      const first = launch('import', root);
-      await waitFor(first, /INDEXED 12\n/);
-      expect(first.kill('SIGKILL')).toBe(true);
-      await exited(first);
+// On the CI runner the import child exited 0 before printing anything (runs
+// 37613489449, 37615053119, 37616629975), while every local run passes. D-76:
+// one diagnostic run on CI with the child's heartbeat lines; the failure
+// message carries its stdout, so the runner shows where the child stops.
+describe.skipIf(process.platform === 'win32')('SIGKILL during a Library import (F-LIB-04, F-70)', () => {
+  it('leaves no partial sidecar, keeps the ids already written, and the next import completes', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'kilnry-import-crash-'));
+    roots.push(root);
+    const first = launch('import', root);
+    await waitFor(first, /INDEXED 12\n/);
+    expect(first.kill('SIGKILL')).toBe(true);
+    await exited(first);
 
-      const folder = join(root, 'library', 'Renders');
-      // Every sidecar on disk parses: the write is a temporary file and a rename.
-      const sidecars = readdirSync(folder).filter((name) => name.endsWith('.png.kilnry.json'));
-      expect(sidecars.length).toBeGreaterThanOrEqual(12);
-      const before = new Map<string, string>();
-      for (const name of sidecars) {
-        const parsed = JSON.parse(readFileSync(join(folder, name), 'utf8')) as { asset_id: string };
-        before.set(name.replace(/\.kilnry\.json$/, ''), parsed.asset_id);
-      }
+    const folder = join(root, 'library', 'Renders');
+    // Every sidecar on disk parses: the write is a temporary file and a rename.
+    const sidecars = readdirSync(folder).filter((name) => name.endsWith('.png.kilnry.json'));
+    expect(sidecars.length).toBeGreaterThanOrEqual(12);
+    const before = new Map<string, string>();
+    for (const name of sidecars) {
+      const parsed = JSON.parse(readFileSync(join(folder, name), 'utf8')) as { asset_id: string };
+      before.set(name.replace(/\.kilnry\.json$/, ''), parsed.asset_id);
+    }
 
-      const second = await finish(launch('resume', root));
-      const json = /RESULT (.+)\n/.exec(second.stdout)?.[1];
-      expect(
-        json,
-        `resume child (exit ${second.code}) printed: ${second.stdout.slice(-2000)} ${second.stderr}`,
-      ).toBeDefined();
-      const result = JSON.parse(json!) as {
-        report: { scanned: number; errors: unknown[] };
-        rows: Array<{ id: string; path: string }>;
-        lockFree: boolean;
-      };
+    const second = await finish(launch('resume', root));
+    const json = /RESULT (.+)\n/.exec(second.stdout)?.[1];
+    expect(
+      json,
+      `resume child (exit ${second.code}) printed: ${second.stdout.slice(-2000)} ${second.stderr}`,
+    ).toBeDefined();
+    const result = JSON.parse(json!) as {
+      report: { scanned: number; errors: unknown[] };
+      rows: Array<{ id: string; path: string }>;
+      lockFree: boolean;
+    };
 
-      expect(result.report.errors).toEqual([]);
-      expect(result.report.scanned).toBe(40);
-      // One row per file, no duplicate paths, nothing indexed from a temp file.
-      const paths = result.rows.map((row) => row.path);
-      expect(new Set(paths).size).toBe(40);
-      expect(paths.every((path) => /^Renders\/render_\d\d\.png$/.test(path))).toBe(true);
-      // A file indexed before the kill keeps the id its sidecar recorded.
-      for (const [file, id] of before) {
-        expect(result.rows.find((row) => row.path === `Renders/${file}`)?.id).toBe(id);
-      }
-      expect(result.lockFree).toBe(true);
-      const finalSidecars = readdirSync(folder).filter((name) => name.endsWith('.png.kilnry.json'));
-      expect(finalSidecars).toHaveLength(40);
-    }, 120_000);
-  },
-);
+    expect(result.report.errors).toEqual([]);
+    expect(result.report.scanned).toBe(40);
+    // One row per file, no duplicate paths, nothing indexed from a temp file.
+    const paths = result.rows.map((row) => row.path);
+    expect(new Set(paths).size).toBe(40);
+    expect(paths.every((path) => /^Renders\/render_\d\d\.png$/.test(path))).toBe(true);
+    // A file indexed before the kill keeps the id its sidecar recorded.
+    for (const [file, id] of before) {
+      expect(result.rows.find((row) => row.path === `Renders/${file}`)?.id).toBe(id);
+    }
+    expect(result.lockFree).toBe(true);
+    const finalSidecars = readdirSync(folder).filter((name) => name.endsWith('.png.kilnry.json'));
+    expect(finalSidecars).toHaveLength(40);
+  }, 120_000);
+});

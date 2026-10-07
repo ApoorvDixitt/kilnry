@@ -22,6 +22,18 @@ const PNG = Buffer.from(
 );
 export const CRASH_FILES = 40;
 
+// D-76's one diagnostic run: on the CI runner this child exited 0 having
+// printed nothing, so it says on stdout where it is, and names the phase if the
+// event loop empties before it reaches the end.
+let heartbeat = 'start';
+function beat(phase: string): void {
+  heartbeat = phase;
+  process.stdout.write(`HEARTBEAT ${phase}\n`);
+}
+process.on('beforeExit', () => {
+  process.stdout.write(`BEFORE_EXIT ${heartbeat}\n`);
+});
+
 async function main(): Promise<void> {
   const [phase, root] = process.argv.slice(2);
   if (!root || !['import', 'resume'].includes(phase ?? '')) throw new Error('phase and root are required');
@@ -29,8 +41,10 @@ async function main(): Promise<void> {
   const library = join(root, 'library');
   mkdirSync(dataDir, { recursive: true });
   const prepared = prepareLibraryRoot(library, dataDir);
+  beat('before-createDatabase');
   const state = createDatabase(dataDir);
   await state.ready;
+  beat('after-state-ready');
   const folder = join(library, 'Renders');
   if (phase === 'import') {
     mkdirSync(folder, { recursive: true });
@@ -40,6 +54,7 @@ async function main(): Promise<void> {
       writeFileSync(path, Buffer.concat([PNG, Buffer.from(`crash-${index}`)]));
       paths.push(path);
     }
+    beat('before-first-indexAsset');
     for (const [index, path] of paths.entries()) {
       await withPathLock(path, () => indexAsset(state, library, path, prepared.marker.library_id));
       process.stdout.write(`INDEXED ${index + 1}\n`);
