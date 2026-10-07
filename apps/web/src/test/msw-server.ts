@@ -168,6 +168,9 @@ function denyNetworkWhenFlagged(): void {
   }) as typeof globalThis.fetch;
 }
 
+// Status polls seen per fal request id, for the queue progression above.
+const falStatusPolls = new Map<string, number>();
+
 export function startTestMsw(): void {
   const global = globalThis as TestGlobal;
   if (global.__kilnryTestMswStarted) return;
@@ -396,9 +399,24 @@ export function startTestMsw(): void {
         response_url: `https://queue.fal.run/${model}/requests/${requestId}`,
       });
     }),
-    http.get('https://queue.fal.run/*/requests/*/status', () =>
-      HttpResponse.json({ status: 'COMPLETED', logs: [] }),
-    ),
+    // fal's queue status in its documented order (https://docs.fal.ai/model-apis/model-endpoints/queue):
+    // `IN_QUEUE` with a `queue_position`, then `IN_PROGRESS` with the `logs`
+    // the adapter asks for with `?logs=1`, then `COMPLETED`. It answered
+    // COMPLETED at once with no logs, so the queued → running progression and
+    // the "Rendering at fal" step label were never exercised (F-93, F-94).
+    http.get('https://queue.fal.run/*/requests/*/status', ({ request }) => {
+      const requestId = new URL(request.url).pathname.split('/').at(-2) ?? '';
+      const seen = (falStatusPolls.get(requestId) ?? 0) + 1;
+      falStatusPolls.set(requestId, seen);
+      if (seen === 1) return HttpResponse.json({ status: 'IN_QUEUE', queue_position: 1 });
+      if (seen === 2) {
+        return HttpResponse.json({
+          status: 'IN_PROGRESS',
+          logs: [{ message: 'Rendering at fal', level: 'INFO', timestamp: new Date().toISOString() }],
+        });
+      }
+      return HttpResponse.json({ status: 'COMPLETED', logs: [] });
+    }),
     http.get('https://queue.fal.run/*/requests/*', ({ request }) => {
       const path = new URL(request.url).pathname;
       // A LoRA training request finishes with a safetensors file (F-CHR-07).

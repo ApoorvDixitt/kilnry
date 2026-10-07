@@ -344,6 +344,20 @@ test('@m4 S-10 offline queue shows the bar and resumes on reconnect', async ({ p
   // PRD-15 §Offline's When/Then, driven through the server's own observed state
   // (F-117): with the network denied a generation is accepted, waits, and
   // submits once when the network is back.
+  // Start from a settled queue: jobs earlier scenarios left queued or running
+  // (S-05's batch of twelve) hold the provider's slots, and this job would sit
+  // behind them instead of making the attempt that observes the network is down.
+  await expect
+    .poll(
+      async () =>
+        page.evaluate(async () => {
+          const response = await fetch('/api/jobs');
+          const body = (await response.json()) as { jobs: Array<{ status: string }> };
+          return body.jobs.filter((job) => job.status === 'queued' || job.status === 'running').length;
+        }),
+      { timeout: 120_000 },
+    )
+    .toBe(0);
   writeFileSync(join(dataDir, 'msw-network-down'), '1');
   try {
     await ensureSignedIn(page, '/create');

@@ -38,3 +38,26 @@ describe('Higgsfield status fixture (F-PRV-01, F-99)', () => {
     ]);
   });
 });
+
+// F-93 / F-94: the fal status fixture answered COMPLETED on the first poll with
+// no logs, so the queued → running progression and the step label the adapter
+// takes from fal's logs never ran in the suite.
+describe('fal queue status fixture (F-JOB-01, F-93, F-94)', () => {
+  it('goes IN_QUEUE, then IN_PROGRESS with a log line, then COMPLETED', async () => {
+    const handle = {
+      request_id: 'kilnry-progress-1',
+      status_url: 'https://queue.fal.run/fal-ai/flux/requests/kilnry-progress-1/status',
+      response_url: 'https://queue.fal.run/fal-ai/flux/requests/kilnry-progress-1',
+    };
+    const queued = await adapters.fal!.poll(handle as never, context as never);
+    expect(queued).toMatchObject({ state: 'queued', position: 1 });
+    const running = await adapters.fal!.poll(handle as never, context as never);
+    expect(running).toMatchObject({
+      state: 'running',
+      step_label: 'Rendering at fal',
+      logs: ['Rendering at fal'],
+    });
+    const done = await adapters.fal!.poll(handle as never, context as never);
+    expect(done.state).toBe('completed');
+  });
+});
