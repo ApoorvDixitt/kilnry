@@ -303,6 +303,60 @@ const goldens: Golden[] = [
     token_usage: { input: 12_000, output: 800 },
     expected: 0.032,
   },
+  // G-31…G-36 (TRD-19 §3, added by D-67 for the seed-only providers). Each
+  // figure is computed from the seeded price_rule; the owner confirms the
+  // ones TRD-19 marks "seed price_rule figure" against the reference doc.
+  {
+    // 0.10 per 1k chars (reference §8) × 1,000 characters.
+    id: 'G-31',
+    model: model('elevenlabs', 'eleven_v3'),
+    request: request({ kind: 'audio', capability: 'tts' }),
+    text_chars: 1000,
+    expected: 0.1,
+  },
+  {
+    // Seed per_1k_chars 0.10 (remaining-providers.ts) × 1,000 characters.
+    id: 'G-32',
+    model: model('minimax', 'speech-2.8-hd'),
+    request: request({ kind: 'audio', capability: 'tts' }),
+    text_chars: 1000,
+    expected: 0.1,
+  },
+  {
+    // provider_estimate; with no /estimate answer the fallback applies:
+    // per_second_tiered 720p no_audio 0.084 × 5 s.
+    id: 'G-33',
+    model: model('higgsfield', 'kling-video/v3.0/std/image-to-video'),
+    request: request({
+      kind: 'video',
+      capability: 'image2video',
+      params: { resolution: '720p', duration_s: 5, audio: false },
+    }),
+    expected: 0.42,
+    adjustment: 'formula fallback; authoritative estimate requested',
+  },
+  {
+    // provider_estimate; fallback flat_per_unit 0.0032 per image × 1.
+    id: 'G-34',
+    model: model('higgsfield', 'higgsfield-ai/soul/v2/standard'),
+    request: request({ kind: 'image', capability: 'text2image' }),
+    expected: 0.0032,
+    adjustment: 'formula fallback; authoritative estimate requested',
+  },
+  {
+    // per_megapixel 0.03, round ceil_each: 1024 × 1024 = 1.05 MP → 2 MP × 0.03.
+    id: 'G-35',
+    model: model('replicate', 'black-forest-labs/flux-2-pro'),
+    request: request({ kind: 'image', capability: 'text2image', params: { width: 1024, height: 1024 } }),
+    expected: 0.06,
+  },
+  {
+    // flat_per_unit 3.00 per designed voice × 1 (F-VOI-03, PRD-08 §B3).
+    id: 'G-36',
+    model: model('minimax', 'voice_design'),
+    request: request({ kind: 'audio', capability: 'voice_clone' }),
+    expected: 3,
+  },
 ];
 
 describe('TRD-19 estimator goldens', () => {
