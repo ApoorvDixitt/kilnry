@@ -533,3 +533,49 @@ test('@m4 F-CHR-02 create a Character from a photo, and pick the anchor from the
   await first.click();
   await expect(page.getByTestId('create-character-anchor')).toContainText(pickedId!);
 });
+
+// PRD-15's failed row and its Retry, walked through the UI (the UX audit
+// addendum: "job Retry and a provider-error row (no failure fixture reachable
+// from the UI)"). fal answers an OUTAGE prompt with its documented 500 for one
+// job's worth of submits, so the job fails; Retry resubmits the
+// same job once and it completes.
+test('@m4 a failed job shows why, and Retry completes it', async ({ page }) => {
+  test.setTimeout(240_000);
+  const prompt = 'a tin lantern during a studio OUTAGE';
+  await ensureProvider(page, 'fal', FAL_KEY);
+  await ensureSignedIn(page, '/create');
+  await pickModel(page, /Auto/);
+  await page.getByRole('textbox', { name: 'Describe what you want to make…' }).fill(prompt);
+  await expect(page.locator('.cost-strip .cost-strip-figure')).toContainText('$', { timeout: 15_000 });
+  await page.getByRole('button', { name: 'Generate' }).click();
+
+  const jobFor = async (): Promise<{ id: string; status: string; attempts?: number } | undefined> =>
+    page.evaluate(async (wanted) => {
+      const response = await fetch('/api/jobs');
+      if (!response.ok) return undefined;
+      const body = (await response.json()) as {
+        jobs: Array<{
+          id: string;
+          status: string;
+          attempts?: number;
+          request?: { prompt?: string | null } | null;
+        }>;
+      };
+      return body.jobs.find((job) => job.request?.prompt === wanted);
+    }, prompt);
+  // The first submit and the engine's three safe resubmits all meet the outage.
+  await expect.poll(async () => (await jobFor())?.status, { timeout: 120_000 }).toBe('failed');
+
+  await page.goto('/jobs');
+  await page.getByRole('tab', { name: 'Failed' }).click();
+  const row = page.getByRole('row').filter({ hasText: prompt });
+  const detail = row.getByTestId('jobs-failed-detail');
+  await expect(detail).toBeVisible({ timeout: 15_000 });
+  await expect(detail.locator('.jobs-failed-code')).toHaveText('PROVIDER_ERROR');
+  // A provider 5xx may or may not have run compute, so the row says so (F-20).
+  await expect(detail.locator('.jobs-failed-charge')).toHaveText('Charge unknown');
+  await expect(detail.locator('.jobs-failed-provider')).toContainText('Downstream service unavailable');
+
+  await row.getByRole('button', { name: 'Retry' }).first().click();
+  await expect.poll(async () => (await jobFor())?.status, { timeout: 90_000 }).toBe('completed');
+});

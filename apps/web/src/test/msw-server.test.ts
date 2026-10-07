@@ -214,3 +214,28 @@ describe('product page fixture (F-CHR-02, Element from URL)', () => {
     );
   });
 });
+
+// The UX audit addendum: no provider failure was reachable from the UI under
+// MSW, so a failed job's detail and Retry could not be walked. An OUTAGE prompt
+// is refused with fal's documented 500 for one job's worth of submits.
+describe('fal outage fixture (F-JOB-01, job Retry)', () => {
+  const request = {
+    kind: 'image',
+    capability: 'text2image',
+    prompt: 'a lantern during a studio OUTAGE (unit)',
+    count: 1,
+    medias: [],
+    params: { aspect_ratio: '1:1', extra: { model: 'fal-ai/flux-2/klein/4b' } },
+  };
+
+  it('refuses four submits with 500 downstream_service_unavailable, then accepts', async () => {
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      await expect(adapters.fal!.submit(request as never, context as never)).rejects.toMatchObject({
+        code: 'PROVIDER_ERROR',
+        options: expect.objectContaining({ provider_code: '500', retryable: true }),
+      });
+    }
+    const handle = await adapters.fal!.submit(request as never, context as never);
+    expect(handle.provider_request_id).toMatch(/^kilnry-/);
+  });
+});

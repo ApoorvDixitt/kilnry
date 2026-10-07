@@ -159,6 +159,7 @@ type TestGlobal = typeof globalThis & {
   __kilnryTestMswServer?: ReturnType<typeof setupServer>;
   __kilnryFalSubmitCount?: number;
   __kilnryOpenRouterVideoCount?: number;
+  __kilnryFalOutageSubmits?: Map<string, number>;
 };
 
 /**
@@ -190,6 +191,9 @@ function denyNetworkWhenFlagged(): void {
   }) as typeof globalThis.fetch;
 }
 
+// One job's worth of fal submits for an OUTAGE prompt: the first and the
+// engine's three safe resubmits (see the submit handler).
+const FAL_OUTAGE_SUBMITS = 4;
 // Status polls seen per fal request id, for the queue progression above.
 const falStatusPolls = new Map<string, number>();
 // OpenRouter video jobs whose prompt the provider refuses (F-98).
@@ -488,6 +492,36 @@ export function startTestMsw(): void {
           },
           { status: 422, headers: { 'X-Fal-Retryable': 'false' } },
         );
+      }
+      // A provider failure the Jobs page can show and Retry can recover (UX
+      // audit addendum: "no failure fixture reachable from the UI; needs a
+      // trigger word in the fal MSW fixture"). TRD-19's fal row names the 5xx
+      // case, 500 `downstream_service_unavailable`, in fal's error envelope
+      // (https://docs.fal.ai/errors#downstream_service_unavailable). A prompt
+      // with the word OUTAGE is refused for one job's worth of submits — the
+      // first and the engine's three safe resubmits of a not-billed
+      // PROVIDER_ERROR (#submitWithSafeRetries) — so the job fails; the user's
+      // Retry is the submit that succeeds.
+      if (typeof body.prompt === 'string' && /\bOUTAGE\b/.test(body.prompt)) {
+        global.__kilnryFalOutageSubmits ??= new Map();
+        const seen = (global.__kilnryFalOutageSubmits.get(body.prompt) ?? 0) + 1;
+        global.__kilnryFalOutageSubmits.set(body.prompt, seen);
+        if (seen <= FAL_OUTAGE_SUBMITS) {
+          return HttpResponse.json(
+            {
+              detail: [
+                {
+                  loc: ['body'],
+                  msg: 'Downstream service unavailable',
+                  type: 'downstream_service_unavailable',
+                  url: 'https://docs.fal.ai/errors#downstream_service_unavailable',
+                  input: { prompt: body.prompt },
+                },
+              ],
+            },
+            { status: 500, headers: { 'X-Fal-Retryable': 'true' } },
+          );
+        }
       }
       if (typeof body.prompt === 'string' && body.prompt.includes('TRIGGER')) {
         return HttpResponse.json(
