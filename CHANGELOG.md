@@ -2,6 +2,98 @@
 
 All notable changes to Kilnry are documented here. The format follows Keep a Changelog, and versions follow Semantic Versioning.
 
+## [0.5.2] - 2026-10-07
+
+> Whole-product audit fixes. The audit of 2026-10-05 and its addendum found 125 defects and 20 UX problems. Each fix landed in its own commit with its own green run on all seven jobs. `docs/STATUS.md` lists every finding with its commit or the decision that closed it.
+
+### Fixed
+
+- Sign-in rate limiting keys on the real connection, so a forged `X-Forwarded-For` header no longer gets a fresh bucket.
+- An imported Character bundle that contains a symbolic link is refused before anything is copied.
+- A second Kilnry process can no longer open a data directory that is already in use; it is told "Kilnry is already running".
+- Kilnry refuses to train or clone a Character that reads as a minor.
+- Training, voice preview and analysis hold their estimate against the budget before calling the provider.
+- A new install starts with the $10 daily and $100 monthly caps, and the meter shows today's real spend.
+- A chat session's budget counts the spending its tools do, stores its $5.00 default, and is saved when autonomy changes.
+- A reference sheet is priced and approved like any workflow before it runs, and a failed first step is shown.
+- Every paid path refuses a stale price unless the user confirms it, and every chat or MCP job needs a confirmed cost.
+- A workflow model swap that raises a step's price by more than 10 % pauses for approval.
+- fal models receive the field names their schemas require, so image-to-video, avatar, upscale and background-removal requests no longer fail at submit.
+- Price estimates use the caller's clock, and the engine refuses a stale price the same way every other path does.
+- A Character reaches a Kling video only through the image-to-video endpoint that has the elements field.
+- MiniMax direct video polls the documented V2 query route.
+- Diarised transcription routes to `gpt-transcribe`.
+- The Ad Multiplier plan and its run agree under a documented OpenRouter video mock.
+- A live workflow run keeps one event stream open instead of reopening it on every update.
+- The Library import route accepts file uploads, and a Character's anchor can be picked from the Library.
+- Chat picks its default model from the connected providers, sends the page's choice, and shows the server's reason on failure.
+- The recovery kit moved to Settings › Security, except in machine-derived-key mode.
+- The onboarding key step has one primary button, the final card is complete, and its copy follows the PRD.
+- The model picker shows one row per model with per-image prices for token-billed models, and it closes properly.
+- The cost strip says "Type a prompt to see the price" until there is a prompt, and shows the duration it prices.
+- The budget meter turns amber at 80 %, a sand banner appears once a day, and over-budget messages name their scope.
+- A failed job row shows its detail and the canonical error sentence, and the Jobs badge refreshes on job events.
+- Provider result and preview downloads go through the SSRF guard with size and time limits.
+- Folder caps match exactly, settings merging is safe against prototype keys, and keys are redacted by name.
+- The stale-price threshold is a stored setting, editable in Settings › Providers.
+- LAN mode builds its allow-list from this machine's addresses, `kiln_` tokens are redacted, and each MCP token has its own rate limit.
+- The agent treats skills, tool results and web pages as data in its base prompt.
+- Smart folders appear in the Library tree with Save search, and the item count is honest during a search.
+- A chat conversation survives a reload, and a session-budget stop has its own card.
+- The offline bar and the queue follow the server's own network state on every page.
+- A Character's Usage tab shows its header line and filters, and opens the uses in the Library.
+- A voice can be cloned from a file with a measured duration, only through connected providers, from the Voices tab too.
+- "Try another model" opens the picker filtered to looser moderation.
+- The Trash is purged nightly after the configured number of days.
+- Every audit event PRD-16 names is written.
+- Library search understands `ar:`, `res:`, `cost=`, `@handle@vN` and every `has:` flag, and escapes wildcards.
+- The onboarding checklist counts folders you created and skips Trash.
+- Chat gates provider tools on network state, not on the chosen model.
+- Workflows finish the moderation ladder, bake text locally, honour scene frames and gaps, and validate assemble parameters.
+- MCP returns `input_required` with a confirm request to modern clients.
+- Higgsfield assets show the provider-expired state after seven days.
+- Ollama refusals, ElevenLabs quota, fal black images and Higgsfield concurrency map to the right errors.
+- Registry rows were corrected for Nano Banana 2, Topaz, Wan 2.7 and MiniMax music, and OpenAI TTS carries its removal date.
+- A bound voice is gated by the engine that made it, and a model that cannot use it falls back to a preset voice.
+- Gitleaks runs in the commit hook and in CI, and CI fetches FFmpeg from the publisher's versioned path.
+- Settings no longer shows a stale scope line, says "you", and shows the image-provider note only when it applies.
+- The About page reads the Next and PGlite versions from the build-time pins, and the boot banner prints the real version.
+- Seed and negative prompt are available as Create chips.
+- A denied checkpoint marks the remaining steps skipped.
+- The first-run setup token is single-use and stored hashed.
+- Caption paths escape every FFmpeg filtergraph special character.
+- Database IN-lists are parameterised, and the widget escapes quotes.
+- Revoking a session goes through better-auth, so a cached cookie cannot outlive it.
+- The database gains the foreign keys, the partial client-request index and the nullability the TRD names.
+- No label uses tracked-out uppercase.
+- The watcher ignores the manifest's temporary file, project memory resolves inside the Library root, and SKILL.md is capped at 200 KB.
+- A stale snapshot keeps its formula source, and a model without a price is logged once.
+- A folder anywhere on this machine can be imported into the Library; the old action is now "Re-scan this folder".
+- Tests now cover crashes, accessibility, performance, the design contract, the resolver's model rows, and every provider fixture in its documented shape.
+- A text-to-speech request speaks the quoted line alone, without "@maya says:".
+- The import crash test made one diagnostic CI run and now runs locally and in the release checklist.
+- Every `(default; adjustable)` choice in the code has its STATUS line, and every STATUS default has its code line.
+- Goldens G-31 to G-36 pin the seed-only providers' prices.
+
+### Changed
+
+- Onboarding shows the recovery kit only where it is needed and asks one checkbox instead of a quiz (UX-01).
+- The final onboarding card has the theme choice and a prompt that matches your provider (UX-02).
+- The cost strip has clear no-estimate states (UX-03).
+- The model picker shows one row per model (UX-04) and closes on Escape, an outside click or Generate (UX-05).
+- The disk banner shows free space only (UX-06).
+- Providers, models and steps use their user-facing names everywhere (UX-07, UX-08), and origin errors are in plain words (UX-09).
+- The price-age line appears only after 20 days (UX-10).
+- The onboarding key step's button reads "Continue" (UX-11).
+- A Character's real-person question is one three-way choice (UX-12).
+- A live run shows "Live" with its stream state (UX-13).
+- Smart folders sit in the Library tree (UX-14).
+- A Character's anchor is picked from the Library, not typed as an id (UX-15).
+- Voices show their name, type and price, with Pin, Bind, Default and Delete (UX-16).
+- Workflow cards show "from ≈ $…", a Mine pill, and the saved name (UX-17, UX-18).
+- Video mode shows the default duration it prices (UX-19).
+- A session-budget stop has a "Budget reached" card (UX-20).
+
 ## [0.5.1] - 2026-10-05
 
 > Review record. The owner reviewed v0.5.0 against the PRDs and TRDs and listed
