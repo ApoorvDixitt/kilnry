@@ -35,8 +35,10 @@ describe('about info (F-SET-11)', () => {
     expect(info.build_line).toContain(`Server build ${info.version}`);
     expect(info.build_line).toContain(`(${info.platform}-${info.arch})`);
     expect(info.build_line).toContain(`Node ${info.node}`);
-    expect(info.build_line).toContain('Next ');
-    expect(info.build_line).toContain('PGlite ');
+    // F-61: the build-time pins, never "unknown".
+    expect(info.build_line).toMatch(/· Next 16\.3\.\d+ ·/);
+    expect(info.build_line).toMatch(/· PGlite 0\.5\.\d+ ·/);
+    expect(info.build_line).not.toContain('unknown');
     expect(info.build_line).toContain('ffmpeg ');
     expect(info.no_telemetry).toContain('no telemetry');
   });

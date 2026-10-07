@@ -7,6 +7,7 @@ import { chmodSync, existsSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import {
+  appVersion,
   configureNetworkState,
   persistNetworkState,
   JobEngine,
@@ -114,7 +115,10 @@ async function boot(): Promise<void> {
   global.__kilnryRuntimeStatus = { stage: 'ready', readyAt: new Date().toISOString() };
   log.info({ data_dir: config.data_dir, host: config.host, port: config.port }, 'runtime_ready');
   process.stdout.write(
-    `Kilnry ${process.env.npm_package_version ?? '0.0.0'} · fair-code, Sustainable Use License 1.0 · https://github.com/ApoorvDixitt/kilnry\n`,
+    // The version /api/health reports. `npm_package_version` exists only under
+    // a package-manager script, so the standalone server printed "Kilnry 0.0.0"
+    // (F-120).
+    `Kilnry ${appVersion()} · fair-code, Sustainable Use License 1.0 · https://github.com/ApoorvDixitt/kilnry\n`,
   );
 
   if (!global.__kilnrySignalsInstalled) {

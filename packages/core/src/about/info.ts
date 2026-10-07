@@ -8,20 +8,10 @@
 // the generated THIRD_PARTY_NOTICES.md, and a redacted diagnostics bundle. No
 // telemetry, no accounts server (D-10/D-14): everything here is read locally.
 
-import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
 import { appVersion } from '../version.js';
 import { defaultDataDir } from '../config/load.js';
-
-const require = createRequire(import.meta.url);
-
-function packageVersion(specifier: string): string {
-  try {
-    return (require(`${specifier}/package.json`) as { version: string }).version;
-  } catch {
-    return 'unknown';
-  }
-}
+import { BUILD_PINS } from './versions.generated.js';
 
 // FFmpeg is a separate process (TRD-02), so its version is read by spawning it
 // once with a short timeout; absent, the build line says so rather than lying.
@@ -56,8 +46,10 @@ export function aboutInfo(): AboutInfo {
   const platform = process.platform;
   const arch = process.arch;
   const node = process.version.replace(/^v/, '');
-  const next = packageVersion('next');
-  const pglite = packageVersion('@electric-sql/pglite');
+  // Build-time pins (PRD-16 §11). A runtime `require` from core could not find
+  // either package and printed "unknown" (F-61); Node and ffmpeg stay runtime.
+  const next = BUILD_PINS.next;
+  const pglite = BUILD_PINS.pglite;
   const ffmpeg = ffmpegVersion();
   return {
     version,
