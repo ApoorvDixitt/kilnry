@@ -58,7 +58,28 @@ function waitFor(child: ChildProcess, match: RegExp, timeoutMs = 60_000): Promis
     child.once('close', (code, signal) => {
       if (match.test(stdout)) return;
       clearTimeout(timer);
-      reject(new Error(`child exited (${code ?? signal}); stderr=${stderr}`));
+      reject(new Error(`child exited (${code ?? signal}); stdout=${stdout.slice(-2000)} stderr=${stderr}`));
+    });
+  });
+}
+
+// Everything a child printed, read once it has closed its streams.
+function finish(
+  child: ChildProcess,
+  timeoutMs = 90_000,
+): Promise<{ code: number | null; stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    let stdout = '';
+    let stderr = '';
+    const timer = setTimeout(
+      () => reject(new Error(`timed out; stdout=${stdout} stderr=${stderr}`)),
+      timeoutMs,
+    );
+    child.stdout?.on('data', (chunk: Buffer) => (stdout += chunk.toString('utf8')));
+    child.stderr?.on('data', (chunk: Buffer) => (stderr += chunk.toString('utf8')));
+    child.once('close', (code) => {
+      clearTimeout(timer);
+      resolve({ code, stdout, stderr });
     });
   });
 }
@@ -87,14 +108,17 @@ describe.skipIf(process.platform === 'win32')('SIGKILL during a Library import (
       before.set(name.replace(/\.kilnry\.json$/, ''), parsed.asset_id);
     }
 
-    const second = launch('resume', root);
-    const [, json] = (await waitFor(second, /RESULT (.+)\n/)) as unknown as [string, string];
-    const result = JSON.parse(json) as {
+    const second = await finish(launch('resume', root));
+    const json = /RESULT (.+)\n/.exec(second.stdout)?.[1];
+    expect(
+      json,
+      `resume child (exit ${second.code}) printed: ${second.stdout.slice(-2000)} ${second.stderr}`,
+    ).toBeDefined();
+    const result = JSON.parse(json!) as {
       report: { scanned: number; errors: unknown[] };
       rows: Array<{ id: string; path: string }>;
       lockFree: boolean;
     };
-    await exited(second);
 
     expect(result.report.errors).toEqual([]);
     expect(result.report.scanned).toBe(40);
