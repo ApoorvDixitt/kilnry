@@ -12,7 +12,7 @@
 // asset, an export-final workflow's final is the exported asset.
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { closeDatabaseState, createDatabase, assets, type DatabaseState } from '@kilnry/db';
+import { closeDatabaseState, createDatabase, assets, type DatabaseState, runs } from '@kilnry/db';
 import { eq } from 'drizzle-orm';
 import type { JobEngine } from '@kilnry/core/jobs';
 import { buildManifest, execute, parseWorkflow, plan, type PlanContext, type Step } from '@kilnry/workflows';
@@ -121,6 +121,12 @@ async function drive(id: string, yaml: string) {
   const workflow = parseWorkflow(yaml);
   const priced = plan(workflow, {}, planCtx);
   const run = runContext(id, priced);
+  // run_steps.run_id references runs(id) (TRD-04 §3, F-82); a real run's row is
+  // written when it is planned.
+  await database.db
+    .insert(runs)
+    .values({ id: run.runId, workflowId: workflow.id, status: 'running', inputs: {}, plan: {} })
+    .onConflictDoNothing();
   const effects = runEffects(database, engine, run);
   // The generate step has no engine here, so intercept it: complete it with the
   // seeded source asset. assemble/export fall through to the real handlers.

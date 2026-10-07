@@ -32,7 +32,7 @@ export const assets = pgTable(
   {
     id: text('id').primaryKey(),
     path: text('path').notNull().unique(),
-    folderPath: text('folder_path'),
+    folderPath: text('folder_path').references(() => folders.path, { onDelete: 'cascade' }),
     kind: text('kind').notNull(),
     mime: text('mime'),
     bytes: bigint('bytes', { mode: 'number' }),
@@ -75,20 +75,35 @@ export const assets = pgTable(
 
 export const assetTags = pgTable(
   'asset_tags',
-  { assetId: text('asset_id').notNull(), tag: text('tag').notNull() },
+  {
+    assetId: text('asset_id')
+      .notNull()
+      .references(() => assets.id, { onDelete: 'cascade' }),
+    tag: text('tag').notNull(),
+  },
   (table) => [primaryKey({ columns: [table.assetId, table.tag] })],
 );
 
 export const assetLineage = pgTable(
   'asset_lineage',
-  { childId: text('child_id').notNull(), parentId: text('parent_id').notNull(), role: text('role') },
+  {
+    childId: text('child_id')
+      .notNull()
+      .references(() => assets.id, { onDelete: 'cascade' }),
+    parentId: text('parent_id')
+      .notNull()
+      .references(() => assets.id, { onDelete: 'cascade' }),
+    role: text('role'),
+  },
   (table) => [primaryKey({ columns: [table.childId, table.parentId] })],
 );
 
 export const assetCharacters = pgTable(
   'asset_characters',
   {
-    assetId: text('asset_id').notNull(),
+    assetId: text('asset_id')
+      .notNull()
+      .references(() => assets.id, { onDelete: 'cascade' }),
     characterId: text('character_id').notNull(),
     version: integer('version').notNull(),
     strategy: text('strategy').notNull(),

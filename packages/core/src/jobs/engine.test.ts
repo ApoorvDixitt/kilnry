@@ -40,6 +40,7 @@ import {
   markNetworkOffline,
   markNetworkOnline,
 } from '../net/network-state.js';
+import { upsertFolder } from '../library/index.js';
 
 const tinyPng = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
@@ -905,6 +906,8 @@ describe('F-CHR-09 the engine resolves @mentions', () => {
     const anchorId = '01JAK7ANCH0000000000000000';
     mkdirSync(join(library, 'inbox'), { recursive: true });
     writeFileSync(join(library, 'inbox', 'maya-anchor.png'), tinyPng);
+    // assets.folder_path references folders(path) (F-82).
+    await upsertFolder(state, 'inbox');
     await state.db.insert(assets).values({
       id: anchorId,
       path: join('inbox', 'maya-anchor.png'),

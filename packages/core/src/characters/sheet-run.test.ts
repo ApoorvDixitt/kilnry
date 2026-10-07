@@ -7,7 +7,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { closeDatabaseState, createDatabase, runSteps, runs } from '@kilnry/db';
+import { closeDatabaseState, createDatabase, jobs, runSteps, runs } from '@kilnry/db';
 import { eq } from 'drizzle-orm';
 import {
   priceSheet,
@@ -38,7 +38,7 @@ async function db(): Promise<Awaited<ReturnType<typeof createDatabase>>> {
 
 // A fake engine that hands back a job id, and a fake sink whose jobs are already
 // complete so the run advances deterministically without a provider.
-function fakes(): {
+function fakes(state: Awaited<ReturnType<typeof db>>): {
   engine: SheetEngine;
   sink: SheetSink;
   registered: Array<{ view: string; anchor: string | null }>;
@@ -50,6 +50,9 @@ function fakes(): {
     async createJob() {
       counter += 1;
       const jobId = `job_${counter}`;
+      // run_steps.job_id references jobs(id) (TRD-04 §3, F-82); the real engine
+      // writes this row before it returns the id.
+      await state.db.insert(jobs).values({ id: jobId, kind: 'image', source: 'ui', request: {} });
       jobToAsset.set(jobId, `asset_${counter}`);
       return { job_id: jobId, status: 'queued' };
     },
@@ -75,7 +78,7 @@ function fakes(): {
 describe('sheet run (F-CHR-04 minimal executor)', () => {
   it('runs the turnaround, registers the six views, then pauses for approval', async () => {
     const state = await db();
-    const { engine, sink, registered } = fakes();
+    const { engine, sink, registered } = fakes(state);
     const { run_id } = await startSheetRun(state, engine, {
       characterId: 'char_1',
       anchorAssetId: 'anchor_1',
@@ -108,7 +111,7 @@ describe('sheet run (F-CHR-04 minimal executor)', () => {
 
   it('continues to the expression grid on approve', async () => {
     const state = await db();
-    const { engine, sink } = fakes();
+    const { engine, sink } = fakes(state);
     const { run_id } = await startSheetRun(state, engine, {
       characterId: 'char_1',
       anchorAssetId: 'anchor_1',
@@ -132,7 +135,7 @@ describe('sheet run (F-CHR-04 minimal executor)', () => {
 
   it('stops on deny and spends nothing more', async () => {
     const state = await db();
-    const { engine, sink } = fakes();
+    const { engine, sink } = fakes(state);
     const { run_id } = await startSheetRun(state, engine, {
       characterId: 'char_1',
       anchorAssetId: 'anchor_1',
@@ -155,7 +158,7 @@ describe('sheet run (F-CHR-04 minimal executor)', () => {
 describe('a sheet whose first job cannot be submitted (F-112)', () => {
   it('marks the first generate step failed with the reason and fails the run', async () => {
     const state = await db();
-    const { sink } = fakes();
+    const { sink } = fakes(state);
     const refusing = {
       async createJob(): Promise<{ job_id: string; status: string }> {
         throw new Error('No connected provider offers image editing.');

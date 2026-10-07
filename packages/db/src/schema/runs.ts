@@ -4,6 +4,7 @@
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
 import { boolean, integer, jsonb, numeric, pgTable, primaryKey, text, timestamp } from 'drizzle-orm/pg-core';
+import { jobs } from './jobs.js';
 
 export const runs = pgTable('runs', {
   id: text('id').primaryKey(),
@@ -33,7 +34,9 @@ export const runs = pgTable('runs', {
 export const runSteps = pgTable(
   'run_steps',
   {
-    runId: text('run_id').notNull(),
+    runId: text('run_id')
+      .notNull()
+      .references(() => runs.id, { onDelete: 'cascade' }),
     stepId: text('step_id').notNull(),
     // The unique id of an expanded step: `<step_id>` at the top level, or
     // `<foreach>[k].<step_id>` inside an iteration. The step_id alone is not
@@ -44,7 +47,7 @@ export const runSteps = pgTable(
     name: text('name'),
     kind: text('kind'),
     status: text('status'),
-    jobId: text('job_id'),
+    jobId: text('job_id').references(() => jobs.id),
     modelId: text('model_id'),
     provider: text('provider'),
     estimateUsd: numeric('estimate_usd', { precision: 12, scale: 6 }),

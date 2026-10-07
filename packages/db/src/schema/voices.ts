@@ -13,6 +13,7 @@ import {
   timestamp,
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
+import { characters } from './characters.js';
 
 export const voices = pgTable(
   'voices',
@@ -44,9 +45,13 @@ export const voices = pgTable(
 export const characterVoices = pgTable(
   'character_voices',
   {
-    characterId: text('character_id').notNull(),
+    characterId: text('character_id')
+      .notNull()
+      .references(() => characters.id, { onDelete: 'cascade' }),
     version: integer('version').notNull(),
-    voiceUlid: text('voice_ulid').notNull(),
+    voiceUlid: text('voice_ulid')
+      .notNull()
+      .references(() => voices.id),
   },
   (table) => [primaryKey({ columns: [table.characterId, table.version] })],
 );

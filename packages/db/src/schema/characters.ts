@@ -6,6 +6,7 @@
 import {
   boolean,
   customType,
+  foreignKey,
   integer,
   jsonb,
   numeric,
@@ -41,7 +42,9 @@ export const characters = pgTable('characters', {
 export const characterVersions = pgTable(
   'character_versions',
   {
-    characterId: text('character_id').notNull(),
+    characterId: text('character_id')
+      .notNull()
+      .references(() => characters.id, { onDelete: 'cascade' }),
     version: integer('version').notNull(),
     parentVersion: integer('parent_version'),
     appearance: jsonb('appearance').$type<Record<string, unknown>>(),
@@ -55,41 +58,64 @@ export const characterVersions = pgTable(
   (table) => [primaryKey({ columns: [table.characterId, table.version] })],
 );
 
-export const characterReferences = pgTable('character_references', {
-  id: text('id').primaryKey(),
-  characterId: text('character_id').notNull(),
-  version: integer('version').notNull(),
-  assetId: text('asset_id').notNull(),
-  role: text('role').notNull(),
-  view: text('view'),
-  label: text('label'),
-  weight: numeric('weight', { precision: 3, scale: 2 }).notNull().default('1'),
-  position: integer('position'),
-  faceEmbedding: bytea('face_embedding'),
-  createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
-});
+export const characterReferences = pgTable(
+  'character_references',
+  {
+    id: text('id').primaryKey(),
+    characterId: text('character_id').notNull(),
+    version: integer('version').notNull(),
+    assetId: text('asset_id').notNull(),
+    role: text('role').notNull(),
+    view: text('view'),
+    label: text('label'),
+    weight: numeric('weight', { precision: 3, scale: 2 }).notNull().default('1'),
+    position: integer('position'),
+    faceEmbedding: bytea('face_embedding'),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+  },
+  // TRD-04 §3: the version a row belongs to (F-82). The asset_id reference the
+  // TRD also names is not declared: a Library reindex re-creates every asset
+  // under its id, and that cascade would delete every Character's references
+  // (migration 0010; OWNER DECISION NEEDED, task 57).
+  (table) => [
+    foreignKey({
+      columns: [table.characterId, table.version],
+      foreignColumns: [characterVersions.characterId, characterVersions.version],
+    }).onDelete('cascade'),
+  ],
+);
 
-export const trainedIdentities = pgTable('trained_identities', {
-  id: text('id').primaryKey(),
-  characterId: text('character_id').notNull(),
-  version: integer('version').notNull(),
-  providerId: text('provider_id').notNull(),
-  kind: text('kind').notNull(),
-  remoteId: text('remote_id'),
-  artifactUrl: text('artifact_url'),
-  localPath: text('local_path'),
-  sha256: text('sha256'),
-  baseModel: text('base_model'),
-  triggerWord: text('trigger_word'),
-  defaultScale: numeric('default_scale', { precision: 3, scale: 2 }),
-  status: text('status').notNull(),
-  jobId: text('job_id'),
-  costUsd: numeric('cost_usd', { precision: 12, scale: 6 }),
-  trainedAt: timestamp('trained_at', { withTimezone: true, mode: 'date' }),
-  expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'date' }),
-  sourceAssetIds: text('source_asset_ids').array(),
-  error: text('error'),
-});
+export const trainedIdentities = pgTable(
+  'trained_identities',
+  {
+    id: text('id').primaryKey(),
+    characterId: text('character_id').notNull(),
+    version: integer('version').notNull(),
+    providerId: text('provider_id').notNull(),
+    kind: text('kind').notNull(),
+    remoteId: text('remote_id'),
+    artifactUrl: text('artifact_url'),
+    localPath: text('local_path'),
+    sha256: text('sha256'),
+    baseModel: text('base_model'),
+    triggerWord: text('trigger_word'),
+    defaultScale: numeric('default_scale', { precision: 3, scale: 2 }),
+    status: text('status').notNull(),
+    jobId: text('job_id'),
+    costUsd: numeric('cost_usd', { precision: 12, scale: 6 }),
+    trainedAt: timestamp('trained_at', { withTimezone: true, mode: 'date' }),
+    expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'date' }),
+    sourceAssetIds: text('source_asset_ids').array(),
+    error: text('error'),
+  },
+  // TRD-04 §3: the version a row belongs to (F-82).
+  (table) => [
+    foreignKey({
+      columns: [table.characterId, table.version],
+      foreignColumns: [characterVersions.characterId, characterVersions.version],
+    }).onDelete('cascade'),
+  ],
+);
 
 export const characterHandleAliases = pgTable(
   'character_handle_aliases',

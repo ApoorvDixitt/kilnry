@@ -17,6 +17,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { assets, closeDatabaseState, createDatabase, folders } from '@kilnry/db';
 import { checklistStatus } from './checklist.js';
 import { ulid } from '../ids.js';
+import { upsertFolder } from '../library/index.js';
 
 const disposers: Array<() => Promise<void>> = [];
 
@@ -40,6 +41,8 @@ async function addAsset(
   folderPath: string,
   trashed: boolean,
 ): Promise<void> {
+  // assets.folder_path references folders(path) (F-82).
+  await upsertFolder(state, folderPath);
   await state.db.insert(assets).values({
     id: ulid(),
     path: `${folderPath}/file-${ulid()}.png`,

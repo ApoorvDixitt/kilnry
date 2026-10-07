@@ -21,7 +21,9 @@ export const chatSessions = pgTable('chat_sessions', {
 
 export const chatMessages = pgTable('chat_messages', {
   id: text('id').primaryKey(),
-  sessionId: text('session_id').notNull(),
+  sessionId: text('session_id')
+    .notNull()
+    .references(() => chatSessions.id, { onDelete: 'cascade' }),
   role: text('role').notNull(),
   parts: jsonb('parts').$type<unknown[]>().notNull(),
   usage: jsonb('usage').$type<Record<string, unknown>>(),

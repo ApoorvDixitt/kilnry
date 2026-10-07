@@ -7,7 +7,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { characters, closeDatabaseState, createDatabase } from '@kilnry/db';
+import { assets, characters, closeDatabaseState, createDatabase } from '@kilnry/db';
 import { eq } from 'drizzle-orm';
 import { ulid } from '../ids.js';
 import {
@@ -211,7 +211,12 @@ describe('references and versioning', () => {
     const state = await db();
     const head = await createCharacter(state, { handle: 'maya', kind: 'character', display_name: 'Maya' });
     await freezeVersion(state, head.id, 1);
-    await recordAssetCharacters(state, ulid(), [{ character_id: head.id, version: 1, strategy: 'text' }]);
+    // asset_characters.asset_id references assets(id) (F-82).
+    const assetId = ulid();
+    await state.db
+      .insert(assets)
+      .values({ id: assetId, path: `${assetId}.png`, kind: 'image', createdAt: new Date() });
+    await recordAssetCharacters(state, assetId, [{ character_id: head.id, version: 1, strategy: 'text' }]);
     await forkVersion(state, head.id);
     const rows = await listVersions(state, head.id);
     expect(rows).toEqual([
@@ -226,6 +231,9 @@ describe('lineage', () => {
     const state = await db();
     const head = await createCharacter(state, { handle: 'maya', kind: 'character', display_name: 'Maya' });
     const assetId = ulid();
+    await state.db
+      .insert(assets)
+      .values({ id: assetId, path: `${assetId}.png`, kind: 'image', createdAt: new Date() });
     await recordAssetCharacters(state, assetId, [
       { character_id: head.id, version: 1, strategy: 'elements' },
       // A second occurrence of the same character maps to the same row (deduped).

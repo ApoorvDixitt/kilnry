@@ -10,7 +10,7 @@ import { dirname, join, resolve, sep } from 'node:path';
 import { assets, auditEvents, settings, type DatabaseState } from '@kilnry/db';
 import { KilnryError } from '../errors.js';
 import { resolveInRoot } from './containment.js';
-import { indexAsset } from './index.js';
+import { indexAsset, upsertFolder } from './index.js';
 import { readSidecar, sidecarPath, type Sidecar } from './sidecar.js';
 
 export type AssetSort = 'newest' | 'oldest' | 'name' | 'cost' | 'duration';
@@ -285,6 +285,8 @@ export async function deleteAssetToTrash(
     await renameIfExists(sourceSidecar, targetSidecar);
   }
 
+  // assets.folder_path references folders(path) (F-82).
+  await upsertFolder(state, 'Trash');
   await state.db
     .update(assets)
     .set({ path: trashRel, folderPath: 'Trash', trashedAt: now, originalPath: originalRel })
@@ -321,11 +323,15 @@ export async function restoreAsset(state: DatabaseState, root: string, assetId: 
     const next: Sidecar = { ...sidecar.value, trash: null };
     await writeSidecarExact(destination, next);
   }
+  const restoredFolder = destinationRel.includes('/')
+    ? destinationRel.split('/').slice(0, -1).join('/')
+    : null;
+  if (restoredFolder !== null) await upsertFolder(state, restoredFolder);
   await state.db
     .update(assets)
     .set({
       path: destinationRel,
-      folderPath: destinationRel.includes('/') ? destinationRel.split('/').slice(0, -1).join('/') : null,
+      folderPath: restoredFolder,
       trashedAt: null,
       originalPath: null,
     })

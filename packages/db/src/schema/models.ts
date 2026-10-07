@@ -4,12 +4,15 @@
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
 import { index, integer, jsonb, numeric, pgTable, text, timestamp, uniqueIndex } from 'drizzle-orm/pg-core';
+import { providers } from './providers.js';
 
 export const models = pgTable(
   'models',
   {
     id: text('id').primaryKey(),
-    providerId: text('provider_id').notNull(),
+    providerId: text('provider_id')
+      .notNull()
+      .references(() => providers.id),
     modelId: text('model_id').notNull(),
     displayName: text('display_name').notNull(),
     capabilities: text('capabilities').array().notNull(),
@@ -32,7 +35,9 @@ export const priceSnapshots = pgTable(
   'price_snapshots',
   {
     id: text('id').primaryKey(),
-    modelUlid: text('model_ulid').notNull(),
+    modelUlid: text('model_ulid')
+      .notNull()
+      .references(() => models.id),
     unit: text('unit').notNull(),
     amountUsd: numeric('amount_usd', { precision: 12, scale: 6 }).notNull(),
     tiers: jsonb('tiers').$type<unknown>(),

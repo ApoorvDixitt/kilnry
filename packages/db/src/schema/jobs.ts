@@ -14,6 +14,7 @@ import {
   timestamp,
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
+import { isNotNull } from 'drizzle-orm';
 
 export const jobs = pgTable(
   'jobs',
@@ -56,6 +57,7 @@ export const jobs = pgTable(
   },
   (table) => [
     index('jobs_status_idx').on(table.status, table.createdAt),
-    uniqueIndex('jobs_client_request_idx').on(table.clientRequestId),
+    // TRD-04 §3: partial, `where client_request_id is not null` (F-84).
+    uniqueIndex('jobs_client_request_idx').on(table.clientRequestId).where(isNotNull(table.clientRequestId)),
   ],
 );

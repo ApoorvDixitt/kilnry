@@ -4,6 +4,7 @@
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
 import { index, numeric, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
+import { jobs } from './jobs.js';
 
 export const budgets = pgTable('budgets', {
   scope: text('scope').primaryKey(),
@@ -15,7 +16,7 @@ export const spendLedger = pgTable(
   'spend_ledger',
   {
     id: text('id').primaryKey(),
-    jobId: text('job_id'),
+    jobId: text('job_id').references(() => jobs.id),
     providerId: text('provider_id'),
     modelId: text('model_id'),
     folder: text('folder'),

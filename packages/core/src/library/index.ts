@@ -92,7 +92,11 @@ export async function buildMinimalSidecar(input: {
   });
 }
 
-async function upsertFolder(state: DatabaseState, folder: string): Promise<void> {
+/**
+ * Make sure the folders row an asset points at exists: assets.folder_path
+ * references folders(path) (TRD-04 §3, migration 0010, F-82).
+ */
+export async function upsertFolder(state: DatabaseState, folder: string): Promise<void> {
   const normalized = folder === '.' ? '' : folder;
   await state.db
     .insert(folders)

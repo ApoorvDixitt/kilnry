@@ -19,7 +19,9 @@ export const publishAccounts = pgTable('publish_accounts', {
 });
 export const publishPosts = pgTable('publish_posts', {
   id: text('id').primaryKey(),
-  accountId: text('account_id').notNull(),
+  accountId: text('account_id')
+    .notNull()
+    .references(() => publishAccounts.id),
   assetId: text('asset_id'),
   mode: text('mode'),
   publishId: text('publish_id'),

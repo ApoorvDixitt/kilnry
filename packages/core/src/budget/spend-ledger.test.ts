@@ -7,7 +7,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { closeDatabaseState, createDatabase, spendLedger } from '@kilnry/db';
+import { closeDatabaseState, createDatabase, jobs, spendLedger } from '@kilnry/db';
 import { ulid } from '../ids.js';
 import { spendLedgerCsv, spendLedgerEntries, spendLedgerGrouped } from './spend-ledger.js';
 
@@ -25,6 +25,10 @@ async function fixture(): Promise<ReturnType<typeof createDatabase>> {
   });
   await state.ready;
   const day = new Date('2026-09-20T12:00:00.000Z');
+  // spend_ledger.job_id references jobs(id) (TRD-04 §3, F-82).
+  await state.db
+    .insert(jobs)
+    .values(['j1', 'j2', 'j3'].map((id) => ({ id, kind: 'image', source: 'ui', request: {} })));
   await state.db.insert(spendLedger).values([
     {
       id: ulid(),

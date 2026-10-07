@@ -15,6 +15,7 @@ import {
   priceSnapshots,
   spendLedger,
   voices,
+  characters,
 } from '@kilnry/db';
 import { eq } from 'drizzle-orm';
 import { seedRegistry } from '../registry/store.js';
@@ -88,6 +89,10 @@ describe('voice preview and deletion (F-VOI-01)', () => {
     await state.db
       .insert(voices)
       .values({ id: 'voice-1', providerId: 'minimax', voiceId: 'p1', name: 'One' });
+    // character_voices.character_id references characters(id) (F-82).
+    await state.db
+      .insert(characters)
+      .values({ id: 'char-1', handle: 'one', kind: 'character', displayName: 'One' });
     await state.db
       .insert(characterVoices)
       .values({ characterId: 'char-1', version: 1, voiceUlid: 'voice-1' });

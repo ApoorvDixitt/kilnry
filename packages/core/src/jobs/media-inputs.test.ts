@@ -11,6 +11,7 @@ import { assets, closeDatabaseState, createDatabase, type DatabaseState } from '
 import { CanonicalRequestSchema, type CanonicalRequest } from '../types.js';
 import type { AdapterContext, ProviderAdapter } from '../providers/adapter.js';
 import { resolveMediaInputs } from './media-inputs.js';
+import { upsertFolder } from '../library/index.js';
 
 const disposers: Array<() => Promise<void> | void> = [];
 
@@ -40,6 +41,8 @@ async function seedAsset(
 ): Promise<void> {
   const name = options.name ?? 'input.png';
   writeFileSync(join(library, 'inbox', name), options.bytes);
+  // assets.folder_path references folders(path) (F-82).
+  await upsertFolder(state, 'inbox');
   await state.db.insert(assets).values({
     id: options.id,
     path: join('inbox', name),

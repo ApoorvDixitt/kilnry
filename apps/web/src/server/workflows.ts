@@ -36,7 +36,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
 import { and, eq, inArray } from 'drizzle-orm';
 import { KilnryError, loadConfig, loadRegistry, ulid, listCharacters, loadFullCharacter } from '@kilnry/core';
-import { indexAsset, libraryMarker, resolveInRoot } from '@kilnry/core';
+import { indexAsset, libraryMarker, resolveInRoot, upsertFolder } from '@kilnry/core';
 import { eventHub } from '@kilnry/core';
 import {
   ffmpegExtension,
@@ -1938,6 +1938,8 @@ async function assembleFile(
     : [];
   if (primary?.kind) kind = primary.kind;
   const assetId = ulid();
+  // assets.folder_path references folders(path) (F-82).
+  if (run.folder) await upsertFolder(db, run.folder);
   await db.db
     .insert(assets)
     .values({
