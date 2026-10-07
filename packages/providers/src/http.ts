@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
-import { KilnryError, type ProviderId } from '@kilnry/core';
+import { KilnryError, markNetworkOnline, type ProviderId } from '@kilnry/core';
 import { providerHttpError, providerNetworkError } from './errors.js';
 
 export interface JsonRequestOptions {
@@ -48,6 +48,12 @@ export async function requestJson<T>(options: JsonRequestOptions): Promise<T> {
   } catch (error) {
     throw providerNetworkError(options.provider, error, options.ambiguousOnNetworkError ?? false);
   }
+  // An answer — any answer — proves the network is reachable, which is what
+  // PRD-15 §Offline means by "online again when one succeeds". Only a completed
+  // job marked it, so one timed-out request left the process offline until the
+  // next job finished: Chat's offline mode and the queue's waiting label both
+  // stayed on (seen in the m5 shard of run 37550708623).
+  markNetworkOnline();
   const body = await responseBody(response);
   if (!response.ok) throw providerHttpError(options.provider, response.status, body, response.headers);
   return body as T;
@@ -65,6 +71,7 @@ export async function requestBytes(
   } catch (error) {
     throw providerNetworkError(options.provider, error, false);
   }
+  markNetworkOnline();
   if (!response.ok) {
     const body = await responseBody(response);
     throw providerHttpError(options.provider, response.status, body, response.headers);

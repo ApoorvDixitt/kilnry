@@ -7,6 +7,8 @@ import { chmodSync, existsSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import {
+  configureNetworkState,
+  persistNetworkState,
   JobEngine,
   ProviderKeyStore,
   eventHub,
@@ -95,6 +97,17 @@ async function boot(): Promise<void> {
       onWarning: (message, error) => log.warn({ err: error }, message),
     }),
   };
+  // Every route handler reads the observed network state from the database,
+  // because Next gives each one its own module instance and the in-process flag
+  // is therefore per-route (F-117). Registered here, where this instance's
+  // services exist, so whichever instance observes a transition writes it.
+  configureNetworkState({
+    persist: (offlineSince) => {
+      void persistNetworkState(state, offlineSince).catch((error: unknown) => {
+        log.warn({ err: error }, 'network_state_persist_failed');
+      });
+    },
+  });
   if (config.library_root && existsSync(join(config.library_root, '.kilnry', 'library.json'))) {
     await ensureRuntimeEngine();
   }

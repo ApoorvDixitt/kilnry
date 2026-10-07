@@ -28,6 +28,16 @@ export const WAITING_FOR_NETWORK = 'Waiting for network';
 export const NETWORK_HOLD_SECONDS = 5;
 
 let online = true;
+/**
+ * Where the observed state is written so other module instances can read it.
+ * Registered once by the runtime; absent in a unit test, where the in-process
+ * flag is the whole truth.
+ */
+let persist: ((offlineSince: string | null) => void) | undefined;
+
+export function configureNetworkState(options: { persist?: (offlineSince: string | null) => void }): void {
+  persist = options.persist;
+}
 
 /** True when the last observed provider request reached the network. */
 export function isNetworkOnline(): boolean {
@@ -36,12 +46,16 @@ export function isNetworkOnline(): boolean {
 
 /** Record that a provider request reached the network. */
 export function markNetworkOnline(): void {
+  const changed = !online;
   online = true;
+  if (changed) persist?.(null);
 }
 
 /** Record that a provider request failed to reach the network (offline). */
 export function markNetworkOffline(): void {
+  const changed = online;
   online = false;
+  if (changed) persist?.(new Date().toISOString());
 }
 
 /**

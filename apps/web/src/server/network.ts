@@ -13,9 +13,13 @@
 // so the persisted transition decides and the flag is only a second opinion
 // within this instance (F-117).
 
-import { isNetworkOnline, networkOfflineSince } from '@kilnry/core';
+import { networkOfflineSince } from '@kilnry/core';
 import type { DatabaseState } from '@kilnry/db';
 
 export async function networkOnline(state: DatabaseState): Promise<boolean> {
-  return (await networkOfflineSince(state)) === null && isNetworkOnline();
+  // The stored transition only. The in-process flag belongs to one Next module
+  // instance: a request that failed in the worker's instance left the chat
+  // route's own flag untouched, and vice versa, so reading both ANDed together
+  // reported offline whenever any instance had ever seen a failure.
+  return (await networkOfflineSince(state)) === null;
 }
