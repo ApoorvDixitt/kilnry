@@ -40,8 +40,12 @@ export function CreateCharacter(): React.ReactNode {
   const [handleEdited, setHandleEdited] = useState(false);
   const [tags, setTags] = useState('');
   const [description, setDescription] = useState('');
-  const [isRealPerson, setIsRealPerson] = useState(false);
-  const [consentStatus, setConsentStatus] = useState<'self' | 'written' | 'none'>('none');
+  // One question, four answers (UX-12): the answer decides both is_real_person
+  // and the consent status PRD-07 §7's matrix needs.
+  const [who, setWho] = useState<'fictional' | 'self' | 'written' | 'other'>('fictional');
+  const isRealPerson = who !== 'fictional';
+  const consentStatus: 'self' | 'written' | 'none' =
+    who === 'self' ? 'self' : who === 'written' ? 'written' : 'none';
   const [textBody, setTextBody] = useState('');
   const [anchorAssetId, setAnchorAssetId] = useState('');
   const [castPick, setCastPick] = useState<{ asset_id: string; cast_params: Record<string, unknown> }>();
@@ -290,51 +294,42 @@ export function CreateCharacter(): React.ReactNode {
           />
         </label>
 
+        {/* UX-12: one question instead of a toggle and a conditional reveal. A
+            user who left the toggle off to skip the extra fields created a real
+            person as fictional, and PRD-07 §7's consent gate then never fired on
+            training. Each answer sets is_real_person and consent_status
+            together and shows its own §7 clause. */}
         {isElement ? null : (
-          <label className="create-character-toggle">
-            <input
-              type="checkbox"
-              checked={isRealPerson}
-              onChange={(event) => setIsRealPerson(event.target.checked)}
-            />
-            {message('characters.create.realPerson')}
-          </label>
-        )}
-
-        {!isElement && isRealPerson ? (
-          <fieldset className="create-character-consent">
-            <legend>{message('characters.consent.title')}</legend>
-            <p>{message('characters.consent.clauseHiggsfield')}</p>
-            <label>
-              <input
-                type="radio"
-                name="consent"
-                checked={consentStatus === 'self'}
-                onChange={() => setConsentStatus('self')}
-              />
-              {message('characters.consent.self')}
-            </label>
-            <label>
-              <input
-                type="radio"
-                name="consent"
-                checked={consentStatus === 'written'}
-                onChange={() => setConsentStatus('written')}
-              />
-              {message('characters.consent.written')}
-            </label>
-            <label>
-              <input
-                type="radio"
-                name="consent"
-                checked={consentStatus === 'none'}
-                onChange={() => setConsentStatus('none')}
-              />
-              {message('characters.consent.neither')}
-            </label>
-            <p className="create-character-consent-note">{message('characters.consent.neitherNote')}</p>
+          <fieldset className="create-character-who">
+            <legend>{message('characters.consent.whoTitle')}</legend>
+            {(
+              [
+                ['fictional', 'characters.consent.whoFictional'],
+                ['self', 'characters.consent.whoSelf'],
+                ['written', 'characters.consent.whoWritten'],
+                ['other', 'characters.consent.whoOther'],
+              ] as const
+            ).map(([answer, label]) => (
+              <label key={answer}>
+                <input
+                  type="radio"
+                  name="who"
+                  value={answer}
+                  checked={who === answer}
+                  onChange={() => setWho(answer)}
+                />
+                {message(label)}
+              </label>
+            ))}
+            <p className="create-character-consent-note">
+              {who === 'fictional'
+                ? message('characters.consent.clauseFictional')
+                : who === 'other'
+                  ? message('characters.consent.neitherNote')
+                  : message('characters.consent.clauseHiggsfield')}
+            </p>
           </fieldset>
-        ) : null}
+        )}
 
         {path === 'text' ? (
           <label>

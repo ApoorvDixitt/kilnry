@@ -4233,6 +4233,26 @@ html[data-motion='reduced'] *::after {
   align-items: center;
   gap: 8px;
 }
+.create-character-who {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+}
+
+.create-character-who legend {
+  font-size: 13px;
+  padding: 0 4px;
+}
+
+.create-character-who label {
+  align-items: center;
+  display: flex;
+  font-size: 13px;
+  gap: 8px;
+}
+
 .create-character-consent {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);

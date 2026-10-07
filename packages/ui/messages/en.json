@@ -1442,6 +1442,12 @@
     },
     "consent": {
       "title": "Is this a real person?",
+      "whoTitle": "Who is this?",
+      "whoFictional": "A fictional character",
+      "whoSelf": "Me",
+      "whoWritten": "Someone who gave written permission",
+      "whoOther": "Someone else",
+      "clauseFictional": "No consent needed: nothing here is a real person’s likeness.",
       "body": "Kilnry only trains a face or clones a voice for a real person once you confirm you have the right to.",
       "realPerson": "This is a real person",
       "fictional": "This is a fictional or invented character",
