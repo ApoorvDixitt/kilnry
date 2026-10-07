@@ -4,7 +4,6 @@
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
 import { chmodSync, existsSync, writeFileSync } from 'node:fs';
-import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import {
   appVersion,
@@ -24,6 +23,7 @@ import {
 import { closeDatabase, database, hasLocalUser, type DatabaseState } from '@kilnry/db';
 import { adapters } from '@kilnry/providers';
 import { log } from './log';
+import { newSetupToken, setupTokenDigest } from './setup-token';
 import { scoreFinishedAssets } from './consistency';
 import { driveRunToRest, buildAnalyzeServices } from './workflows';
 
@@ -67,12 +67,13 @@ function ensureSetupToken(dataDir: string, port: number): void {
 }
 
 /**
- * Writes a fresh random setup token to `tokenPath` with mode 0600, replacing any
- * existing token, and returns it. Exported for the runtime unit test.
+ * Writes a fresh setup token's hash to `tokenPath` with mode 0600, replacing any
+ * existing one, and returns the token for the printed link; the token itself is
+ * never stored (PRD-04:16, F-68). Exported for the runtime unit test.
  */
 export function writeSetupToken(tokenPath: string): string {
-  const token = randomBytes(32).toString('hex');
-  writeFileSync(tokenPath, `${token}\n`, { encoding: 'utf8', mode: 0o600 });
+  const token = newSetupToken();
+  writeFileSync(tokenPath, `${setupTokenDigest(token)}\n`, { encoding: 'utf8', mode: 0o600 });
   chmodSync(tokenPath, 0o600);
   return token;
 }

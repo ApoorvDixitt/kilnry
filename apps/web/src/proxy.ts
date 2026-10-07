@@ -4,13 +4,19 @@
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { hostname as osHostname, networkInterfaces } from 'node:os';
 import { join } from 'node:path';
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 import { ulid } from '@kilnry/core';
 import { defaultDataDir, loadConfig } from '@kilnry/core/config';
+import {
+  SETUP_TOKEN_CONSUMED,
+  SETUP_TOKEN_FILE,
+  SETUP_TOKEN_TTL_MS,
+  setupTokenDigest,
+} from './server/setup-token';
 import { takeRateLimit } from './server/rate-limit';
 import { message } from './lib/messages';
 
@@ -113,14 +119,18 @@ function addSecurityHeaders(
 function exchangeSetupToken(request: NextRequest): NextResponse | undefined {
   const supplied = request.nextUrl.searchParams.get('t');
   if (!supplied || request.nextUrl.pathname !== '/welcome') return undefined;
-  const path = join(defaultDataDir(), 'first-run.token');
+  const path = join(defaultDataDir(), SETUP_TOKEN_FILE);
   if (!existsSync(path)) return NextResponse.redirect(new URL('/welcome', request.url));
   const age = Date.now() - statSync(path).mtimeMs;
+  // The file holds the token's hash, never the token (PRD-04:16, F-68).
   const expected = readFileSync(path, 'utf8').trim();
-  const left = Buffer.from(supplied);
+  const left = Buffer.from(setupTokenDigest(supplied));
   const right = Buffer.from(expected);
-  const valid = age <= 10 * 60_000 && left.length === right.length && timingSafeEqual(left, right);
+  const valid = age <= SETUP_TOKEN_TTL_MS && left.length === right.length && timingSafeEqual(left, right);
   if (!valid) return new NextResponse(message('welcome.setupExpired'), { status: 403 });
+  // Single-use: the first exchange spends the link. The setup cookie carries
+  // the browser through sign-up; a second open of the same link is refused.
+  writeFileSync(path, `${SETUP_TOKEN_CONSUMED}\n`, { encoding: 'utf8', mode: 0o600 });
   const response = NextResponse.redirect(new URL('/welcome', request.url));
   response.cookies.set('kilnry_setup', '1', { httpOnly: true, sameSite: 'lax', maxAge: 30 * 60, path: '/' });
   return response;

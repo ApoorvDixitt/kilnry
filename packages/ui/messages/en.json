@@ -88,7 +88,7 @@
     "genericError": "Kilnry couldn't save this step. Check the details and try again.",
     "progress": "Setup progress",
     "localOnly": "127.0.0.1 · local only",
-    "setupExpired": "This setup link has expired. Start Kilnry again and open the new link it prints.",
+    "setupExpired": "This setup link has been used or has expired. Start Kilnry again and open the new link it prints.",
     "providerAlreadyConnected": "{provider} is already connected on this machine.",
     "examplePromptVideo": "A slow dolly-in on a chai glass on a marble counter, steam rising, morning light",
     "examplePromptImage": "A chai glass on a marble counter, steam rising, morning light",

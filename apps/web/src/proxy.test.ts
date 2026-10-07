@@ -3,11 +3,14 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
-import { hostname, networkInterfaces } from 'node:os';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { hostname, networkInterfaces, tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { NextRequest } from 'next/server';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { machineLanHosts, proxy, ratePolicy } from './proxy';
 import { resetRateLimits } from './server/rate-limit';
+import { writeSetupToken } from './server/runtime';
 
 const original = {
   release: process.env.KILNRY_RELEASE_BUILD,
@@ -219,5 +222,39 @@ describe('the LAN Host allowlist (F-SET-02)', () => {
     // A private address this machine does not hold is not on the list.
     const stranger = own.includes('10.99.99.99') ? '10.99.99.98' : '10.99.99.99';
     expect(hosts.has(stranger)).toBe(false);
+  });
+});
+
+// F-68: PRD-04:16 — the first-run token is "32 random bytes, base64url", the
+// server "stores its hash", and it "is single-use and expires after 10 minutes".
+// It was stored in plain hex and could be exchanged again inside the window.
+describe('the first-run setup link (F-ONB-01, F-68)', () => {
+  let dataDir: string;
+  const previous = process.env.KILNRY_DATA_DIR;
+  beforeEach(() => {
+    dataDir = mkdtempSync(join(tmpdir(), 'kilnry-setup-token-'));
+    process.env.KILNRY_DATA_DIR = dataDir;
+  });
+  afterEach(() => {
+    if (previous === undefined) delete process.env.KILNRY_DATA_DIR;
+    else process.env.KILNRY_DATA_DIR = previous;
+    rmSync(dataDir, { recursive: true, force: true });
+  });
+
+  it('opens once, then refuses the same link', () => {
+    const token = writeSetupToken(join(dataDir, 'first-run.token'));
+    const first = proxy(request(`/welcome?t=${token}`));
+    expect(first.status).toBe(307);
+    expect(first.cookies.get('kilnry_setup')?.value).toBe('1');
+    const second = proxy(request(`/welcome?t=${token}`));
+    expect(second.status).toBe(403);
+  });
+
+  it('keeps only the hash on disk and refuses a wrong token', () => {
+    const token = writeSetupToken(join(dataDir, 'first-run.token'));
+    expect(readFileSync(join(dataDir, 'first-run.token'), 'utf8')).not.toContain(token);
+    expect(proxy(request(`/welcome?t=${token.slice(0, -1)}x`)).status).toBe(403);
+    // The wrong guess does not spend the link.
+    expect(proxy(request(`/welcome?t=${token}`)).status).toBe(307);
   });
 });

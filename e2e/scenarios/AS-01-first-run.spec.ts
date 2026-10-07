@@ -7,6 +7,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
+import { printedSetupToken } from '../setup-link';
 
 test('@smoke @m3 S-01 AS-01 first run creates a protected local account and Library', async ({
   browser,
@@ -17,7 +18,7 @@ test('@smoke @m3 S-01 AS-01 first run creates a protected local account and Libr
   const dataDir = join(root, '.dev', 'e2e-data');
   const library = join(root, '.dev', 'e2e-library');
   const hostPort = '127.0.0.1:3123';
-  const token = readFileSync(join(dataDir, 'first-run.token'), 'utf8').trim();
+  const token = await printedSetupToken();
 
   const rejectedHost = await request.get('/api/health', { headers: { Host: 'attacker.example' } });
   expect(rejectedHost.status()).toBe(421);
@@ -30,6 +31,10 @@ test('@smoke @m3 S-01 AS-01 first run creates a protected local account and Libr
 
   await page.goto(`/welcome?t=${token}`);
   await expect(page).toHaveURL('/welcome');
+  // F-68: the link is single-use, and the file holds its hash, not the token.
+  const replayed = await request.get(`/welcome?t=${token}`, { maxRedirects: 0 });
+  expect(replayed.status()).toBe(403);
+  expect(readFileSync(join(dataDir, 'first-run.token'), 'utf8')).not.toContain(token);
   await expect(page.getByRole('heading', { name: 'Create your local account' })).toBeVisible();
   const welcomeAccessibility = await new AxeBuilder({ page })
     .withTags(['wcag2a', 'wcag2aa', 'wcag22aa'])

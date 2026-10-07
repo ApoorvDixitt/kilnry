@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { writeSetupToken } from './runtime';
+import { setupTokenDigest } from './setup-token';
 
 const dirs: string[] = [];
 
@@ -34,15 +35,17 @@ describe('setup token regeneration', () => {
     const fresh = writeSetupToken(tokenPath);
 
     expect(fresh).not.toBe(before);
-    expect(fresh).toMatch(/^[0-9a-f]{64}$/);
-    expect(readFileSync(tokenPath, 'utf8').trim()).toBe(fresh);
+    // 32 random bytes, base64url (PRD-04:16, F-68); the file holds its hash.
+    expect(fresh).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(readFileSync(tokenPath, 'utf8').trim()).toBe(setupTokenDigest(fresh));
+    expect(readFileSync(tokenPath, 'utf8')).not.toContain(fresh);
     expect(statSync(tokenPath).mtimeMs).toBeGreaterThan(stale.getTime());
   });
 
   it('keeps the token it just wrote and stores it with owner-only permissions', () => {
     const tokenPath = tempTokenPath();
     const written = writeSetupToken(tokenPath);
-    expect(readFileSync(tokenPath, 'utf8').trim()).toBe(written);
+    expect(readFileSync(tokenPath, 'utf8').trim()).toBe(setupTokenDigest(written));
     // Mode 0600: no group or world bits.
     expect(statSync(tokenPath).mode & 0o777).toBe(0o600);
   });

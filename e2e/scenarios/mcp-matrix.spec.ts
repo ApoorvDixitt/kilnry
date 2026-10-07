@@ -28,13 +28,13 @@
 // Codex CLI, Claude Desktop, Cursor.
 
 import { spawn } from 'node:child_process';
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import { printedSetupToken } from '../setup-link';
 
 const root = process.cwd();
 const outDir = join(root, 'e2e', 'output', 'mcp');
-const dataDir = join(root, '.dev', 'e2e-data');
 const libraryRoot = join(root, '.dev', 'e2e-library');
 const EMAIL = 'owner@example.test';
 const PASSWORD = 'Kilnry-local-test-42!';
@@ -69,7 +69,7 @@ async function ensureStudioReady(page: Page): Promise<void> {
   // Fresh install: drive the first-run wizard far enough to create the account,
   // set the Library root, and connect a mock OpenRouter key so kilnry_generate
   // has a route to price and run against under the mock service worker.
-  const token = readFileSync(join(dataDir, 'first-run.token'), 'utf8').trim();
+  const token = await printedSetupToken();
   await page.goto(`/welcome?t=${token}`);
   await page.getByLabel('Email').fill(EMAIL);
   await page.getByLabel('Password', { exact: true }).fill(PASSWORD);
