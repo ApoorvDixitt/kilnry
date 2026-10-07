@@ -95,23 +95,27 @@ describe('the From text anchor note (F-CHR-02, F-62)', () => {
       (button) => button.textContent === 'From text',
     );
     await act(async () => tab!.click());
-    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
     return host;
   }
   const notes = (host: HTMLElement): string[] =>
     [...host.querySelectorAll('.create-character-note')].map((note) => note.textContent ?? '');
 
+  // The note renders after the estimate request resolves: poll for it rather
+  // than wait one fixed tick, which was too short on the CI runner (run
+  // 37603798383).
   it('prices the anchor and does not ask for a key when a provider can make it', async () => {
     const host = await renderText(Response.json({ estimate_usd: 0.04 }));
-    expect(notes(host)).toEqual(['≈ $0.040 for the anchor']);
+    await vi.waitFor(() => expect(notes(host)).toEqual(['≈ $0.040 for the anchor']));
   });
 
   it('asks for an image provider only when none can route the anchor', async () => {
     const host = await renderText(
       Response.json({ error: { code: 'NO_PROVIDER', message: 'No connected provider' } }, { status: 422 }),
     );
-    expect(notes(host)).toEqual([
-      'Generating an anchor needs an image provider. Add a fal or OpenRouter key.',
-    ]);
+    await vi.waitFor(() =>
+      expect(notes(host)).toEqual([
+        'Generating an anchor needs an image provider. Add a fal or OpenRouter key.',
+      ]),
+    );
   });
 });
