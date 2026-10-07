@@ -28,7 +28,7 @@ import {
   type LlmRef,
   type LlmRegistryRow,
 } from '@kilnry/agent';
-import { isNetworkOnline, loadConfig, loadRegistry } from '@kilnry/core';
+import { loadConfig, loadRegistry } from '@kilnry/core';
 import { assets as assetsTable, chatMessages, chatSessions, settings, spendLedger } from '@kilnry/db';
 import { adapters, detectOllama } from '@kilnry/providers';
 import { promptLibraryRoot } from '@kilnry/skills';
@@ -43,6 +43,7 @@ import { projectMemoryBody } from '../../../server/project-memory';
 import { firstMessageText } from '../../../server/chat-transcript';
 import { skillRoots } from '../../../server/skills';
 import { chatSessionDefaults, sessionRowDefaults } from '../../../server/chat-session';
+import { networkOnline } from '../../../server/network';
 
 export const maxDuration = 300;
 
@@ -151,6 +152,11 @@ export async function POST(request: Request): Promise<Response> {
     // so each job records who confirmed it (TRD-04's confirmed_by).
     const approvals = trackApprovals(toolApproval);
 
+    // The observed network state, read the way every route reads it (F-117):
+    // the in-process flag is not shared between Next's per-route module
+    // instances, so the persisted transition is the answer.
+    const online = await networkOnline(services.database);
+
     const tools = registerChatTools({
       services: {
         db: services.database,
@@ -170,7 +176,13 @@ export async function POST(request: Request): Promise<Response> {
         presets: await presetServices(services.database),
       },
       chatSessionId: session.id,
-      offline: llm.local === true,
+      // One offline signal for the whole turn (F40, D-70): the observed network
+      // state. It was `llm.local === true` here and `isNetworkOnline()` for the
+      // prompt, so the two disagreed in both directions — a local model with the
+      // network up lost the cloud spend tools, and a cloud model with the
+      // network down kept them and called providers that could not answer
+      // (F-39).
+      offline: !online,
       // A spend tool that proceeded adds its confirmed estimate (or settled
       // actual) to the session, so Run automatically's session budget counts
       // the generations it pays for, not only the tokens (F-104, PRD-14:173).
@@ -209,7 +221,7 @@ export async function POST(request: Request): Promise<Response> {
       // Offline mode is keyed on the observed network state, not on the model
       // being local (F40). A local model stays fully capable while online; any
       // model drops its spend tools while the network is down.
-      online: isNetworkOnline(),
+      online,
       promptsRoot: promptLibraryRoot(),
       ...(session.folder && config.library_root
         ? { memoryBody: projectMemoryBody(config.library_root, session.folder) }
