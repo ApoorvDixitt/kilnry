@@ -4,10 +4,12 @@
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
 import { and, desc, eq } from 'drizzle-orm';
+import { headers } from 'next/headers';
 import { NextResponse } from 'next/server';
 import * as z from 'zod';
 import { KilnryError, ulid } from '@kilnry/core';
 import { auditEvents, sessions } from '@kilnry/db';
+import { getAuth } from '../../../../server/auth';
 import { errorResponse, requireSession } from '../../../../server/http';
 import { runtimeServices } from '../../../../server/runtime';
 
@@ -46,13 +48,21 @@ export async function DELETE(request: Request): Promise<Response> {
     const current = await requireSession();
     const input = Input.parse(await request.json());
     const services = await runtimeServices();
-    const removed = await services.database.db
-      .delete(sessions)
+    const [owned] = await services.database.db
+      .select({ token: sessions.token })
+      .from(sessions)
       .where(and(eq(sessions.id, input.session_id), eq(sessions.userId, current.user.id)))
-      .returning({ id: sessions.id });
-    if (removed.length === 0) {
+      .limit(1);
+    if (!owned) {
       throw new KilnryError('NOT_FOUND', 'Session not found.');
     }
+    // Revoke through better-auth, not by deleting its row (F-76), so its own
+    // bookkeeping runs and a session cookie cache, if one is ever enabled, cannot
+    // keep a revoked session alive. better-auth 1.7.5's /revoke-session
+    // (dist/api/routes/session.mjs:377) checks the token belongs to the caller
+    // and calls internalAdapter.deleteSession(token); it answers `status: true`
+    // even for a token it did not find, so ownership is checked above.
+    await getAuth().api.revokeSession({ body: { token: owned.token }, headers: await headers() });
     await services.database.db.insert(auditEvents).values({
       id: ulid(),
       actor: `user:${current.user.id}`,
