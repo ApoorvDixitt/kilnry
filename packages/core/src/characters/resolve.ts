@@ -253,11 +253,26 @@ export function resolvePrompt(
   if (voiceOwner && !explicitVoice && !voiceAlreadyEmitted) {
     const bound = voiceOwner.version.voice!;
     const handle = voiceOwner.version.handle;
-    if (hasKlingVoiceSlots(model) && bound.provider !== 'kling') {
-      warnings.push(`@${handle}'s voice is ${bound.provider}; Kling speech needs a Kling-created voice`);
-    } else if (!hasKlingVoiceSlots(model) && bound.provider !== model.provider) {
-      voiceMismatch = { handle, provider: bound.provider, voice_id: bound.voice_id };
-      warnings.push(`@${handle}'s voice is ${bound.provider}; ${model.display_name} is ${model.provider}`);
+    // The gate is the engine that made the voice, not the key that paid for it
+    // (TRD-14 §2). Comparing providers let a MiniMax clone hosted on fal reach
+    // fal's Kokoro, whose voice enum cannot contain it, so the request was
+    // built with a voice id Kokoro rejects (F-02).
+    const engine = voiceEngineOf(bound);
+    if (hasKlingVoiceSlots(model) && engine !== 'kling') {
+      warnings.push(`@${handle}'s voice is ${engine}; Kling speech needs a Kling-created voice`);
+    } else if (!hasKlingVoiceSlots(model) && !modelSpeaksEngine(model, engine)) {
+      // PRD-07 §6 row 15: a model that cannot use the clone falls back to a
+      // preset voice and says so, rather than failing at the provider.
+      const preset = presetVoiceFor(model, voiceOwner.version);
+      if (preset) {
+        deepMerge(fragment, { voice: preset.voice_id });
+        warnings.push(
+          `${model.display_name} cannot use ${voiceOwner.version.display_name} (clone). Using preset '${preset.voice_id}'.`,
+        );
+      } else {
+        voiceMismatch = { handle, provider: engine, voice_id: bound.voice_id };
+        warnings.push(`@${handle}'s voice is ${engine}; ${model.display_name} is ${model.provider}`);
+      }
     } else {
       const v = emitVoice(voiceOwner.version, model);
       deepMerge(fragment, v.fragment);
@@ -507,8 +522,53 @@ function possessivePronoun(version: LoadedVersion): string {
 export function voiceUsable(version: LoadedVersion, model: ModelManifest): boolean {
   const voice = version.voice;
   if (!voice) return false;
-  if (hasKlingVoiceSlots(model)) return voice.provider === 'kling';
-  return model.capabilities.includes('tts') && voice.provider === model.provider;
+  const engine = voiceEngineOf(voice);
+  if (hasKlingVoiceSlots(model)) return engine === 'kling';
+  return model.capabilities.includes('tts') && modelSpeaksEngine(model, engine);
+}
+
+/**
+ * The engine recorded on the voice. A row written before the column existed
+ * carries only the provider it was stored under, and that is what it keeps:
+ * guessing an engine for it would change the routing of voices the user already
+ * uses (F-02).
+ */
+export function voiceEngineOf(voice: { provider: string; engine?: string }): string {
+  return voice.engine ?? voice.provider;
+}
+
+/**
+ * Whether this model's engine can speak with a voice that engine made. A fal
+ * model speaks a fal-hosted voice only when the model itself is that engine's —
+ * `fal-ai/minimax/speech-*` speaks a MiniMax voice, `fal-ai/kokoro/*` does not
+ * (TRD-14 §2, F-02).
+ */
+export function modelSpeaksEngine(model: ModelManifest, engine: string): boolean {
+  if (model.provider === engine) return true;
+  return new RegExp(`(?:^|[/-])${engine}(?:[/-]|$)`, 'i').test(model.model_id);
+}
+
+/**
+ * The preset voice PRD-07 §6 row 15 falls back to: the Character's language tag
+ * picks it when the model publishes an enum, otherwise the model's first
+ * documented voice.
+ */
+export function presetVoiceFor(
+  model: ModelManifest,
+  version: LoadedVersion,
+): { voice_id: string } | undefined {
+  const enumerated = (model.params_schema as { voice?: { enum?: unknown } } | undefined)?.voice?.enum;
+  const options = Array.isArray(enumerated)
+    ? enumerated.filter((value): value is string => typeof value === 'string')
+    : [];
+  if (options.length === 0) return undefined;
+  // The Character's language, read from the bound voice's own language when it
+  // has one (the `lang:` tag PRD-07 §6 row 15 mentions is the same value).
+  const language = version.voice?.language;
+  const matching = language
+    ? options.find((option) => option.toLowerCase().includes(language.toLowerCase()))
+    : undefined;
+  return { voice_id: matching ?? options[0]! };
 }
 
 // Deep-merge an emitter fragment into the accumulating provider fragment,

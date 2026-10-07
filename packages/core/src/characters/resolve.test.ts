@@ -144,6 +144,7 @@ function manifest(over: {
   capabilities: ModelManifest['capabilities'];
   supports: Partial<ModelManifest['supports']>;
   media_roles?: ModelManifest['media_roles'];
+  params_schema?: Record<string, unknown>;
 }): ModelManifest {
   return ModelManifestSchema.parse({
     provider: over.provider,
@@ -152,6 +153,7 @@ function manifest(over: {
     capabilities: over.capabilities,
     supports: over.supports,
     media_roles: over.media_roles ?? [],
+    ...(over.params_schema ? { params_schema: over.params_schema } : {}),
     price_rule: { kind: 'free', unit: 'image' },
     retention_days: 7,
     moderation: { http: null, shape: 'none', billed: 'no' },
@@ -523,7 +525,12 @@ describe('voice pass honours the voice provider (F-VOI-04, F-CHR-08)', () => {
     supports: { resolutions: [], references_max: 0, aspect_ratios: [] },
   });
 
-  function ctxWithVoice(voice: { provider: string; voice_id: string }): ResolverCtx {
+  function ctxWithVoice(voice: {
+    provider: string;
+    voice_id: string;
+    engine?: string;
+    language?: string;
+  }): ResolverCtx {
     const base = makeCtx();
     return {
       ...base,
@@ -554,6 +561,45 @@ describe('voice pass honours the voice provider (F-VOI-04, F-CHR-08)', () => {
     expect(r.injections.some((i) => i.strategy === 'voice_id')).toBe(false);
     expect(r.warnings).toContain("@maya's voice is minimax; Kling speech needs a Kling-created voice");
     expect(r.voice_mismatch).toBeUndefined();
+  });
+
+  // F-02: the gate compared the key that paid, so a MiniMax clone hosted on fal
+  // ('fal') passed for fal's Kokoro ('fal') and its voice id was emitted as
+  // Kokoro's `voice`, which Kokoro's enum cannot contain. PRD-07 §6 row 15 says
+  // a model that cannot use the clone falls back to a preset and says so.
+  it('falls back to a preset voice on Kokoro and names the clone it cannot use', () => {
+    const kokoro = manifest({
+      model_id: 'fal-ai/kokoro/hindi',
+      provider: 'fal',
+      capabilities: ['tts'],
+      supports: { resolutions: [], references_max: 0, aspect_ratios: [] },
+      params_schema: { voice: { enum: ['hf_alpha', 'hf_beta'] } },
+    });
+    const r = resolvePrompt(
+      req({ kind: 'audio', capability: 'tts', prompt: '@maya says hello' }),
+      kokoro,
+      ctxWithVoice({ provider: 'fal', voice_id: 'mm_clone_1', engine: 'minimax' }),
+    );
+    expect(r.provider_fragment.voice).toBe('hf_alpha');
+    expect(r.warnings.join(' ')).toContain('cannot use');
+    expect(r.warnings.join(' ')).toContain("Using preset 'hf_alpha'");
+    expect(r.voice_mismatch).toBeUndefined();
+  });
+
+  it('a MiniMax clone hosted on fal still speaks through a fal MiniMax model', () => {
+    const falMiniMax = manifest({
+      model_id: 'fal-ai/minimax/speech-02-turbo',
+      provider: 'fal',
+      capabilities: ['tts'],
+      supports: { resolutions: [], references_max: 0, aspect_ratios: [], voice_ids: true },
+    });
+    const r = resolvePrompt(
+      req({ kind: 'audio', capability: 'tts', prompt: '@maya says hello' }),
+      falMiniMax,
+      ctxWithVoice({ provider: 'fal', voice_id: 'mm_clone_1', engine: 'minimax' }),
+    );
+    expect(r.injections.some((i) => i.strategy === 'voice_id')).toBe(true);
+    expect(r.warnings.join(' ')).not.toContain('cannot use');
   });
 
   it('a minimax voice on an ElevenLabs TTS model is a mismatch for the router, not a voice_id', () => {

@@ -82,6 +82,15 @@ export function clonedVoiceProvider(provider: CloneProvider): string {
   return provider;
 }
 
+/**
+ * The engine behind each clone option: Kling's own voice creation makes a Kling
+ * voice; both MiniMax options make a MiniMax voice whoever hosts them;
+ * ElevenLabs makes an ElevenLabs voice (TRD-14 §2).
+ */
+export function voiceEngine(provider: CloneProvider): string {
+  return provider === 'fal' ? 'minimax' : provider;
+}
+
 // Price a clone from the registry so the confirmed figure is the figure the
 // registry holds (F-VOI-02, F-PRV-05).
 export async function priceClone(
@@ -279,6 +288,9 @@ export async function cloneVoice(services: CloneServices, input: CloneInput): Pr
   await recordClonedVoice(services.db, {
     id: voiceUlid,
     provider: clonedVoiceProvider(input.provider),
+    // The engine, not the key that paid: the MiniMax clone hosted on fal is
+    // spoken by MiniMax models, not by fal's Kokoro (TRD-14 §2, F-02).
+    voice_model: voiceEngine(input.provider),
     voice_id: voiceId,
     name: input.name,
     consent_confirmed_at: now(),

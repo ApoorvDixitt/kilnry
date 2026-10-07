@@ -326,6 +326,8 @@ export async function boundVoice(
 export interface ClonedVoiceInput {
   id: string;
   provider: string;
+  /** The engine that made it, which decides who can speak with it (F-02). */
+  voice_model?: string;
   voice_id: string;
   name: string;
   language?: string;
@@ -361,6 +363,7 @@ export async function recordClonedVoice(db: DatabaseState, input: ClonedVoiceInp
   await db.db.insert(voicesTable).values({
     id: input.id,
     providerId: input.provider,
+    voiceModel: input.voice_model ?? input.provider,
     voiceId: input.voice_id,
     name: input.name,
     language: input.language ?? null,

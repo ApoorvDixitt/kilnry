@@ -76,7 +76,12 @@ export interface LoadedVersion {
   // PRD-07 §7: the version reads as a minor (an `age:` tag under eighteen or
   // descriptor words that name a minor); Train and Clone are refused.
   minor_suspected: boolean;
-  voice?: { provider: string; voice_id: string };
+  /**
+   * The bound voice, with the engine that made it: a MiniMax clone hosted on
+   * fal is provider `fal` and engine `minimax`, and only a MiniMax speech model
+   * can speak with it (TRD-14 §2, F-02).
+   */
+  voice?: { provider: string; voice_id: string; engine?: string; language?: string };
 }
 
 // The `[a-z0-9_-]{2,32}` handle grammar of TRD-14 §1, case-insensitive on input.
@@ -260,7 +265,7 @@ async function loadBoundVoice(
   state: DatabaseState,
   characterId: string,
   version: number,
-): Promise<{ provider: string; voice_id: string } | undefined> {
+): Promise<{ provider: string; voice_id: string; engine?: string; language?: string } | undefined> {
   const bound = await state.db
     .select({ voiceUlid: characterVoices.voiceUlid })
     .from(characterVoices)
@@ -269,7 +274,12 @@ async function loadBoundVoice(
   if (!bound[0]) return undefined;
   const voice = await state.db.select().from(voices).where(eq(voices.id, bound[0].voiceUlid)).limit(1);
   if (!voice[0]) return undefined;
-  return { provider: voice[0].providerId, voice_id: voice[0].voiceId };
+  return {
+    provider: voice[0].providerId,
+    voice_id: voice[0].voiceId,
+    ...(voice[0].voiceModel ? { engine: voice[0].voiceModel } : {}),
+    ...(voice[0].language ? { language: voice[0].language } : {}),
+  };
 }
 
 interface AddReferenceInput {

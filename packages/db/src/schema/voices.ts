@@ -19,6 +19,12 @@ export const voices = pgTable(
   {
     id: text('id').primaryKey(),
     providerId: text('provider_id').notNull(),
+    /**
+     * The engine that made the voice, which decides who can speak with it
+     * (TRD-14 §2): a MiniMax clone hosted on fal is `minimax` here and `fal`
+     * above, so fal's Kokoro no longer inherits it (F-02).
+     */
+    voiceModel: text('voice_model'),
     voiceId: text('voice_id').notNull(),
     name: text('name'),
     language: text('language'),
