@@ -377,5 +377,11 @@ export function estimate(input: EstimateInput): Estimate {
 }
 
 export function withAuthoritativeEstimate(value: Estimate, authoritativeUsd: number): Estimate {
-  return { ...value, authoritative_usd: round4(authoritativeUsd), source: 'provider' };
+  // TRD-04 §5 inv 8: a price_rule older than price_max_age_days makes the
+  // estimate `source: 'formula'` with a `stale_price` adjustment. The provider's
+  // own figure is still recorded, but `source` stays what the registry row
+  // supports, so a client reading it is not told a stale price is the
+  // provider's (F-103).
+  const stale = value.adjustments.includes('stale_price');
+  return { ...value, authoritative_usd: round4(authoritativeUsd), source: stale ? 'formula' : 'provider' };
 }

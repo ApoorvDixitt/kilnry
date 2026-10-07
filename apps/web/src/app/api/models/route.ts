@@ -6,7 +6,16 @@
 import { NextResponse } from 'next/server';
 import { loadRegistry, priceSummary, providerRouteStates } from '@kilnry/core';
 import { errorResponse, requireSession } from '../../../server/http';
+import { log } from '../../../server/log';
 import { runtimeServices } from '../../../server/runtime';
+
+const unpricedLogged = new Set<string>();
+
+function logUnpricedOnce(key: string): void {
+  if (unpricedLogged.has(key)) return;
+  unpricedLogged.add(key);
+  log.warn({ model: key }, 'model_without_price');
+}
 
 export async function GET(): Promise<Response> {
   try {
@@ -20,6 +29,10 @@ export async function GET(): Promise<Response> {
       models: registry.models.map((model) => {
         const snapshot = registry.snapshots.get(`${model.provider}:${model.model_id}`);
         const summary = snapshot ? priceSummary(snapshot.rule) : undefined;
+        // PRD-05:111: "a row without a price in the registry is not rendered and
+        // is logged." The picker dropped it with no trace (F-109); the server
+        // logs each such model once per process.
+        if (!snapshot || !summary) logUnpricedOnce(`${model.provider}:${model.model_id}`);
         return {
           ...model,
           connected: providerStates[model.provider]?.connected ?? false,

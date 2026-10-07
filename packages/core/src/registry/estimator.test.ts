@@ -346,6 +346,24 @@ describe('TRD-19 estimator goldens', () => {
     });
   });
 
+  // F-103: an authoritative figure over a stale snapshot reported
+  // `source: 'provider'`, contradicting TRD-04 §5 inv 8 (the audit's H-5 case).
+  it('keeps source formula when the provider figure lands on a stale snapshot', () => {
+    const golden = goldens.find((entry) => entry.id === 'G-27')!;
+    const stale = estimate({
+      model: golden.model,
+      snapshot: { ...freshSnapshot(golden.model), fetched_at: '2026-08-18T00:00:00.000Z' },
+      request: golden.request,
+      now: new Date('2026-09-19T00:00:00.000Z'),
+      price_max_age_days: 30,
+    });
+    expect(stale.adjustments).toContain('stale_price');
+    expect(withAuthoritativeEstimate(stale, 0.05)).toMatchObject({
+      source: 'formula',
+      authoritative_usd: 0.05,
+    });
+  });
+
   it('G-29 applies the configured stale-price threshold', () => {
     const golden = goldens[0]!;
     const value = estimate({
