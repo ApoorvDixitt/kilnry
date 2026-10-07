@@ -70,7 +70,9 @@ export function statusGlyph(status: string): string {
 /** How many steps are done, of the total (n of m). */
 export function progress(run: RunView): { done: number; total: number; fraction: number } {
   const total = run.steps.length;
-  const done = run.steps.filter((step) => step.status === 'completed' || step.status === 'skipped').length;
+  // A decided checkpoint is finished whichever way it was decided, so a denied
+  // run reads "m of m" once its remaining steps are skipped (F-64).
+  const done = run.steps.filter((step) => ['completed', 'skipped', 'denied'].includes(step.status)).length;
   return { done, total, fraction: total === 0 ? 0 : done / total };
 }
 

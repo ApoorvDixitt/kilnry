@@ -1232,9 +1232,13 @@ export async function denyRun(db: DatabaseState, runId: string): Promise<RunStat
         .set({ status: 'denied', outputs: { choice: 'deny' }, decidedBy: 'owner' })
         .where(and(eq(runSteps.runId, runId), eq(runSteps.instanceId, step.instanceId)));
     } else if (step.status === 'pending') {
+      // PRD-10:91: "denying marks remaining steps `skipped` and the run
+      // `cancelled` with completed outputs kept". They were marked `cancelled`,
+      // which the run view's progress does not count as done, so a denied run's
+      // "n of m steps" stopped short of m for good (F-64).
       await db.db
         .update(runSteps)
-        .set({ status: 'cancelled' })
+        .set({ status: 'skipped' })
         .where(and(eq(runSteps.runId, runId), eq(runSteps.instanceId, step.instanceId)));
     }
   }
