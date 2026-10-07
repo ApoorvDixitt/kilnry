@@ -100,6 +100,43 @@ function unsafeMediaRef(ref: string): boolean {
 }
 
 /** Validate a parsed workflow. `fileName` (without extension) checks rule 1. */
+/**
+ * What each assemble op actually reads, from its own argument builder
+ * (TRD-09 §3 and TRD-12 §6.3). A parameter outside this list is refused at
+ * validation rather than dropped at run time (F-65, AGENTS.md:97).
+ */
+const ASSEMBLE_PARAMS: Record<string, string[]> = {
+  probe: [],
+  thumbnail: ['width'],
+  sprite_sheet: ['fps', 'width', 'cols', 'rows'],
+  extract_frames: ['mode', 'n', 'count', 'fps', 'scene_threshold', 'format', 'max_width', 'duration_s'],
+  trim: ['start', 'start_s', 'end', 'duration_s'],
+  concat: ['mode', 'target', 'transition', 'image_hold_s', 'gap_s', 'sources'],
+  resize: ['width', 'height', 'fit'],
+  pad_to_aspect: ['target_aspect', 'width', 'height'],
+  gif: ['fps', 'width', 'start', 'end'],
+  extract_audio: [],
+  mux_audio: ['mode', 'offset_s', 'audio_gain_db', 'video_gain_db', 'gain_db', 'fit', 'fit_duration_s'],
+  speed: ['factor'],
+  loop: ['count', 'duration_s'],
+  overlay_image: ['position', 'width_pct', 'margin_px', 'opacity', 'start', 'end'],
+  overlay_text: ['text', 'position', 'stroke', 'font', 'color', 'safe_zone'],
+  burn_captions: [
+    'transcript',
+    'look',
+    'font',
+    'max_words',
+    'max_chars',
+    'caps',
+    'highlight_words',
+    'position',
+    'safe_zone',
+    'language',
+  ],
+  normalize_audio: ['target_lufs', 'true_peak_dbtp', 'lra'],
+  split_grid: ['columns', 'rows', 'trim', 'trim_threshold', 'pad_pct', 'labels', 'tag_source'],
+};
+
 export function validateWorkflow(
   workflow: WorkflowFile,
   fileName?: string,
@@ -228,6 +265,22 @@ export function validateWorkflow(
       // Rule 11: no {{ }} in assemble.params keys.
       for (const key of Object.keys(step.params)) {
         if (key.includes('{{')) error('7.11', `step "${step.id}" has a template in an assemble param key.`);
+      }
+      // TRD-12:218: assemble.params validate against the op's own parameter
+      // schema. Only the op name was checked, so a parameter the builder never
+      // reads passed validation and was silently dropped at run time — exactly
+      // what AGENTS.md:97 calls a defect (F-65).
+      const accepted = ASSEMBLE_PARAMS[step.op];
+      if (accepted) {
+        for (const key of Object.keys(step.params)) {
+          if (key.includes('{{')) continue;
+          if (!accepted.includes(key)) {
+            error(
+              '7.6',
+              `step "${step.id}" passes "${key}" to ${step.op}, which does not read it. ${step.op} takes: ${accepted.join(', ') || '(no parameters)'}.`,
+            );
+          }
+        }
       }
     }
   });

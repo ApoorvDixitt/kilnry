@@ -97,7 +97,7 @@ steps:
       look: '{{ inputs.look }}'
       max_chars: '{{ inputs.max_line_chars }}'
       position: '{{ inputs.position }}'
-      karaoke: '{{ inputs.karaoke }}'
+      highlight_words: '{{ inputs.karaoke }}'
       language: '{{ inputs.language | slice(0, 2) }}'
     output_name: captioned.mp4
     outputs: { asset: '{{ result.asset_id }}' }

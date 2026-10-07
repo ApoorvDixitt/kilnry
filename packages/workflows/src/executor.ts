@@ -74,6 +74,11 @@ export interface RunStep {
    * run total it would make. Cleared once the step runs.
    */
   pending_swap?: SwapApproval;
+  /**
+   * Set once the moderation ladder's third rung has asked (PRD-10:205), so a
+   * re-run that is moderated again fails rather than asking for ever.
+   */
+  moderation_asked?: boolean;
 }
 
 /** What a price-raising model swap asks the owner to approve (D-61). */
@@ -765,6 +770,41 @@ export async function execute(
       }
       delete node.pending_swap;
       if (result.job_id !== undefined) node.job_id = result.job_id;
+
+      // PRD-10:205's third rung: a step the provider moderated, after the
+      // reworded retry and the alternate model, "pauses with an ApprovalCard
+      // explaining the rejection". The ladder stopped after the alternate and
+      // the moderated result fell into the generic failed path, so an exhausted
+      // moderation ended the step silently (F-40). An approval here re-runs the
+      // step as the user asked; a denial leaves it denied, with on_fail
+      // deciding the run.
+      if (result.status === 'moderated' && !node.moderation_asked) {
+        node.moderation_asked = true;
+        node.adjustments.push(
+          `moderation needs a decision: ${result.error ?? 'the provider refused this step'}`,
+        );
+        const decision = (await effects.decide?.(node, scope)) ?? 'wait';
+        if (decision === 'wait') {
+          node.status = 'waiting';
+          state.status = 'awaiting_approval';
+          await checkpoint();
+          return state;
+        }
+        if (decision === 'approve') {
+          result = await attempt(node, rendered, scope, effects);
+        } else {
+          node.status = 'denied';
+          node.error = result.error ?? 'moderated and denied';
+          progressed = true;
+          await checkpoint();
+          if (node.step.on_fail === 'fail') {
+            state.status = 'cancelled';
+            await checkpoint();
+            return state;
+          }
+          continue;
+        }
+      }
       // The step's declared `outputs` are templates over its result (e.g.
       // `ok: '{{ result.structured.ok }}'`, `transcript: '{{ result.assets[0] }}'`).
       // Evaluate them against a scope that binds `result` to what the step

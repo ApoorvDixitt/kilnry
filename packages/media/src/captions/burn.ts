@@ -23,6 +23,10 @@ export interface BurnOptions {
   maxWords?: number;
   maxChars?: number;
   caps?: boolean;
+  /** Caption block at the top, the bottom, or the lower third. */
+  position?: 'bottom' | 'top' | 'lower_third';
+  /** TRD-09 §4 rule 5's per-word karaoke timing. */
+  highlightWords?: boolean;
 }
 
 // The bundled OFL fonts libass finds through fontsdir.
@@ -50,6 +54,8 @@ export async function assForVideo(
     height: probe.height ?? 1920,
     ...(options.look === undefined ? {} : { look: options.look }),
     ...(options.safeZone === undefined ? {} : { safeZone: options.safeZone }),
+    ...(options.position === undefined ? {} : { position: options.position }),
+    ...(options.highlightWords === undefined ? {} : { highlightWords: options.highlightWords }),
   });
 }
 

@@ -18,6 +18,13 @@ export interface AssOptions {
   height: number;
   look?: CaptionLook;
   safeZone?: SafeZone;
+  /**
+   * Where the caption block sits. `lower_third` is the bottom alignment with a
+   * raised margin, which is what the ad workflow asks for.
+   */
+  position?: 'bottom' | 'top' | 'lower_third';
+  /** TRD-09 §4 rule 5: each word gets `{\kf<centiseconds>}` karaoke timing. */
+  highlightWords?: boolean;
 }
 
 // hh:mm:ss.cs in ASS centiseconds.
@@ -95,7 +102,8 @@ export function buildAss(cues: Cue[], options: AssOptions): string {
   const { width, height } = options;
   const look = options.look ?? 'clean';
   const style = styleFor(look, Math.min(width, height));
-  const { v, h } = margins(options.safeZone ?? 'auto', width, height);
+  const base = margins(options.safeZone ?? 'auto', width, height);
+  const { v, h } = options.position === 'lower_third' ? { v: Math.round(height * 0.22), h: base.h } : base;
   const header = [
     '[Script Info]',
     'ScriptType: v4.00+',
@@ -106,15 +114,25 @@ export function buildAss(cues: Cue[], options: AssOptions): string {
     '',
     '[V4+ Styles]',
     'Format: Name, Fontname, Fontsize, PrimaryColour, OutlineColour, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV',
-    `Style: Kilnry,${style.fontName},${style.fontSize},${style.primary},${style.outline},${style.borderStyle},${style.outlineWidth},${style.shadow},2,${h},${h},${v}`,
+    // Alignment 2 is bottom-centre, 8 is top-centre (libass; ASS v4+ spec).
+    `Style: Kilnry,${style.fontName},${style.fontSize},${style.primary},${style.outline},${style.borderStyle},${style.outlineWidth},${style.shadow},${options.position === 'top' ? 8 : 2},${h},${h},${v}`,
     '',
     '[Events]',
     'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text',
   ];
-  const events = cues.map(
-    (cue) =>
-      `Dialogue: 0,${assTime(cue.start)},${assTime(cue.end)},Kilnry,,0,0,0,,${escapeAssText(cue.text)}`,
-  );
+  const events = cues.map((cue) => {
+    const text =
+      options.highlightWords === true && cue.words && cue.words.length > 0
+        ? cue.words
+            .map((word) => {
+              // Centiseconds of fill time for this word (TRD-09 §4 rule 5).
+              const centiseconds = Math.max(1, Math.round((word.end - word.start) * 100));
+              return `{\\kf${centiseconds}}${escapeAssText(word.w)}`;
+            })
+            .join(' ')
+        : escapeAssText(cue.text);
+    return `Dialogue: 0,${assTime(cue.start)},${assTime(cue.end)},Kilnry,,0,0,0,,${text}`;
+  });
   return `${[...header, ...events].join('\n')}\n`;
 }
 

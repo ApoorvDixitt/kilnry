@@ -34,6 +34,11 @@ export interface Cue {
   start: number;
   end: number;
   text: string;
+  /**
+   * The words the cue was built from, with their own timings, so the ASS can
+   * carry TRD-09 §4 rule 5's per-word karaoke timing when the step asks for it.
+   */
+  words?: Array<{ w: string; start: number; end: number }>;
 }
 
 export interface CueOptions {
@@ -62,7 +67,16 @@ export function buildCues(words: TranscriptWord[], options: CueOptions = {}): Cu
     const start = Math.max(0, first.start - 0.05);
     const gapAfter = nextStart === undefined ? Infinity : nextStart - last.end;
     const end = gapAfter < GAP && nextStart !== undefined ? nextStart - 0.01 : last.end + 0.15;
-    cues.push({ start, end, text: options.caps ? text.toUpperCase() : text });
+    cues.push({
+      start,
+      end,
+      text: options.caps ? text.toUpperCase() : text,
+      words: current.map((word) => ({
+        w: options.caps ? word.w.toUpperCase() : word.w,
+        start: word.start,
+        end: word.end,
+      })),
+    });
     current = [];
   };
   words.forEach((word, index) => {

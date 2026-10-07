@@ -176,6 +176,10 @@ steps:
         name: 'Refine {{ k + 1 }}'
         capability: image_edit
         model: fal-ai/bytedance/seedream/v4.5/edit
+        # PRD-10:443 reads "Seedream 4.5 edit → NB 2": without an alternates key
+        # the model is locked (TRD-12:126), so a Seedream refusal ended the
+        # refine instead of falling back (F-66).
+        alternates: ['fal-ai/gemini-3-pro-image/edit']
         prompt: 'Keep the product geometry and label exactly; fix only lighting, edges and colour balance. No new objects, no text.'
         params: { aspect_ratio: '{{ inputs.aspect }}', resolution: '2K' }
         medias: [{ role: reference, ref: '{{ steps.shot_gen.outputs.raw }}' }]
@@ -204,19 +208,26 @@ steps:
         values: { asset: '{{ steps.cutout.outputs.asset | default(steps.shot_upscale.outputs.asset) }}' }
 
   # An optional headline burned onto the first frame for hero/ad modes.
+  # PRD-10:448 bakes the headline locally with sharp for $0, and PRD-10:457 says
+  # the text appears only when the user supplies the exact string. It was a paid
+  # image-edit generation that asked a model to draw the words, which costs money
+  # and cannot be trusted to reproduce them (F-41).
   - id: text_overlay
-    kind: generate
+    kind: assemble
     when: "{{ inputs.on_image_text != '' }}"
     name: Headline overlay
-    capability: image_edit
-    model: '{{ inputs.model }}'
-    prompt: >
-      Add the headline "{{ inputs.on_image_text }}" to this product image as clean, legible marketing typography
-      in the negative space; keep the product and scene unchanged.
-    params: { aspect_ratio: '{{ inputs.aspect }}', resolution: '2K' }
-    medias: [{ role: reference, ref: '{{ steps.shots.outputs[0].asset }}' }]
+    op: overlay_text
+    inputs: ['{{ steps.shots.outputs[0].asset }}']
+    params:
+      {
+        text: '{{ inputs.on_image_text }}',
+        font: 'Montserrat 800',
+        stroke: true,
+        position: bottom,
+        safe_zone: auto,
+      }
     on_fail: continue
-    outputs: { asset: '{{ result.assets[0] }}' }
+    outputs: { asset: '{{ result.asset_id }}' }
 
   - id: export
     kind: export

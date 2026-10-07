@@ -735,4 +735,45 @@ steps:
     const notes = state.steps[0]!.adjustments.join(' | ');
     expect(notes).toContain('model swap to dear/model within 10 %: step ≈ $0.15 → ≈ $0.16 (+$0.01)');
   });
+
+  // F-40: PRD-10:205's moderation ladder is reword, then alternate, then "pauses
+  // with an ApprovalCard explaining the rejection". The third rung did not
+  // exist: a moderated step that had exhausted its retries and alternates fell
+  // into the generic failed path and ended silently.
+  it('pauses for a decision when a moderated step has exhausted the ladder', async () => {
+    const workflow = parseWorkflow(`
+id: kilnry-moderation-ladder
+name: Moderation ladder
+version: 1.0.0
+category: image
+steps:
+  - id: shot
+    kind: generate
+    capability: text2image
+    prompt: "a shot"
+    on_fail: continue
+    outputs: { asset: "shot" }
+`);
+    const moderating: Effects = {
+      runStep: async (): Promise<StepResult> => ({
+        outputs: {},
+        actual_usd: 0,
+        status: 'moderated',
+        error: "Blocked by the provider's content filter. Not charged.",
+        retryable: false,
+      }),
+      decide: () => 'wait',
+    };
+    const waiting = await execute(workflow, scope, moderating);
+    expect(waiting.status).toBe('awaiting_approval');
+    const step = waiting.steps.find((node) => node.step_id === 'shot')!;
+    expect(step.status).toBe('waiting');
+    expect(step.adjustments.join(' ')).toContain('moderation needs a decision');
+
+    // Denied, the step is denied and on_fail: continue lets the run finish.
+    const denied = await execute(workflow, scope, { ...moderating, decide: () => 'deny' });
+    const deniedStep = denied.steps.find((node) => node.step_id === 'shot')!;
+    expect(deniedStep.status).toBe('denied');
+    expect(denied.status).not.toBe('awaiting_approval');
+  });
 });

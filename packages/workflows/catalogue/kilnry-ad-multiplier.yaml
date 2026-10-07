@@ -222,7 +222,6 @@ steps:
           transcript: '{{ steps.transcribe_source.outputs.transcript }}'
           look: clean
           position: lower_third
-          edit: '{{ version.edit }}'
         output_name: 'version_{{ k + 1 | pad(2) }}_captioned.mp4'
         on_fail: continue
         outputs: { asset: '{{ result.asset_id }}' }

@@ -321,7 +321,7 @@ steps:
     kind: assemble
     op: concat
     inputs: '{{ steps.clips.assets }}'
-    params: { reencode: false, target: { width: 1080, height: 1920, fps: source } }
+    params: { target: { width: 1080, height: 1920, fps: source } }
     output_name: final.mp4
     outputs: { asset: '{{ result.asset_id }}' }
 

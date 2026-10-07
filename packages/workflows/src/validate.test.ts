@@ -122,4 +122,53 @@ steps:
     const result = validateWorkflowFile(yaml, 'kilnry-a');
     expect(result.ok).toBe(false);
   });
+
+  // F-65: TRD-12:218 says assemble.params validate against the op's schema, and
+  // only the op name was checked — so a parameter the builder never reads passed
+  // validation and was dropped at run time, which AGENTS.md:97 calls a defect.
+  it('refuses an assemble param the op does not read, and names the ones it takes', () => {
+    const yaml = `
+id: kilnry-a
+name: A
+version: 1.0.0
+category: image
+steps:
+  - id: gen
+    kind: generate
+    capability: text2image
+    prompt: "x"
+    outputs: { asset: "{{ result.assets[0] }}" }
+  - id: join
+    kind: assemble
+    op: concat
+    inputs: ["{{ steps.gen.outputs.asset }}"]
+    params: { mode: auto, crossfade_s: 2 }
+`;
+    const result = validateWorkflowFile(yaml, 'kilnry-a');
+    expect(result.ok).toBe(false);
+    const messages = result.issues.map((issue) => issue.message).join(' ');
+    expect(messages).toContain('passes "crossfade_s" to concat');
+    expect(messages).toContain('concat takes: mode, target');
+  });
+
+  it('accepts every parameter the op does read', () => {
+    const yaml = `
+id: kilnry-a
+name: A
+version: 1.0.0
+category: image
+steps:
+  - id: gen
+    kind: generate
+    capability: text2image
+    prompt: "x"
+    outputs: { asset: "{{ result.assets[0] }}" }
+  - id: frames
+    kind: assemble
+    op: extract_frames
+    inputs: ["{{ steps.gen.outputs.asset }}"]
+    params: { mode: scene, scene_threshold: 0.4, max_width: 1920 }
+`;
+    expect(validateWorkflowFile(yaml, 'kilnry-a').ok).toBe(true);
+  });
 });

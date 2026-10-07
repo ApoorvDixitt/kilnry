@@ -47,7 +47,7 @@ import {
   STILL_IMAGE,
 } from '@kilnry/media';
 import { burnCaptions } from '@kilnry/media';
-import { splitRowSheet } from '@kilnry/media';
+import { splitGridSheet } from '@kilnry/media';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { CanonicalRequestSchema, type CanonicalRequest, type RouteConstraints } from '@kilnry/core';
 import { analyzeTool, capabilityFor, type ToolServices } from '@kilnry/core';
@@ -1630,17 +1630,38 @@ async function assembleFile(
   // (an internal assembly op, §6.3); each panel is indexed like a dropped file.
   if (op === 'split_grid' && root !== '' && inputs.length > 0) {
     const sourceAbs = await resolveInput(inputs[0]!);
-    const columns = typeof params.columns === 'number' ? params.columns : Number(params.columns) || 1;
+    const columns = Math.max(1, Number(params.columns) || 1);
+    const rows = Math.max(1, Number(params.rows) || 1);
+    // TRD-12 §6.3 gives this op a grid, a content trim, a pad, cell labels and
+    // a tag for the source sheet. Only `columns` reached the splitter, so a
+    // 3 × 3 expression sheet was cut into three tall strips and the labels and
+    // the tag were dropped (found while adding the parameter validation, F-65).
+    const labels = Array.isArray(params.labels)
+      ? params.labels.filter((label): label is string => typeof label === 'string')
+      : [];
+    const cells = columns * rows;
+    const cellName = (index: number): string => {
+      const label = labels[index];
+      const safe = label === undefined ? '' : `_${label.replace(/[^a-z0-9_-]+/gi, '-').slice(0, 40)}`;
+      return `${node.step_id}_${index + 1}${safe}.png`;
+    };
     const targets = await Promise.all(
-      Array.from({ length: Math.max(1, columns) }, (_, index) =>
-        resolveInRoot(root, join(run.folder, `${node.step_id}_${index + 1}.png`), { mustExist: false }),
+      Array.from({ length: cells }, (_, index) =>
+        resolveInRoot(root, join(run.folder, cellName(index)), { mustExist: false }),
       ),
     );
     await mkdir(dirname(targets[0]!.abs), { recursive: true });
     try {
-      await splitRowSheet(
+      await splitGridSheet(
         sourceAbs,
         targets.map((target) => target.abs),
+        {
+          columns,
+          rows,
+          ...(params.trim === false ? { trim: false } : {}),
+          ...(typeof params.trim_threshold === 'number' ? { trimThreshold: params.trim_threshold } : {}),
+          ...(typeof params.pad_pct === 'number' ? { padPct: params.pad_pct } : {}),
+        },
       );
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
@@ -1648,7 +1669,7 @@ async function assembleFile(
     }
     const assetIds: string[] = [];
     for (let index = 0; index < targets.length; index += 1) {
-      const relative = join(run.folder, `${node.step_id}_${index + 1}.png`);
+      const relative = join(run.folder, cellName(index));
       const indexed = await indexAsset(db, root, relative, run.libraryId);
       const assetId = indexed.sidecar.asset_id;
       await db.db
@@ -1659,7 +1680,19 @@ async function assembleFile(
         .update(assets)
         .set({ runId: run.runId, stepId: node.step_id, source: 'assemble' })
         .where(eq(assets.id, assetId));
+      // §6.3: each cell is tagged ['split', label].
+      const cellTags = ['split', ...(labels[index] === undefined ? [] : [labels[index]!])];
+      for (const tag of cellTags) {
+        await db.db.insert(assetTags).values({ assetId, tag }).onConflictDoNothing();
+      }
       assetIds.push(assetId);
+    }
+    // §6.3's `tag_source`: the sheet the cells came from carries it.
+    if (typeof params.tag_source === 'string' && params.tag_source !== '') {
+      await db.db
+        .insert(assetTags)
+        .values({ assetId: inputs[0]!, tag: params.tag_source })
+        .onConflictDoNothing();
     }
     return {
       outputs: {
@@ -1688,6 +1721,15 @@ async function assembleFile(
         ...(typeof params.safe_zone === 'string' ? { safeZone: params.safe_zone as never } : {}),
         ...(typeof params.max_words === 'number' ? { maxWords: params.max_words } : {}),
         ...(typeof params.max_chars === 'number' ? { maxChars: params.max_chars } : {}),
+        // The subtitles workflow offers both and the burner dropped them
+        // (found with F-65): captions at the top, and TRD-09 §4 rule 5's
+        // per-word karaoke timing.
+        ...(params.position === 'top' || params.position === 'bottom' || params.position === 'lower_third'
+          ? { position: params.position }
+          : {}),
+        ...(params.highlight_words === true || params.highlight_words === 'true'
+          ? { highlightWords: true }
+          : {}),
       });
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);

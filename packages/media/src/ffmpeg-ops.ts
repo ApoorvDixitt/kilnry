@@ -74,8 +74,42 @@ export function ffmpegArgs(
   switch (op) {
     case 'thumbnail':
       return [...base, '-i', input!, '-frames:v', '1', '-vf', `scale=${num('width', 320)}:-1`, output];
-    case 'extract_frames':
-      return [...base, '-i', input!, '-vf', `fps=${num('fps', 1)}`, output];
+    case 'extract_frames': {
+      // TRD-09 §3.9 gives this op four modes and five parameters; it read `fps`
+      // and nothing else, so `mode: scene` with a `scene_threshold` sampled at
+      // one frame a second instead of one frame per cut — and W3's cut counter
+      // therefore counted seconds (F-42). `format` and `max_width` were dropped
+      // the same way; the caller names the output extension, so `format` is
+      // honoured by the caller and the scale is applied here.
+      const width = num('max_width', 1920);
+      const scale = `scale='min(${width},iw)':-2`;
+      const mode = typeof params.mode === 'string' ? params.mode : 'count';
+      if (mode === 'scene') {
+        const threshold = num('scene_threshold', 0.4);
+        return [
+          ...base,
+          '-i',
+          input!,
+          '-vf',
+          `select='gt(scene,${threshold})',${scale}`,
+          '-vsync',
+          'vfr',
+          output,
+        ];
+      }
+      if (mode === 'every_n_seconds') {
+        const every = num('n', num('fps', 1) > 0 ? 1 / num('fps', 1) : 1);
+        return [...base, '-i', input!, '-vf', `fps=1/${every},${scale}`, output];
+      }
+      if (mode === 'count') {
+        const count = Math.round(num('count', 12));
+        const duration = num('duration_s', 0);
+        const rate = duration > 0 ? `${count}/${duration}` : String(num('fps', 1));
+        return [...base, '-i', input!, '-vf', `fps=${rate},${scale}`, '-frames:v', String(count), output];
+      }
+      // Anything else keeps the old fps behaviour rather than guessing.
+      return [...base, '-i', input!, '-vf', `fps=${num('fps', 1)},${scale}`, output];
+    }
     case 'sprite_sheet':
       return [
         ...base,
@@ -142,8 +176,26 @@ export function ffmpegArgs(
       // An audio-only join (narrator stitches voice takes): concat the audio
       // streams, no video.
       if (String(params.mode ?? '') === 'audio') {
+        const gapSeconds = num('gap_s', 0);
         const args = [...base];
         for (const source of inputs) args.push('-i', source);
+        if (gapSeconds > 0) {
+          // One silence input, reused between every pair (TRD-12 §6.3 gap_s).
+          args.push('-f', 'lavfi', '-t', String(gapSeconds), '-i', 'anullsrc=r=48000:cl=stereo');
+          const silence = `[${inputs.length}:a]`;
+          const streams = inputs
+            .map((_, index) => (index === 0 ? `[${index}:a]` : `${silence}[${index}:a]`))
+            .join('');
+          const pieces = inputs.length * 2 - 1;
+          return [
+            ...args,
+            '-filter_complex',
+            `${streams}concat=n=${pieces}:v=0:a=1[a]`,
+            '-map',
+            '[a]',
+            output,
+          ];
+        }
         const streams = inputs.map((_, index) => `[${index}:a]`).join('');
         return [
           ...args,
@@ -161,6 +213,11 @@ export function ffmpegArgs(
       // mode and any mix of clips and images join without a stream mismatch. The
       // host passes each input's audio flag and duration under `sources`.
       const hold = num('image_hold_s', 4);
+      // TRD-12 §6.3 lists `gap_s` for concat and the builder never read it, so
+      // the narrator's takes were joined with no pause between them (F-43). A
+      // gap is silence of that length between the pieces, with a held black
+      // frame so the video and audio stay the same length.
+      const gap = num('gap_s', 0);
       const [tw, th] = targetDimensions(params);
       const fps = targetFps(params);
       const sources = Array.isArray(params.sources)
@@ -191,6 +248,34 @@ export function ffmpegArgs(
         }
         pairs.push(`[v${index}][a${index}]`);
       });
+      // A gap between the pieces is a held black frame with silence, so the
+      // video and the audio stay the same length (TRD-12 §6.3 gap_s, F-43).
+      if (gap > 0 && inputs.length > 1) {
+        const spacer = inputs.length;
+        args.push('-f', 'lavfi', '-t', String(gap), '-i', `color=c=black:s=${tw}x${th}:r=${fps}`);
+        args.push('-f', 'lavfi', '-t', String(gap), '-i', 'anullsrc=r=48000:cl=stereo');
+        chains.push(`[${spacer}:v]setsar=1,format=yuv420p[vgap]`);
+        chains.push(`[${spacer + 1}:a]aresample=48000,aformat=channel_layouts=stereo[agap]`);
+        const spaced = pairs.flatMap((pair, index) => (index === 0 ? [pair] : ['[vgap][agap]', pair]));
+        return [
+          ...args,
+          '-filter_complex',
+          `${chains.join(';')};${spaced.join('')}concat=n=${spaced.length}:v=1:a=1[v][a]`,
+          '-map',
+          '[v]',
+          '-map',
+          '[a]',
+          '-c:v',
+          'libx264',
+          '-crf',
+          '18',
+          '-c:a',
+          'aac',
+          '-movflags',
+          '+faststart',
+          output,
+        ];
+      }
       return [
         ...args,
         '-filter_complex',

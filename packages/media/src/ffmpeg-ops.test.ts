@@ -85,4 +85,45 @@ describe('ffmpeg-ops (F-MCP-02)', () => {
       ffmpegArgs('mux_audio', ['/v.mp4', '/a.wav'], '/out.mp4', { mode: 'replace', fit: 'video' }),
     ).toThrow(/fit=video needs fit_duration_s/);
   });
+
+  // F-42 and F-43: extract_frames read only `fps`, so `mode: scene` with a
+  // threshold sampled one frame a second and W3's cut counter counted seconds;
+  // concat never read `gap_s`, so the narrator's takes were joined with no pause.
+  it('builds the scene-mode select filter TRD-09 §3.9 documents', () => {
+    const argv = ffmpegArgs('extract_frames', ['in.mp4'], 'out_%03d.jpg', {
+      mode: 'scene',
+      scene_threshold: 0.35,
+      max_width: 1280,
+    });
+    expect(argv.join(' ')).toContain("select='gt(scene,0.35)'");
+    expect(argv.join(' ')).toContain("scale='min(1280,iw)':-2");
+    expect(argv).toContain('-vsync');
+    expect(argv).toContain('vfr');
+  });
+
+  it('counts frames in count mode and samples in every_n_seconds mode', () => {
+    const counted = ffmpegArgs('extract_frames', ['in.mp4'], 'out_%03d.jpg', {
+      mode: 'count',
+      count: 12,
+      duration_s: 24,
+    }).join(' ');
+    expect(counted).toContain('fps=12/24');
+    expect(counted).toContain('-frames:v 12');
+    const sampled = ffmpegArgs('extract_frames', ['in.mp4'], 'out_%03d.jpg', {
+      mode: 'every_n_seconds',
+      n: 5,
+    }).join(' ');
+    expect(sampled).toContain('fps=1/5');
+  });
+
+  it('puts silence between audio takes when concat is given a gap', () => {
+    const argv = ffmpegArgs('concat', ['a.mp3', 'b.mp3', 'c.mp3'], 'joined.mp3', {
+      mode: 'audio',
+      gap_s: 0.6,
+    }).join(' ');
+    expect(argv).toContain('anullsrc=r=48000:cl=stereo');
+    expect(argv).toContain('-t 0.6');
+    // Three takes and two gaps.
+    expect(argv).toContain('concat=n=5:v=0:a=1');
+  });
 });
