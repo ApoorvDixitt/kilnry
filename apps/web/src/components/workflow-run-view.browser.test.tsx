@@ -63,6 +63,18 @@ describe('workflow run view (F-WFL-03)', () => {
     expect(host.querySelector('.run-cancel-button')).not.toBeNull();
   });
 
+  // axe aria-progressbar-name (WCAG 4.1.2): the run's progress bar had a value
+  // and no name, so the @gate scan failed whenever the header rendered in time
+  // (run 37655595787).
+  it('names the run progress bar and gives its range', async () => {
+    const host = await render(<RunHeader run={RUN} onCancel={() => {}} />);
+    const bar = host.querySelector('[role="progressbar"]');
+    expect(bar?.getAttribute('aria-label')).toBe('1 of 2 steps');
+    expect(bar?.getAttribute('aria-valuemin')).toBe('0');
+    expect(bar?.getAttribute('aria-valuemax')).toBe('100');
+    expect(bar?.getAttribute('aria-valuenow')).toBe('50');
+  });
+
   it('lists steps with a status glyph and model chip', async () => {
     const host = await render(<StepList steps={RUN.steps} selected={undefined} onSelect={() => {}} />);
     expect(host.querySelector('[data-step-id="plan"] .glyph-check')).not.toBeNull();

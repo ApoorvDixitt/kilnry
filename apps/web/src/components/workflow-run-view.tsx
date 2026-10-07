@@ -172,7 +172,18 @@ export function RunHeader({
           </div>
         ) : null}
       </div>
-      <div className="run-progress-bar" role="progressbar" aria-valuenow={Math.round(fraction * 100)}>
+      {/* A progressbar needs an accessible name (WCAG 4.1.2, axe
+          aria-progressbar-name); it reads the same "n of m steps" as the count. */}
+      <div
+        className="run-progress-bar"
+        role="progressbar"
+        aria-label={message('workflows.runView.progress')
+          .replace('{n}', String(done))
+          .replace('{m}', String(total))}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={Math.round(fraction * 100)}
+      >
         <div className="run-progress-fill" style={{ width: `${Math.round(fraction * 100)}%` }} />
       </div>
     </header>
