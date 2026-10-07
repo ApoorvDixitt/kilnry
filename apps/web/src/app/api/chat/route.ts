@@ -224,7 +224,7 @@ export async function POST(request: Request): Promise<Response> {
       online,
       promptsRoot: promptLibraryRoot(),
       ...(session.folder && config.library_root
-        ? { memoryBody: projectMemoryBody(config.library_root, session.folder) }
+        ? { memoryBody: await projectMemoryBody(config.library_root, session.folder) }
         : {}),
       tools,
       toolApproval: approvals.policy,

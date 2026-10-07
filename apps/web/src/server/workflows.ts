@@ -345,6 +345,16 @@ function planContext(
 }
 
 /** Plan a workflow and persist the plan so a run can check its freshness. */
+/**
+ * The temporary file a run manifest is written to before its rename. It was
+ * `run.kilnry.json.tmp`, which the Library watcher's rule
+ * (`/\.kilnry\.json\.tmp-.*$/`, watcher.ts) does not match, so every manifest
+ * write enqueued an import of a file that was gone by the time it ran (F-102).
+ */
+export function manifestTempPath(target: string): string {
+  return `${target}.tmp-${process.pid}`;
+}
+
 export async function planWorkflow(
   db: DatabaseState,
   engine: JobEngine,
@@ -2229,7 +2239,7 @@ async function persistRun(
       const dir = join(libraryRoot, folder);
       mkdirSync(dir, { recursive: true });
       const target = join(dir, 'run.kilnry.json');
-      const tmp = `${target}.tmp`;
+      const tmp = manifestTempPath(target);
       writeFileSync(tmp, JSON.stringify(manifest, null, 2), 'utf8');
       renameSync(tmp, target);
     } catch {

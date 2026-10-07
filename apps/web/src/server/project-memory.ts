@@ -12,36 +12,57 @@
 // body below the optional YAML front matter is injected verbatim as the fifth
 // instructions block, capped at four kilobytes.
 
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { existsSync } from 'node:fs';
+import { lstat, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
+import { resolveInRoot } from '@kilnry/core';
 
 const MEMORY_MAX_BYTES = 4 * 1024;
 const TRUNCATION_NOTE = '\n\n[…memory truncated at 4 KB; open the file to edit]';
 
-/** The project.md path for a folder, contained inside the Library root. */
-function projectMemoryPath(libraryRoot: string, folder: string): string | undefined {
+/**
+ * The project.md path for a folder, contained inside the Library root. The
+ * folder resolves through resolveInRoot, as every other Library path does
+ * (TRD-15 §10), so a folder that is a symbolic link, or that leads out of the
+ * root through one, is refused; the containment used to be a string prefix
+ * check that followed a symlinked folder out of the Library (F-108). The
+ * `.kilnry` folder and the file itself must not be links either.
+ */
+async function projectMemoryPath(libraryRoot: string, folder: string): Promise<string | undefined> {
   if (libraryRoot === '' || folder === '') return undefined;
-  const base = resolve(libraryRoot);
-  const target = resolve(base, folder, '.kilnry', 'project.md');
-  // Contain the path to the Library: reject a folder that escapes it.
-  if (target !== base && !target.startsWith(`${base}/`)) return undefined;
+  let folderPath: string;
+  try {
+    folderPath = (await resolveInRoot(libraryRoot, folder)).abs;
+  } catch {
+    return undefined;
+  }
+  const sidecar = join(folderPath, '.kilnry');
+  const target = join(sidecar, 'project.md');
+  for (const path of [sidecar, target]) {
+    try {
+      if ((await lstat(path)).isSymbolicLink()) return undefined;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') break;
+      return undefined;
+    }
+  }
   return target;
 }
 
 /** Read the full project.md text for a folder, or an empty string when absent. */
-export function readProjectMemory(libraryRoot: string, folder: string): string {
-  const path = projectMemoryPath(libraryRoot, folder);
+export async function readProjectMemory(libraryRoot: string, folder: string): Promise<string> {
+  const path = await projectMemoryPath(libraryRoot, folder);
   if (!path || !existsSync(path)) return '';
   try {
-    return readFileSync(path, 'utf8');
+    return await readFile(path, 'utf8');
   } catch {
     return '';
   }
 }
 
 /** The body below the front matter, capped at four kilobytes for the prompt. */
-export function projectMemoryBody(libraryRoot: string, folder: string): string {
-  const text = readProjectMemory(libraryRoot, folder);
+export async function projectMemoryBody(libraryRoot: string, folder: string): Promise<string> {
+  const text = await readProjectMemory(libraryRoot, folder);
   if (text === '') return '';
   const body = text.replace(/^---[\s\S]*?\n---\n?/, '').trim();
   const encoder = new TextEncoder();
@@ -53,12 +74,16 @@ export function projectMemoryBody(libraryRoot: string, folder: string): string {
 }
 
 /** Write the project.md for a folder, creating the .kilnry sidecar if needed. */
-export function writeProjectMemory(libraryRoot: string, folder: string, text: string): boolean {
-  const path = projectMemoryPath(libraryRoot, folder);
+export async function writeProjectMemory(
+  libraryRoot: string,
+  folder: string,
+  text: string,
+): Promise<boolean> {
+  const path = await projectMemoryPath(libraryRoot, folder);
   if (!path) return false;
   try {
-    mkdirSync(join(resolve(libraryRoot), folder, '.kilnry'), { recursive: true });
-    writeFileSync(path, text, 'utf8');
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, text, 'utf8');
     return true;
   } catch {
     return false;

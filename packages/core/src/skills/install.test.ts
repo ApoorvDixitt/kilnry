@@ -45,6 +45,21 @@ function fileSet(name: string, extras: Record<string, string> = {}, body = ''): 
 const shipped = new Set(['kilnry-ugc-ad', 'kilnry-character-sheet']);
 
 describe('community skill install validation (F-SKL-03)', () => {
+  // F-124: TRD-15 §13 caps SKILL.md at 200 KB; a large frontmatter passed.
+  it('refuses a SKILL.md over 200 KB', () => {
+    const files = fileSet('acme-helper');
+    const padded = skillMd('acme-helper').replace(
+      'license: MIT',
+      `license: MIT\nnotes: "${'x'.repeat(300 * 1024)}"`,
+    );
+    files.set('SKILL.md', encoder.encode(padded));
+    const result = validateSkillInstall({ files, shippedNames: shipped });
+    expect(result.issues).toContainEqual({ rule: 'V5', level: 'error', message: 'SKILL.md exceeds 200 KB.' });
+    expect(
+      validateSkillInstall({ files: fileSet('acme-helper'), shippedNames: shipped }).issues,
+    ).not.toContainEqual(expect.objectContaining({ message: 'SKILL.md exceeds 200 KB.' }));
+  });
+
   it('accepts a clean skill and resolves its name', () => {
     const result = validateSkillInstall({ files: fileSet('acme-helper'), shippedNames: shipped });
     expect(result.issues.filter((issue) => issue.level === 'error')).toHaveLength(0);

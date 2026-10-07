@@ -25,7 +25,7 @@ export async function GET(request: Request): Promise<Response> {
     const parsed = FolderQuery.safeParse(folder);
     if (!parsed.success) return NextResponse.json({ text: '' });
     const config = await loadConfig();
-    const text = readProjectMemory(config.library_root ?? '', parsed.data);
+    const text = await readProjectMemory(config.library_root ?? '', parsed.data);
     return NextResponse.json({ folder: parsed.data, text });
   } catch (error) {
     return errorResponse(error);
@@ -37,7 +37,7 @@ export async function PUT(request: Request): Promise<Response> {
     await requireSession();
     const body = PutInput.parse(await request.json());
     const config = await loadConfig();
-    const ok = writeProjectMemory(config.library_root ?? '', body.folder, body.text);
+    const ok = await writeProjectMemory(config.library_root ?? '', body.folder, body.text);
     return NextResponse.json({ ok }, { status: ok ? 200 : 422 });
   } catch (error) {
     return errorResponse(error);

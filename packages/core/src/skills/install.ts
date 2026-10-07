@@ -34,6 +34,7 @@ export interface InstallResult {
 }
 
 const MAX_TOTAL_BYTES = 20 * 1024 * 1024;
+const SKILL_MD_MAX_BYTES = 200 * 1024;
 // D-45: Kilnry V1 does not run skill scripts. Any executable is rejected.
 const EXECUTABLE_EXTENSIONS = [
   '.sh',
@@ -110,6 +111,12 @@ export function validateSkillInstall(input: {
   if (!skillMd) {
     issues.push({ rule: 'V1', level: 'error', message: 'The skill has no SKILL.md at its root.' });
     return { issues, warnings };
+  }
+  // TRD-15 §13: "`SKILL.md` frontmatter is validated (… size ≤ 200 KB)". Only
+  // the 20 MB package limit and the 32 KB body limit (V5) existed, so a
+  // SKILL.md could carry its bulk in the frontmatter (F-124).
+  if (skillMd.byteLength > SKILL_MD_MAX_BYTES) {
+    issues.push({ rule: 'V5', level: 'error', message: 'SKILL.md exceeds 200 KB.' });
   }
   const source = decode(skillMd);
   const frontmatter = parseSkillFrontmatter(source);

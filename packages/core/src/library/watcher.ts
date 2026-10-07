@@ -22,6 +22,15 @@ export interface LibraryWatcher {
 // under a dot-directory (for example a temporary "…/.dev/library" used in tests,
 // or a hidden folder in someone's home) does not have every file ignored just
 // because the root's own prefix contains a dot segment.
+/**
+ * Whether the watcher skips a path: dot-folders, Trash, partial downloads and a
+ * run manifest's temporary file (`run.kilnry.json.tmp-<pid>`). Exported so a
+ * writer can check its temporary name against the same rule (F-102).
+ */
+export function watcherIgnores(path: string, root: string): boolean {
+  return ignored(path, root);
+}
+
 function ignored(path: string, root: string): boolean {
   const rel = relative(root, path);
   // A path outside the root (empty or starting with "..") is never watched here.
