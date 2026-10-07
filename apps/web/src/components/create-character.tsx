@@ -11,6 +11,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { apiFetch } from '../lib/api-client';
 import { message } from '../lib/messages';
 import { canCreate, handleValidity, suggestHandle, type CreatePath } from './create-character-logic';
+import { formatUsd } from './cost-strip';
 import { CastBuilder } from './cast-builder';
 import { ProductFromUrl } from './product-from-url';
 import { PresetMediaLibraryPicker } from './preset-drawer';
@@ -35,6 +36,48 @@ export function CreateCharacter(): React.ReactNode {
   const isElement = params.get('kind') === 'element';
   const [elementKind, setElementKind] = useState<ElementKind>('prop');
   const [path, setPath] = useState<CreatePath>(isElement ? 'library' : 'photo');
+  const [anchorPrice, setAnchorPrice] = useState<
+    { state: 'unknown' } | { state: 'priced'; usd: number } | { state: 'no_provider' }
+  >({ state: 'unknown' });
+
+  // The From text path's anchor is the Character Sheet's anchor_gen step:
+  // text-to-image at 3:4, 1K, high quality, on Auto
+  // (packages/workflows/catalogue/kilnry-character-sheet.yaml). Price exactly
+  // that request; the prompt text does not change the price.
+  useEffect(() => {
+    if (path !== 'text') return;
+    let current = true;
+    void apiFetch('/api/estimate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        kind: 'image',
+        prompt: 'Character anchor portrait',
+        model: 'auto',
+        params: { aspect_ratio: '3:4', resolution: '1K', quality: 'high' },
+      }),
+    })
+      .then(async (response) => {
+        const body = (await response.json().catch(() => ({}))) as {
+          estimate_usd?: number;
+          error?: { code?: string };
+        };
+        if (!current) return;
+        if (response.ok && typeof body.estimate_usd === 'number') {
+          setAnchorPrice({ state: 'priced', usd: body.estimate_usd });
+        } else if (body.error?.code === 'NO_PROVIDER') {
+          setAnchorPrice({ state: 'no_provider' });
+        } else {
+          setAnchorPrice({ state: 'unknown' });
+        }
+      })
+      .catch(() => {
+        if (current) setAnchorPrice({ state: 'unknown' });
+      });
+    return () => {
+      current = false;
+    };
+  }, [path]);
   const [displayName, setDisplayName] = useState('');
   const [handle, setHandle] = useState('');
   const [handleEdited, setHandleEdited] = useState(false);
@@ -340,7 +383,18 @@ export function CreateCharacter(): React.ReactNode {
               onChange={(event) => setTextBody(event.target.value)}
               placeholder={message('characters.create.textWhoPlaceholder')}
             />
-            <span className="create-character-note">{message('characters.create.needImageProvider')}</span>
+            {/* F-62: the note used to show unconditionally, so a user with
+                OpenRouter connected was told to add a key. The engine's own
+                estimate for the sheet's anchor step answers both questions:
+                a price when a connected provider can make the anchor, the
+                note when none can. */}
+            {anchorPrice.state === 'priced' ? (
+              <span className="create-character-note" data-testid="anchor-estimate">
+                {message('characters.create.anchorEstimate').replace('{amount}', formatUsd(anchorPrice.usd))}
+              </span>
+            ) : anchorPrice.state === 'no_provider' ? (
+              <span className="create-character-note">{message('characters.create.needImageProvider')}</span>
+            ) : null}
           </label>
         ) : null}
 

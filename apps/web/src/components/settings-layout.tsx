@@ -59,7 +59,6 @@ export function SettingsLayout({
             </Link>
           );
         })}
-        <small>{message('settings.m2Scope')}</small>
       </nav>
       <main>{children}</main>
     </div>

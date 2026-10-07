@@ -80,3 +80,38 @@ describe('who is this (F-CHR-06, UX-12)', () => {
     expect(host.querySelector('.create-character-toggle')).toBeNull();
   });
 });
+
+// F-62: the From text path always said "Generating an anchor needs an image
+// provider. Add a fal or OpenRouter key.", even with OpenRouter connected.
+describe('the From text anchor note (F-CHR-02, F-62)', () => {
+  async function renderText(estimate: Response): Promise<HTMLElement> {
+    const host = await render();
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL) =>
+      String(input).includes('/api/estimate')
+        ? estimate.clone()
+        : new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } }),
+    );
+    const tab = [...host.querySelectorAll<HTMLButtonElement>('.create-character-segments button')].find(
+      (button) => button.textContent === 'From text',
+    );
+    await act(async () => tab!.click());
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    return host;
+  }
+  const notes = (host: HTMLElement): string[] =>
+    [...host.querySelectorAll('.create-character-note')].map((note) => note.textContent ?? '');
+
+  it('prices the anchor and does not ask for a key when a provider can make it', async () => {
+    const host = await renderText(Response.json({ estimate_usd: 0.04 }));
+    expect(notes(host)).toEqual(['≈ $0.040 for the anchor']);
+  });
+
+  it('asks for an image provider only when none can route the anchor', async () => {
+    const host = await renderText(
+      Response.json({ error: { code: 'NO_PROVIDER', message: 'No connected provider' } }, { status: 422 }),
+    );
+    expect(notes(host)).toEqual([
+      'Generating an anchor needs an image provider. Add a fal or OpenRouter key.',
+    ]);
+  });
+});

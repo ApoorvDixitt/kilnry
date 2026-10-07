@@ -134,6 +134,23 @@ for (const dir of toolSourceDirs) {
     }
   }
 }
+// The design contract's voice rule (DES-01 §6): "Say \"you\", never \"the
+// user\"." A rendered string that says "the user" talks about the reader
+// instead of to them (F-56).
+const thirdPerson = /\bthe user(?:'s|s)?\b/i;
+function collectThirdPerson(value: Record<string, unknown>, prefix = ''): void {
+  for (const [key, child] of Object.entries(value)) {
+    const path = prefix ? `${prefix}.${key}` : key;
+    if (typeof child === 'string') {
+      if (thirdPerson.test(child))
+        promises.push(`${path}: say "you", never "the user" (DES-01 §6): ${child}`);
+    } else if (typeof child === 'object' && child !== null && !Array.isArray(child)) {
+      collectThirdPerson(child as Record<string, unknown>, path);
+    }
+  }
+}
+collectThirdPerson(catalogue);
+
 if (promises.length > 0) {
   process.stderr.write(
     `Message catalogue check failed; each user-visible "not yet" string must name a capability that has not shipped and be listed against its milestone:\n${promises
