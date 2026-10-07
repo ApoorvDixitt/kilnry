@@ -253,3 +253,31 @@ export async function finalizeOutput(input: FinalizeInput): Promise<FinalizedAss
     ...(derivatives.thumbnail ? { thumbnail_path: derivatives.thumbnail } : {}),
   };
 }
+
+/**
+ * The index of the first all-black image among a job's downloads, or undefined.
+ * fal's FLUX safety checker blanks a refused output rather than answering with
+ * an error, and the compute is billed either way (TRD-20 §2 "all-black output
+ * detected by sharp stats() mean < 2"). Nothing looked, so the user paid for a
+ * black asset with no explanation (F-78).
+ */
+export async function firstBlackImage(
+  outputs: Array<{ index: number; path?: string; bytes?: Uint8Array; mime: string }>,
+): Promise<number | undefined> {
+  for (const output of outputs) {
+    if (!output.mime.startsWith('image/')) continue;
+    const source = output.path ?? output.bytes;
+    if (source === undefined) continue;
+    try {
+      const { default: sharp } = await import('sharp');
+      const stats = await sharp(source as never).stats();
+      const means = stats.channels.slice(0, 3).map((channel) => channel.mean);
+      if (means.length > 0 && means.every((mean) => mean < 2)) return output.index;
+    } catch {
+      // An image sharp cannot read is not evidence of a refusal; the finalizer
+      // reports its own error if the file is unusable.
+      continue;
+    }
+  }
+  return undefined;
+}

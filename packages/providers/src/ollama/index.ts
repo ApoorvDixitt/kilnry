@@ -191,6 +191,20 @@ function manifestFor(model: OllamaModel): ModelManifest {
   };
 }
 
+/**
+ * ECONNREFUSED on the loopback address: nothing is listening, which for Ollama
+ * means the daemon is not running (TRD-20 §2). Node puts the code on the cause
+ * of the TypeError fetch rejects with.
+ */
+function isConnectionRefused(error: unknown): boolean {
+  let current: unknown = error;
+  for (let depth = 0; depth < 4 && current; depth += 1) {
+    if ((current as { code?: unknown }).code === 'ECONNREFUSED') return true;
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
 export const ollamaAdapter: ProviderAdapter = {
   id: 'ollama',
   display_name: 'Ollama',
@@ -306,6 +320,16 @@ export const ollamaAdapter: ProviderAdapter = {
         });
       }
       return error;
+    }
+    // TRD-20 §2: a refused connection means Ollama is not running, which is a
+    // NO_PROVIDER the user can act on, not the generic lost-connection TIMEOUT
+    // they were shown (F-46).
+    if (isConnectionRefused(error)) {
+      return new KilnryError('NO_PROVIDER', 'Ollama not running', {
+        provider: 'ollama',
+        retryable: true,
+        cause: error,
+      });
     }
     return providerNetworkError('ollama', error, false);
   },

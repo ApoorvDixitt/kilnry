@@ -55,7 +55,7 @@ import {
   type Estimate,
   type ProviderId,
 } from '../types.js';
-import { finalizeOutput, type FinalizedAsset } from './finalize.js';
+import { finalizeOutput, firstBlackImage, type FinalizedAsset } from './finalize.js';
 
 type JobRow = typeof jobs.$inferSelect;
 
@@ -1318,6 +1318,23 @@ export class JobEngine {
           retryable: true,
           details: { billed: 'yes', actual_usd: actualUsd, retry_download_only: true },
           cause: error,
+        },
+      );
+    }
+    // TRD-20 §2: fal's safety checker can answer with an all-black image. The
+    // compute ran, so it is billed, and Kilnry recorded a successful charged
+    // image with no explanation (F-78). An all-black output is a moderation
+    // refusal that was paid for.
+    const black = await firstBlackImage(downloaded);
+    if (black !== undefined) {
+      throw new KilnryError(
+        'MODERATION_REJECTED',
+        `${adapter.id} returned a blank image, which its safety checker does that for a refused prompt. The request was charged.`,
+        {
+          provider: adapter.id,
+          provider_code: 'black_image',
+          retryable: false,
+          details: { billed: 'yes', actual_usd: actualUsd, output_index: black },
         },
       );
     }

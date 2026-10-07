@@ -44,6 +44,19 @@ function message(sentence: string, providerText?: string, origin?: string): stri
   return origin ? `${sentence} ${origin}: ${providerText}` : `${sentence} ${providerText}`;
 }
 
+/**
+ * ElevenLabs answers 401 with `detail.status: 'quota_exceeded'` when the
+ * character quota is gone, which is a funds problem, not a key problem
+ * (TRD-20 §2). The 401 branch never consulted the body, so an out-of-quota user
+ * was told their key was rejected and sent to "Add key" (F-47).
+ */
+function quotaExceeded(body: unknown): boolean {
+  const detail = (body as { detail?: { status?: unknown } } | undefined)?.detail;
+  const status = typeof detail?.status === 'string' ? detail.status : '';
+  const text = typeof body === 'string' ? body : JSON.stringify(body ?? '');
+  return /quota_exceeded/i.test(status) || /quota_exceeded/i.test(text);
+}
+
 export function providerHttpError(
   provider: ProviderId,
   status: number,
@@ -89,7 +102,10 @@ export function providerHttpError(
     );
   }
   const insufficientFunds =
-    status === 402 || (status === 403 && /(?:balance|credit|funds|billing)/i.test(providerText ?? ''));
+    status === 402 ||
+    (status === 403 && /(?:balance|credit|funds|billing)/i.test(providerText ?? '')) ||
+    // An exhausted quota answered with 401 is a funds problem (TRD-20 §2, F-47).
+    (status === 401 && quotaExceeded(body));
   if (insufficientFunds) {
     return new KilnryError(
       'INSUFFICIENT_FUNDS',

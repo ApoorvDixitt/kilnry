@@ -189,9 +189,14 @@ export const higgsfieldAdapter: ProviderAdapter = {
     if (state === 'failed')
       return {
         state: 'failed',
+        // TRD-20 §2 marks a terminal `failed` non-retryable: the provider is
+        // finished with it and a retry is a new request the user decides on.
+        // It was retryable: true, which invites the auto-retry the TRD forbids
+        // (F-79).
         error: new KilnryError('PROVIDER_ERROR', 'Higgsfield generation failed. Not charged.', {
           provider: 'higgsfield',
-          retryable: true,
+          provider_code: 'failed',
+          retryable: false,
         }),
       };
     if (state !== 'completed') return { state: 'running', step_label: 'Rendering at Higgsfield' };
@@ -228,12 +233,30 @@ export const higgsfieldAdapter: ProviderAdapter = {
     return downloadOutputs('higgsfield', result, context, headers(context.key));
   },
   normalizeError(error) {
-    return error instanceof KilnryError
-      ? error
-      : new KilnryError('PROVIDER_ERROR', 'Higgsfield returned an unexpected error.', {
+    // TRD-20 §2: a 400 whose detail names the concurrency limit is a
+    // RATE_LIMITED with a synthetic 15-second backoff, not the INVALID_INPUT a
+    // bare 400 maps to — a transient bounce became a hard failure the engine
+    // would not retry (F-79).
+    if (error instanceof KilnryError) {
+      const detail = JSON.stringify(error.options?.details ?? '');
+      if (
+        /Maximum number of concurrent requests/i.test(`${error.message} ${detail}`) &&
+        error.code !== 'RATE_LIMITED'
+      ) {
+        return new KilnryError('RATE_LIMITED', 'Higgsfield is at its concurrency limit. Retrying shortly.', {
           provider: 'higgsfield',
+          provider_code: 'concurrency',
           retryable: true,
+          details: { retry_after_s: 15 },
           cause: error,
         });
+      }
+      return error;
+    }
+    return new KilnryError('PROVIDER_ERROR', 'Higgsfield returned an unexpected error.', {
+      provider: 'higgsfield',
+      retryable: true,
+      cause: error,
+    });
   },
 };
