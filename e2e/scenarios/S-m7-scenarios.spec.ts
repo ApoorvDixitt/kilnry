@@ -1242,7 +1242,19 @@ test('@m7 F-SET-07 the Updates page shows the version, checks a manifest, and of
 
   // Switching to the Beta channel and checking again shows the beta note and
   // the beta manifest's notes (the fixture serves a distinct beta manifest).
+  // The page saves the channel with its own request and Check now does not
+  // carry it, so the check reads whichever channel is stored when it is
+  // handled. Wait for the save to land before checking: under load the two
+  // requests raced and the beta check was answered from the stable manifest
+  // (the T18 flake; recorded as a Found gap for STATUS).
+  const channelSaved = page.waitForResponse(
+    (response) =>
+      response.url().endsWith('/api/updates') &&
+      response.request().method() === 'POST' &&
+      (response.request().postData() ?? '').includes('update_channel'),
+  );
   await page.getByLabel('Release channel').selectOption('beta');
+  expect((await channelSaved).ok()).toBe(true);
   await expect(page.getByTestId('updates-beta-note')).toBeVisible();
   await page.getByTestId('updates-check').click();
   await expect(page.getByTestId('updates-notes')).toContainText('Beta channel 9.9.9', { timeout: 15_000 });
