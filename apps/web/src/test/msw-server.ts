@@ -601,8 +601,16 @@ export function startTestMsw(): void {
         status_url: 'https://api.higgsfield.ai/requests/hf_req_1/status',
       }),
     ),
+    // The documented completed payload: `images[{url}]` for an image model,
+    // `video{url}` or `audio{url}` otherwise, with the provider's own figure
+    // (https://docs.higgsfield.ai/docs/concepts/requests.md; the reference doc's
+    // Higgsfield row). It returned `results[]`, which the adapter never reads (F-99).
     http.get('https://api.higgsfield.ai/requests/:id/status', () =>
-      HttpResponse.json({ status: 'completed', results: [{ url: FAL_VIDEO_URL.replace('.mp4', '.png') }] }),
+      HttpResponse.json({
+        status: 'completed',
+        images: [{ url: FAL_VIDEO_URL.replace('.mp4', '.png') }],
+        usd: '0.094',
+      }),
     ),
     // The safetensors bytes a completed fal LoRA training points at (F-CHR-07).
     http.get(FAL_LORA_URL, () =>
