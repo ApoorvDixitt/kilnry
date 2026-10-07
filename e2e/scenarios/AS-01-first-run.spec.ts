@@ -95,7 +95,7 @@ test('@smoke @m3 S-01 AS-01 first run creates a protected local account and Libr
   // F-14: a reload keeps the step usable, because the saved key is read from the
   // server rather than held in component state.
   await page.reload();
-  await expect(page.getByText('openrouter is already connected', { exact: false })).toBeVisible({
+  await expect(page.getByText('OpenRouter is already connected', { exact: false })).toBeVisible({
     timeout: 30_000,
   });
   await expect(page.getByRole('button', { name: 'Continue' })).toBeEnabled();

@@ -87,7 +87,9 @@ export function OnboardingFlow({
         setConnected(true);
         const first = live[0]!.id;
         if (first === 'fal' || first === 'openrouter' || first === 'pollinations') setProvider(first);
-        setConnectionNote(message('welcome.providerAlreadyConnected').replace('{provider}', live[0]!.id));
+        setConnectionNote(
+          message('welcome.providerAlreadyConnected').replace('{provider}', providerLabel(live[0]!.id)),
+        );
       })
       .catch(() => undefined);
     return () => {

@@ -63,3 +63,12 @@ describe('ModeratedTile', () => {
     expect(host.querySelector('.moderated-reason')).toBeNull();
   });
 });
+
+// UX-08 (T47 fix-forward): the compute-charge headline interpolated the raw
+// provider id ("openrouter still billed …").
+describe('the moderated headline spells the provider', () => {
+  it('names OpenRouter, not openrouter', () => {
+    expect(moderatedTitle({ provider: 'openrouter', computeUsd: 0.02 })).toContain('OpenRouter');
+    expect(moderatedTitle({ provider: 'openrouter', computeUsd: 0.02 })).not.toContain('openrouter');
+  });
+});

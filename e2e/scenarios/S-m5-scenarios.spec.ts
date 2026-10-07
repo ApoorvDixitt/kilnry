@@ -433,15 +433,17 @@ test('@m5 S-11 an ambiguous timeout never double-spends and Check status resolve
   // Retry on a timed-out row does not resubmit blindly: it warns that a fresh
   // request may bill twice and offers to check the provider first (S-11).
   await page.getByRole('button', { name: 'Retry', exact: true }).first().click();
+  // The provider is spelled as it spells itself (DES-01 §6, UX-08); PRD-21
+  // S-11 quotes the lower-case id, recorded as a spec note.
   await expect(page.locator('.jobs-retry-dialog')).toContainText(
-    'Retry will submit a new request and may bill twice if the first one completes. Check minimax first?',
+    'Retry will submit a new request and may bill twice if the first one completes. Check MiniMax first?',
   );
 
   // Choosing Check from the dialog re-polls the stored provider request id. By
   // now the fixture reports the finished video, so the job completes on its
   // original estimate — and the stored request id is unchanged, proving there
   // was no second submit.
-  await page.getByRole('button', { name: 'Check minimax first' }).click();
+  await page.getByRole('button', { name: 'Check MiniMax first' }).click();
   await expect.poll(async () => (await jobRow(page, jobId))?.status, { timeout: 40_000 }).toBe('completed');
   const done = await jobRow(page, jobId);
   expect(done?.providerRequestId).toBe(storedRequestId);
@@ -949,7 +951,11 @@ test('@m5 S-23 Create prices Soul 2 authoritatively and confirms a real likeness
 
   // The job is visible to the user on the Jobs screen, not only in the database.
   await page.goto('/jobs');
-  await expect(page.locator('.jobs-table')).toContainText('higgsfield-ai/soul/v2/standard');
+  // The Model column reads the registry's display name, with the id in the
+  // tooltip, so the model has one name on every screen (UX-08).
+  const modelCell = page.locator('.jobs-table .jobs-model', { hasText: 'Soul 2 · Higgsfield' }).first();
+  await expect(modelCell).toBeVisible();
+  await expect(modelCell).toHaveAttribute('title', 'higgsfield-ai/soul/v2/standard');
 });
 
 async function setChatSettings(

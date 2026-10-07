@@ -7,6 +7,7 @@
 
 import { ShieldAlert } from 'lucide-react';
 import { message } from '../lib/messages';
+import { providerLabel } from '../lib/provider-names';
 
 export interface ModeratedInfo {
   provider: string;
@@ -20,7 +21,7 @@ export interface ModeratedInfo {
 export function moderatedTitle(info: ModeratedInfo): string {
   if (info.computeUsd && info.computeUsd > 0) {
     return message('create.moderated.compute')
-      .replace('{provider}', info.provider)
+      .replace('{provider}', providerLabel(info.provider))
       .replace('{amount}', `$${info.computeUsd.toFixed(2)}`);
   }
   return message('create.moderated.title');
