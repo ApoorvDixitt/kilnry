@@ -193,7 +193,7 @@ exports[`PRD-07 §6 model rows and §16 examples (F-CHR-09, F-91) > §6 row 11 �
       "strategy": "voice_id",
     },
   ],
-  "prompt": "@maya says: "Chai is ready."",
+  "prompt": "Chai is ready.",
   "warnings": [],
 }
 `;
@@ -445,7 +445,7 @@ exports[`PRD-07 §6 model rows and §16 examples (F-CHR-09, F-91) > §16 example
       "strategy": "voice_id",
     },
   ],
-  "prompt": "@maya says: 'Chai is ready, come down!'",
+  "prompt": "Chai is ready, come down!",
   "warnings": [],
 }
 `;

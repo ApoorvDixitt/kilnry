@@ -953,8 +953,7 @@ describe('PRD-07 §6 model rows and §16 examples (F-CHR-09, F-91)', () => {
         .map((i) => i.strategy);
       expect(strategies, `${entry.name}: strategies ${JSON.stringify(strategies)}`).toContain(entry.strategy);
       if (entry.strategy !== 'voice_id') expect(maya?.strategy).toBe(entry.strategy);
-      // A TTS prompt keeps "@maya says:" today; see the todo below.
-      if (entry.request.capability !== 'tts') expect(r.prompt).not.toMatch(/@maya\b/);
+      expect(r.prompt).not.toMatch(/@maya\b/);
       if (entry.fragment) expect(r.provider_fragment).toHaveProperty(entry.fragment);
       expect({
         prompt: r.prompt,
@@ -970,8 +969,37 @@ describe('PRD-07 §6 model rows and §16 examples (F-CHR-09, F-91)', () => {
   }
 
   // PRD-07 §16 example 9 resolves '@maya says: "Chai is ready, come down!"' to
-  // the text "Chai is ready, come down!"; the resolver leaves the mention in a
-  // TTS prompt and the ElevenLabs adapter speaks the prompt. Found gap recorded
-  // in the progress file for STATUS (task 65).
-  it.todo('§16 example 9 · the TTS text is the spoken line, without "@maya says:"');
+  // the text "Chai is ready, come down!". The resolved prompt is the text a TTS
+  // adapter speaks (ElevenLabs sends `text: request.prompt`), so the mention and
+  // "says:" must not reach it.
+  it('§16 example 9 · the TTS text is the spoken line, without "@maya says:"', () => {
+    const eleven = manifest({
+      model_id: 'eleven_v3',
+      provider: 'elevenlabs',
+      capabilities: ['tts'],
+      supports: { references_max: 0 },
+    });
+    const r = resolvePrompt(
+      req({ kind: 'audio', capability: 'tts', prompt: "@maya says: 'Chai is ready, come down!'" }),
+      eleven,
+      voiced({ provider: 'elevenlabs', voice_id: 'el_riya' }),
+    );
+    expect(r.prompt).toBe('Chai is ready, come down!');
+    expect(r.provider_fragment).toMatchObject({ voice_id: 'el_riya' });
+  });
+
+  it('a TTS line keeps its apostrophes and drops only the speaker', () => {
+    const eleven = manifest({
+      model_id: 'eleven_v3',
+      provider: 'elevenlabs',
+      capabilities: ['tts'],
+      supports: { references_max: 0 },
+    });
+    const r = resolvePrompt(
+      req({ kind: 'audio', capability: 'tts', prompt: '@maya: "Don\'t let the chai go cold."' }),
+      eleven,
+      voiced({ provider: 'elevenlabs', voice_id: 'el_riya' }),
+    );
+    expect(r.prompt).toBe("Don't let the chai go cold.");
+  });
 });

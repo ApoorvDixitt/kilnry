@@ -296,6 +296,18 @@ export function resolvePrompt(
     }
   }
 
+  // A TTS or lipsync-text request speaks its prompt, so once the speaker's
+  // voice is emitted (here or by the per-mention pass) their mention and
+  // "says:" must not reach it: PRD-07 §16 example 9 resolves
+  // '@maya says: "Chai is ready, come down!"' to the text alone.
+  if (
+    voiceOwner &&
+    speaksPromptText(req, model) &&
+    injections.some((i) => i.id === voiceOwner.version.id && i.strategy === 'voice_id')
+  ) {
+    prompt = spokenLines(prompt, voiceOwner.version.handle) ?? prompt;
+  }
+
   // Video identity clause: "Keep the woman's face identical to images a–b."
   const trailingClauses: string[] = [];
 
@@ -448,6 +460,26 @@ function spliceEdit(
   }
 
   return before + text + after;
+}
+
+// A request whose prompt is the text a voice speaks: a TTS model, or Kling's
+// lipsync text mode (TRD-14 §4 voice_id row).
+function speaksPromptText(req: CanonicalRequest, model: ModelManifest): boolean {
+  return req.capability === 'tts' || (req.capability === 'lipsync' && /text-to-video/.test(model.model_id));
+}
+
+// The lines a speaker says in a prompt: `@maya says: "…"` or `@maya: "…"`, with
+// straight or curly quotes, joined in order. A line ends at its closing quote
+// when that quote ends the prompt or comes before the next mention, so an
+// apostrophe inside the line stays. Undefined when the prompt has no such line.
+function spokenLines(prompt: string, handle: string): string | undefined {
+  const escaped = handle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp(
+    `@${escaped}\\b(?:\\s+says)?\\s*:\\s*["'\u201c\u2018]([\\s\\S]*?)["'\u201d\u2019](?=\\s*(?:$|@))`,
+    'gi',
+  );
+  const lines = [...prompt.matchAll(re)].map((match) => (match[1] ?? '').trim()).filter(Boolean);
+  return lines.length > 0 ? lines.join(' ') : undefined;
 }
 
 // Kling speech wrapping: turn "@Element1 says: \"…\"" into
