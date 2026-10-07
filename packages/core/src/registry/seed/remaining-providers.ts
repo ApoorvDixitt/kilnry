@@ -230,6 +230,13 @@ export const openaiSeed: ModelManifest[] = [
     model_id: 'gpt-4o-mini-tts',
     display_name: 'GPT-4o mini TTS',
     capabilities: ['tts'],
+    // D-73b: OpenAI removes this model on 2027-01-06 and the replacement it
+    // names, gpt-realtime-2.1-mini, is a Realtime-API model — a different
+    // protocol, so a replacement is an adapter, not a seed row. The row keeps
+    // routing until that day with the note, and no deprecated_at, because the
+    // router refuses any row that has one whatever its date (router.ts:106).
+    deprecation_note:
+      'OpenAI removes this model on 2027-01-06; the replacement, gpt-realtime-2.1-mini, needs the Realtime API',
     // Audio output at 12 USD per million tokens, about 1,250 tokens a minute.
     price_rule: { kind: 'per_minute', amount: 0.015, unit_of: 'output', per_target_language: false },
     supports: voiceSupports,

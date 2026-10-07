@@ -102,10 +102,15 @@ function falPayload(request: CanonicalRequest): Record<string, unknown> {
   if (request.params.aspect_ratio) payload.aspect_ratio = request.params.aspect_ratio;
   if (request.params.resolution) payload.resolution = request.params.resolution;
   if (request.params.duration_s) {
+    // Each family's own type: Veo wants "6s", Kling, Seedance and Wan 2.7 want
+    // the enum string "6", and the rest take the number. Wan 2.7's duration is
+    // a DurationEnum of strings on both the image-to-video and the edit-video
+    // pages (read 2026-10-07), and it was sent as a number, so any non-default
+    // duration was refused or ignored (F-95, F-96).
     payload.duration =
       typeof model === 'string' && /veo/i.test(model)
         ? `${request.params.duration_s}s`
-        : typeof model === 'string' && /kling|seedance/i.test(model)
+        : typeof model === 'string' && /kling|seedance|wan\/v2\.7/i.test(model)
           ? String(request.params.duration_s)
           : request.params.duration_s;
   }
@@ -157,7 +162,36 @@ function falPayload(request: CanonicalRequest): Record<string, unknown> {
       for (const url of references) append(fields.reference_images ?? 'image_urls', url);
     }
   }
-  return { ...extra, ...payload };
+  return { ...renameExtras(extra, model), ...payload };
+}
+
+/**
+ * The passthrough keys fal's current pages spell differently from the names
+ * Kilnry's registry and estimator use. A key that reaches fal under the wrong
+ * name is silently ignored while the user is still quoted and billed for the
+ * feature it buys, which is what happened to Nano Banana 2's web search and
+ * Topaz's frame interpolation (F-48, F-49). Each rename cites the page it was
+ * read from on 2026-10-07.
+ */
+const EXTRA_RENAMES: Array<{ model: RegExp; from: string; to: string }> = [
+  // https://fal.ai/models/fal-ai/nano-banana-2/llms.txt — `enable_web_search`.
+  { model: /nano-banana-2/i, from: 'web_search', to: 'enable_web_search' },
+  // https://fal.ai/models/fal-ai/topaz/upscale/video/llms.txt — `target_fps`,
+  // and "frame interpolation is automatically enabled when target_fps is set".
+  { model: /topaz\/upscale\/video/i, from: 'fps', to: 'target_fps' },
+];
+
+function renameExtras(extra: Record<string, unknown>, model: unknown): Record<string, unknown> {
+  if (typeof model !== 'string') return extra;
+  const out = { ...extra };
+  for (const rename of EXTRA_RENAMES) {
+    if (!rename.model.test(model)) continue;
+    if (rename.from in out && !(rename.to in out)) {
+      out[rename.to] = out[rename.from];
+      delete out[rename.from];
+    }
+  }
+  return out;
 }
 
 // Image → 3D takes one source image under a model-specific field and no prompt:

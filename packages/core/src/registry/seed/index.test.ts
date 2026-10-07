@@ -157,4 +157,33 @@ describe('canonical registry seed', () => {
     );
     expect(diarize.map((model) => model.model_id)).toEqual(['gpt-transcribe']);
   });
+
+  // F-106: TRD-07:171 lists fal-ai/minimax-music/v2 as a music model at $0.03
+  // a generation. It was seeded through the image helper, so the router saw a
+  // $0.03 image model and Auto in Image mode could pick it — the user paid for
+  // an mp3 the image pipeline cannot show.
+  it('seeds no music model as an image model', () => {
+    const models = registrySeed;
+    const music = models.filter((model) => model.capabilities.includes('music'));
+    expect(music.length).toBeGreaterThan(0);
+    for (const model of music) {
+      expect(model.capabilities, model.model_id).not.toContain('text2image');
+      expect(model.capabilities, model.model_id).not.toContain('image_edit');
+    }
+    const minimax = models.find((model) => model.model_id === 'fal-ai/minimax-music/v2')!;
+    expect(minimax.capabilities).toEqual(['music']);
+    expect(minimax.price_rule).toMatchObject({ kind: 'flat_per_unit', unit: 'generation', amount: 0.03 });
+  });
+
+  // D-73b: OpenAI removes gpt-4o-mini-tts on 2027-01-06 and names a Realtime-API
+  // replacement, which is an adapter rather than a seed row. The row keeps
+  // routing until then with a note, and no deprecated_at — the router refuses
+  // any row that has one whatever its date.
+  it('keeps gpt-4o-mini-tts routable with its removal note', () => {
+    const row = registrySeed.find((model) => model.model_id === 'gpt-4o-mini-tts')!;
+    expect(row.enabled).toBe(true);
+    expect(row.deprecated_at).toBeNull();
+    expect(row.deprecation_note).toContain('2027-01-06');
+    expect(row.deprecation_note).toContain('gpt-realtime-2.1-mini');
+  });
 });

@@ -845,4 +845,57 @@ describe('fal sends each model the field names its schema requires (F-PRV-01)', 
     expect(poll.state).toBe('running');
     if (poll.state === 'running') expect(poll.step_label).toBe('Rendering at OpenRouter');
   });
+
+  // F-48, F-49, F-95 and F-96: four fields reached fal under a name its current
+  // pages do not use, so the feature the user paid for never ran. Each name was
+  // read from the model's own llms.txt on 2026-10-07.
+  it('sends each fal field under the name its page uses', async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    const capture = (): typeof fetch =>
+      (async (url: string | URL | Request, init?: RequestInit) => {
+        const href = typeof url === 'string' ? url : url instanceof URL ? url.href : url.url;
+        if (href.startsWith('https://queue.fal.run/')) {
+          bodies.push(JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>);
+          return new Response(
+            JSON.stringify({
+              request_id: 'req-1',
+              status_url: 'https://queue.fal.run/s',
+              response_url: 'https://queue.fal.run/r',
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          );
+        }
+        return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }) as typeof fetch;
+
+    const submit = async (model: string, overrides: Record<string, unknown>): Promise<void> => {
+      const base = request('fal');
+      await falAdapter.submit(
+        {
+          ...base,
+          params: { ...base.params, extra: { model }, ...overrides },
+        } as typeof base,
+        { ...context(), fetch: capture() },
+      );
+    };
+
+    // Nano Banana 2's web search is `enable_web_search`.
+    await submit('fal-ai/nano-banana-2', { extra: { model: 'fal-ai/nano-banana-2', web_search: true } });
+    expect(bodies.at(-1)).toMatchObject({ enable_web_search: true });
+    expect(bodies.at(-1)?.web_search).toBeUndefined();
+
+    // Topaz's interpolation only runs when `target_fps` is set.
+    await submit('fal-ai/topaz/upscale/video', {
+      extra: { model: 'fal-ai/topaz/upscale/video', fps: 60 },
+    });
+    expect(bodies.at(-1)).toMatchObject({ target_fps: 60 });
+    expect(bodies.at(-1)?.fps).toBeUndefined();
+
+    // Wan 2.7's duration is an enum of strings.
+    await submit('fal-ai/wan/v2.7/image-to-video', {
+      extra: { model: 'fal-ai/wan/v2.7/image-to-video' },
+      duration_s: 6,
+    });
+    expect(bodies.at(-1)).toMatchObject({ duration: '6' });
+  });
 });

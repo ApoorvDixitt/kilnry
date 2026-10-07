@@ -125,6 +125,14 @@ const SCHEMAS: Record<string, FalEndpointSchema> = {
     required: [],
     source: page('alibaba/wan-3.0/reference-to-video'),
   },
+  // The reference image is a single `reference_image_url` beside the required
+  // `video_url`; the adapter had sent it as `image_urls[0]`, which fal ignores,
+  // so a reference-image edit silently lost its reference (F-95).
+  'fal-ai/wan/v2.7/edit-video': {
+    fields: { single_image: 'reference_image_url' },
+    required: ['video_url'],
+    source: page('fal-ai/wan/v2.7/edit-video'),
+  },
   'fal-ai/kling-video/ai-avatar/v2/pro': {
     fields: { single_image: 'image_url' },
     required: ['image_url', 'audio_url'],

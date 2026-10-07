@@ -782,7 +782,26 @@ export const falSeed: ModelManifest[] = [
     },
     retention_days: null,
   }),
-  ...imageFlat(['fal-ai/minimax-music/v2'], 'MiniMax Music v2', 0.03),
+  // TRD-07:171 lists this beside ace-step as a music model at $0.03 a
+  // generation, and fal's own page calls it text-to-audio with a required
+  // `lyrics_prompt` (https://fal.ai/models/fal-ai/minimax-music/v2/llms.txt,
+  // read 2026-10-07). It was seeded through imageFlat, so the router treated it
+  // as a $0.03 image model and Auto in Image mode could pick it: the user paid
+  // for an mp3 the image pipeline cannot show (F-106).
+  fal({
+    model_id: 'fal-ai/minimax-music/v2',
+    display_name: 'MiniMax Music v2',
+    capabilities: ['music'],
+    price_rule: { kind: 'flat_per_unit', unit: 'generation', amount: 0.03, extras: [] },
+    quality_tier: 'standard',
+    supports: {
+      resolutions: [],
+      references_max: 0,
+      durations: { min: 1, max: 300, step: 1 },
+      aspect_ratios: ['auto'],
+    },
+    retention_days: null,
+  }),
   fal({
     model_id: 'fal-ai/flux-lora-fast-training',
     display_name: 'FLUX LoRA Fast Training',
