@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
-import { and, asc, desc, eq, ilike, isNull, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, ilike, inArray, isNull, or } from 'drizzle-orm';
 import {
   assetCharacters,
   assets,
@@ -220,7 +220,9 @@ export async function mentionSuggestions(
     .where(
       and(
         isNull(characters.deletedAt),
-        sql`${characters.kind} = any(${sql.raw(`array[${kinds.map((k) => `'${k}'`).join(',')}]`)})`,
+        // Bound, not string-quoted into sql.raw: an exported API cannot rely on
+        // every caller filtering `kinds` to the enum first (F-74).
+        inArray(characters.kind, kinds),
         or(ilike(characters.handle, q), ilike(characters.displayName, q))!,
       ),
     )

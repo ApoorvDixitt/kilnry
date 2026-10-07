@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { assetCharacters, assets, closeDatabaseState, createDatabase } from '@kilnry/db';
 import { ulid } from '../ids.js';
-import { addReferences, createCharacter } from './store.js';
+import { addReferences, createCharacter, type CharacterKind } from './store.js';
 import {
   cardFor,
   listCards,
@@ -88,6 +88,19 @@ describe('loadFullCharacter and cards', () => {
     expect(tagged).toHaveLength(1);
     const none = await listCards(state, { kind: 'character', tags: ['role:hero'] });
     expect(none).toHaveLength(0);
+  });
+
+  // F-74: the kinds list was string-quoted into sql.raw, so a kind carrying a
+  // quote broke out of the SQL literal. It is bound now: a hostile value is just
+  // a kind that matches nothing.
+  it('binds the kinds list instead of quoting it into the SQL', async () => {
+    const state = await db();
+    await createCharacter(state, { handle: 'mira', kind: 'character', display_name: 'Mira' });
+    const hostile = ["character']) or true; drop table characters; --" as CharacterKind];
+    await expect(mentionSuggestions(state, 'mi', hostile)).resolves.toEqual([]);
+    expect((await mentionSuggestions(state, 'mi', ['character'])).map((item) => item.handle)).toEqual([
+      'mira',
+    ]);
   });
 
   it('suggests mentions by handle prefix', async () => {

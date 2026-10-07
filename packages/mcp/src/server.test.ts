@@ -102,6 +102,19 @@ describe('MCP server core (F-MCP-01)', () => {
     expect(server).toBeDefined();
   });
 
+  // F-75: the widget's escaper left out the apostrophe, so a value written into
+  // a single-quoted attribute could end it. The function is the one the widget
+  // runs, taken from its inline script.
+  it('escapes the apostrophe in the widget, as well as & < > "', () => {
+    const html = uiWidgetHtml('job_progress');
+    const source = /function escapeHtml\(value\) \{[\s\S]*?\n {4}\}/.exec(html)?.[0];
+    expect(source).toBeDefined();
+    const escapeHtml = new Function(`${source}; return escapeHtml;`)() as (value: unknown) => string;
+    expect(escapeHtml(`<a href='x' title="y">&</a>`)).toBe(
+      '&lt;a href=&#39;x&#39; title=&quot;y&quot;&gt;&amp;&lt;/a&gt;',
+    );
+  });
+
   it('renders a self-contained MCP Apps widget that speaks only the specification (F-MCP-07)', () => {
     const html = uiWidgetHtml('job_progress');
     expect(html.startsWith('<!doctype html>')).toBe(true);

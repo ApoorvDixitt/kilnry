@@ -136,9 +136,11 @@ export function uiWidgetHtml(view: string): string {
       window.parent.postMessage({ jsonrpc: '2.0', method: method, params: params }, '*');
     }
 
+    // The five characters that matter in element text and in either kind of
+    // quoted attribute; the apostrophe was missing (F-75).
     function escapeHtml(value) {
-      return String(value == null ? '' : value).replace(/[&<>"]/g, function (c) {
-        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+      return String(value == null ? '' : value).replace(/[&<>"']/g, function (c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
       });
     }
     function setView(next) {
