@@ -52,7 +52,10 @@ function waitFor(child: ChildProcess, match: RegExp, timeoutMs = 60_000): Promis
       }
     });
     child.stderr?.on('data', (chunk: Buffer) => (stderr += chunk.toString('utf8')));
-    child.once('exit', (code, signal) => {
+    // 'close', not 'exit': a child's 'exit' can fire while its stdout is still
+    // open, so the last line it printed may not have arrived yet (Node
+    // child_process docs; run 37613489449).
+    child.once('close', (code, signal) => {
       if (match.test(stdout)) return;
       clearTimeout(timer);
       reject(new Error(`child exited (${code ?? signal}); stderr=${stderr}`));
@@ -63,7 +66,7 @@ function waitFor(child: ChildProcess, match: RegExp, timeoutMs = 60_000): Promis
 const exited = (child: ChildProcess): Promise<void> =>
   child.exitCode !== null || child.signalCode !== null
     ? Promise.resolve()
-    : new Promise((resolve) => child.once('exit', () => resolve()));
+    : new Promise((resolve) => child.once('close', () => resolve()));
 
 describe.skipIf(process.platform === 'win32')('SIGKILL during a Library import (F-LIB-04, F-70)', () => {
   it('leaves no partial sidecar, keeps the ids already written, and the next import completes', async () => {

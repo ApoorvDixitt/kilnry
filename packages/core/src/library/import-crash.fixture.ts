@@ -45,7 +45,9 @@ async function main(): Promise<void> {
       process.stdout.write(`INDEXED ${index + 1}\n`);
     }
     process.stdout.write('DONE\n');
-    await new Promise(() => {});
+    // Stay alive until the test kills this process.
+    setInterval(() => {}, 1000);
+    return;
   }
   const report = await importFolder(state, library, prepared.marker.library_id, 'Renders');
   const rows = await state.db.select({ id: assets.id, path: assets.path }).from(assets);

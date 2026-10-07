@@ -34,7 +34,7 @@ async function killDuringWrites(dir: string, afterMs: number): Promise<void> {
     child.stdout.on('data', (chunk: Buffer) => {
       if (chunk.toString('utf8').includes('WRITING')) setTimeout(() => child.kill('SIGKILL'), afterMs);
     });
-    child.once('exit', (_code, signal) => (signal === 'SIGKILL' ? resolve() : reject(new Error(stderr))));
+    child.once('close', (_code, signal) => (signal === 'SIGKILL' ? resolve() : reject(new Error(stderr))));
   });
 }
 
