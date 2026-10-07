@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -68,7 +68,36 @@ describe('caption cues and ASS (F-WFL-06, TRD-09 §4)', () => {
   it('formats ASS centiseconds and escapes event text and filter paths', () => {
     expect(assTime(3661.25)).toBe('1:01:01.25');
     expect(escapeAssText('a {b} \\c')).toBe('a \\{b\\} \\\\c');
-    expect(escapeFilterPath("/a:b/c'd")).toBe("/a\\:b/c\\'d");
+    // Both levels of ffmpeg-filters §4.2: `:` becomes `\:` then `\\:`; `'` becomes
+    // `\'` then `\\\'` — the doc's own drawtext example.
+    expect(escapeFilterPath("/a:b/c'd")).toBe(String.raw`/a\\:b/c\\\'d`);
+    // F-71: every filtergraph special is escaped, so none can end the filter.
+    expect(escapeFilterPath('a];b=c,d[e')).toBe(String.raw`a\]\;b=c\,d\[e`);
+  });
+
+  // F-71: escapeFilterPath only did ffmpeg's first escaping level, so a path
+  // with a colon or one of `[ ] , ;` could not reach the ass filter through a
+  // -vf filtergraph. A real ffmpeg is handed an ASS file in a directory whose
+  // name holds every special character.
+  it.skipIf(!libass)('passes a path with every filtergraph special to the ass filter intact', async () => {
+    const dir = join(root, "a:b'c[d],e;f");
+    mkdirSync(dir, { recursive: true });
+    const assPath = join(dir, 'captions.ass');
+    writeFileSync(assPath, buildAss([], { width: 64, height: 64 }), 'utf8');
+    // runMediaProcess rejects with ffmpeg's stderr on a non-zero exit.
+    await runMediaProcess(ffmpeg, [
+      '-hide_banner',
+      '-nostdin',
+      '-f',
+      'lavfi',
+      '-i',
+      'color=c=black:s=64x64:d=0.2',
+      '-vf',
+      `ass=filename=${escapeFilterPath(assPath)}:fontsdir=${escapeFilterPath(fontsDir())}`,
+      '-f',
+      'null',
+      '-',
+    ]);
   });
 
   it('builds the clean look with Inter and a portrait reels safe zone', () => {

@@ -136,8 +136,24 @@ export function buildAss(cues: Cue[], options: AssOptions): string {
   return `${[...header, ...events].join('\n')}\n`;
 }
 
-// Escape the libass filter-option value so a Kilnry-owned path with a colon,
-// backslash or quote is passed to the ass filter intact (TRD-09 §3.6).
+/**
+ * Escape a value for an option of a filter that is written into a `-vf`
+ * filtergraph, so any path reaches the ass filter intact (TRD-09 §3.6).
+ *
+ * ffmpeg-filters §4.2 "Notes on filtergraph escaping"
+ * (https://ffmpeg.org/ffmpeg-filters.html#Notes-on-filtergraph-escaping, read
+ * 2026-10-07): "A first level escaping affects the content of each filter
+ * option value, which may contain the special character `:` used to separate
+ * values, or one of the escaping characters `\'`. A second level escaping
+ * affects the whole filter description, which may contain the escaping
+ * characters `\'` or the special characters `[],;` used by the filtergraph
+ * description." The old function did the first level only, so a `:` reached
+ * the option parser bare and `[ ] , ;` could end the filter (F-71). The
+ * separators Kilnry writes between options (`=` and `:`) are not second-level
+ * specials, so applying the second level to each first-level value equals
+ * applying it to the whole description.
+ */
 export function escapeFilterPath(path: string): string {
-  return path.replace(/\\/g, '\\\\').replace(/:/g, '\\:').replace(/'/g, "\\'");
+  const optionValue = path.replace(/[\\':]/g, '\\$&');
+  return optionValue.replace(/[\\'[\],;]/g, '\\$&');
 }
