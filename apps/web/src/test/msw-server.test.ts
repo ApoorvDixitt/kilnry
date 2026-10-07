@@ -8,6 +8,7 @@
 // never takes. These drive the real adapters against the fixtures.
 
 import { beforeAll, describe, expect, it } from 'vitest';
+import { extractProduct, safeFetch } from '@kilnry/core';
 import { adapters } from '@kilnry/providers';
 import { startTestMsw } from './msw-server';
 
@@ -195,5 +196,21 @@ describe('OpenRouter moderation fixture (F-CRE-14, F-98)', () => {
     );
     const result = await adapters.openrouter!.poll(handle, context as never);
     expect(result).toMatchObject({ state: 'moderated', billed: 'no' });
+  });
+});
+
+// The UX audit addendum: Element from a product URL had no product-page
+// fixture, so the path could not be walked under MSW. The page is read the way
+// the fetch route reads it — safeFetch, then extractProduct.
+describe('product page fixture (F-CHR-02, Element from URL)', () => {
+  it('serves a product page safeFetch reads and extractProduct understands', async () => {
+    const url = 'https://example.com/kilnry-fixture/chai-masala';
+    const response = await safeFetch(url, { max_bytes: 5 * 1024 * 1024 });
+    expect(response.status).toBe(200);
+    const facts = extractProduct(await response.text(), url);
+    expect(facts).toMatchObject({ title: 'Kilnry Chai Masala', price: '249 INR', brand: 'Kilnry Kitchen' });
+    expect(facts.claims).toEqual(
+      expect.arrayContaining(['Certified organic cardamom and ginger', 'Free from added sugar']),
+    );
   });
 });

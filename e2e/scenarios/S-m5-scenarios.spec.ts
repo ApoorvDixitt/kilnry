@@ -1148,3 +1148,53 @@ test('@m5 chat auto-runs one image below the threshold and lands it in the Libra
   await page.goto('/library');
   await expect(page.getByRole('button', { name: newImage })).toBeVisible();
 });
+
+// PRD-07's Element from a product URL, walked end to end (the UX audit
+// addendum: "no MSW product-page fixture; needs one http.get handler + an @m5
+// scenario"). The server reads the page through its SSRF guard; the suite's
+// fixture answers it, and only the claim the user ticks is stored as approved.
+test('@m5 an Element from a product URL keeps only the ticked claim', async ({ page }) => {
+  await ensureSignedIn(page, '/characters/new?kind=element');
+  await page.getByRole('tab', { name: 'From URL' }).click();
+  await page
+    .getByRole('textbox', { name: 'Product page address' })
+    .fill('https://example.com/kilnry-fixture/chai-masala');
+  await page.getByRole('button', { name: 'Fetch' }).click();
+
+  const facts = page.locator('.product-url-facts');
+  await expect(facts.locator('.product-url-title')).toHaveText('Kilnry Chai Masala', { timeout: 30_000 });
+  await expect(facts).toContainText('249 INR');
+  await expect(
+    facts.getByRole('checkbox', { name: 'Certified organic cardamom and ginger', exact: true }),
+  ).not.toBeChecked();
+  await facts.getByRole('checkbox', { name: 'Free from added sugar', exact: true }).check();
+
+  await page.getByLabel('Display name').fill('Chai Masala');
+  await page.getByLabel('Handle').fill('chaimasala');
+  await expect(page.getByText('@chaimasala is free')).toBeVisible({ timeout: 10_000 });
+  await page.getByRole('button', { name: 'Create character' }).click();
+  await expect(page).toHaveURL(/\/characters\/chaimasala$/, { timeout: 30_000 });
+
+  const item = (await characterView(page, 'chaimasala')) as
+    | {
+        kind?: string;
+        appearance?: {
+          product_facts?: {
+            title?: string;
+            approved_claims?: string[];
+            claims?: string[];
+            source_url?: string;
+          };
+        };
+      }
+    | undefined;
+  expect(item?.kind).toBe('prop');
+  // The facts are stored on the version's appearance (F-ELM-04).
+  const stored = item?.appearance?.product_facts;
+  expect(stored).toMatchObject({
+    title: 'Kilnry Chai Masala',
+    approved_claims: ['Free from added sugar'],
+    source_url: 'https://example.com/kilnry-fixture/chai-masala',
+  });
+  expect(stored?.claims).toContain('Certified organic cardamom and ginger');
+});

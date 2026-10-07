@@ -5,6 +5,7 @@
 
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { http, HttpResponse } from 'msw';
@@ -30,6 +31,25 @@ const FAL_AUDIO_URL = 'https://v3.fal.media/files/test/kilnry-fixture.mp3';
 const FAL_LORA_URL = 'https://v3.fal.media/files/test/kilnry-lora.safetensors';
 // Where a completed fal image-to-3D job points at its GLB (F-CRE-15).
 const FAL_GLB_URL = 'https://v3.fal.media/files/test/kilnry-fixture.glb';
+// The product page Element-from-URL reads, on any host (see its handler).
+const PRODUCT_PAGE_PATH = /\/kilnry-fixture\/chai-masala$/;
+const PRODUCT_PAGE_HTML = `<!doctype html>
+<html lang="en">
+<head>
+<title>Kilnry Chai Masala · 100 g</title>
+<meta property="og:title" content="Kilnry Chai Masala">
+<meta property="og:description" content="A warm masala blend for cutting chai.">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"Product","name":"Kilnry Chai Masala","description":"A warm masala blend for cutting chai.","brand":{"@type":"Brand","name":"Kilnry Kitchen"},"offers":{"@type":"Offer","price":"249","priceCurrency":"INR"}}</script>
+</head>
+<body>
+<h1>Kilnry Chai Masala</h1>
+<ul>
+<li>Certified organic cardamom and ginger</li>
+<li>Free from added sugar</li>
+<li>Ground fresh every week</li>
+</ul>
+</body>
+</html>`;
 // Where a completed Veo operation points at its video (F-92).
 const GOOGLE_VIDEO_URL = 'https://generativelanguage.googleapis.com/v1beta/files/kilnry-fixture:download';
 
@@ -858,6 +878,18 @@ export function startTestMsw(): void {
         headers: { 'Content-Type': 'video/mp4' },
       }),
     ),
+    // A product page for "Element from URL" (UX audit addendum: "no MSW
+    // product-page fixture"). safeFetch resolves the host, refuses a private
+    // address, then connects to the resolved address with the page's Host
+    // header, so the request MSW sees carries the address, not the name: the
+    // handler matches the fixture path on any host. The page is the shape
+    // extractProduct reads — schema.org Product JSON-LD (https://schema.org/Product)
+    // plus Open Graph tags (https://ogp.me) and a bullet list of claims. No
+    // image URL, so the browser fetches nothing from outside.
+    http.get(
+      PRODUCT_PAGE_PATH,
+      () => new HttpResponse(PRODUCT_PAGE_HTML, { headers: { 'Content-Type': 'text/html; charset=utf-8' } }),
+    ),
     // The safetensors bytes a completed fal LoRA training points at (F-CHR-07).
     http.get(FAL_LORA_URL, () =>
       HttpResponse.arrayBuffer(safetensors.buffer.slice(0, safetensors.byteLength), {
@@ -875,6 +907,13 @@ export function startTestMsw(): void {
       print.error();
     },
   });
+  // MSW intercepts node:http and node:https by replacing `request` and `get` on
+  // the modules' CommonJS objects. An ES module that imported them by name —
+  // safeFetch's pinned request in @kilnry/core does — keeps the original
+  // function until the builtin's ES exports are synced
+  // (https://nodejs.org/api/module.html#modulesyncbuiltinesmexports), so the
+  // product-page read went to the live host. Sync once, after listen().
+  syncBuiltinESMExports();
   // After listen(), so this wraps MSW's own patched fetch rather than being
   // replaced by it.
   denyNetworkWhenFlagged();
