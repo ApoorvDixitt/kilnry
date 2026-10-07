@@ -1268,9 +1268,7 @@ kbd {
   color: var(--text-muted);
   font-size: 11px;
   font-weight: 500;
-  letter-spacing: 0.02em;
   margin: 8px 8px 2px;
-  text-transform: uppercase;
 }
 
 .model-row {
@@ -1361,10 +1359,8 @@ kbd {
   color: var(--text-muted);
   font-size: 11px;
   font-weight: 500;
-  letter-spacing: 0.02em;
   margin-right: auto;
   padding: 1px 8px;
-  text-transform: uppercase;
 }
 
 .result-tile-demo {
@@ -1871,9 +1867,7 @@ kbd {
   font-size: 11px;
   font-weight: 500;
   justify-content: space-between;
-  letter-spacing: 0.02em;
   padding: 0 8px 8px;
-  text-transform: uppercase;
 }
 
 .folder-tree-add {
@@ -5484,9 +5478,7 @@ html[data-motion='reduced'] *::after {
   color: var(--text-muted);
   font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.04em;
   margin: 0 0 4px;
-  text-transform: uppercase;
 }
 
 .chat-message p {
@@ -5673,8 +5665,6 @@ html[data-motion='reduced'] *::after {
 .chat-tool-kind {
   color: var(--text-muted);
   font-size: 11px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
 }
 
 .chat-tool-name {
@@ -5720,9 +5710,7 @@ html[data-motion='reduced'] *::after {
 .chat-tool-body h4 {
   color: var(--text-muted);
   font-size: 11px;
-  letter-spacing: 0.04em;
   margin: 0 0 5px;
-  text-transform: uppercase;
 }
 
 .chat-tool-body pre {
@@ -5767,8 +5755,6 @@ html[data-motion='reduced'] *::after {
   color: var(--text-muted);
   font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
 }
 
 .chat-approval-total {
@@ -5890,8 +5876,6 @@ html[data-motion='reduced'] *::after {
 .chat-attach-kind {
   color: var(--text-muted);
   font-size: 10px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
 }
 
 .chat-attach-item button {
@@ -6196,8 +6180,6 @@ html[data-motion='reduced'] *::after {
   margin: 0;
   font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
   color: var(--text-muted);
 }
 
@@ -6328,8 +6310,6 @@ html[data-motion='reduced'] *::after {
   margin-left: auto;
   color: var(--text-muted);
   font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 
 .preset-model-note,
