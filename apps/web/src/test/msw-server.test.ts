@@ -135,3 +135,22 @@ describe('OpenAI, Replicate and Google fixtures (F-PRV-01, F-92)', () => {
     expect(done.state).toBe('completed');
   });
 });
+
+// F-97: the suite's OpenRouter catalogues answered `{ data: [] }` for the LLM
+// list and had no token-priced video row, so the token branches of the price
+// refresh (`withTokenPricing`, `withVideoPricing`'s video_tokens SKU) ran
+// against nothing.
+describe('OpenRouter price catalogue fixture (F-PRV-07, F-97)', () => {
+  it('refreshes a token-priced video model and a language model from the documented rows', async () => {
+    const updates = await adapters.openrouter!.refreshPrices!('test-key', { fetch: context.fetch });
+    const byId = new Map(updates.map((update) => [update.model_id, update]));
+    expect(byId.get('bytedance/seedance-2.0-fast')).toMatchObject({
+      price_rule: { kind: 'video_tokens', usd_per_token: { default: 0.0000042 } },
+      source_url: 'https://openrouter.ai/api/v1/videos/models',
+    });
+    expect(byId.get('openai/gpt-5.6-luna')).toMatchObject({
+      price_rule: { kind: 'per_million_tokens', in: 0.2, out: 1.2 },
+      source_url: 'https://openrouter.ai/api/v1/models',
+    });
+  });
+});

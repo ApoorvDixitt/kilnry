@@ -237,6 +237,30 @@ export function startTestMsw(): void {
             supported_resolutions: ['720p', '1080p'],
             supported_sizes: null,
           },
+          // A token-priced row (F-97): the reference doc §2.3 — "`pricing_skus`
+          // keys are the provider's SKUs; values are USD per second unless the
+          // key says `video_tokens` (USD per token)", Seedance 2.0 Fast
+          // $0.0000042 per token; values are strings
+          // (https://openrouter.ai/docs/api/api-reference/video-generation/list-all-video-generation-models.md,
+          // VideoModel.pricing_skus "values as strings").
+          {
+            id: 'bytedance/seedance-2.0-fast',
+            canonical_slug: 'bytedance/seedance-2.0-fast',
+            name: 'Seedance 2.0 Fast',
+            created: 1_780_000_000,
+            description: 'ByteDance video generation model',
+            generate_audio: true,
+            seed: true,
+            allowed_passthrough_parameters: [],
+            pricing_skus: { video_tokens: '0.0000042' },
+            supported_aspect_ratios: ['16:9', '4:3', '1:1', '3:4', '9:16', '21:9'],
+            supported_durations: [4, 5, 6, 8, 10, 12, 15],
+            supported_frame_images: ['first_frame', 'last_frame'],
+            supported_resolutions: ['480p', '720p'],
+            supported_sizes: null,
+            upscale_factor: null,
+            creativity: null,
+          },
         ],
       }),
     ),
@@ -295,7 +319,28 @@ export function startTestMsw(): void {
         usage: { cost: 0.15 },
       });
     }),
-    http.get('https://openrouter.ai/api/v1/models', () => HttpResponse.json({ data: [] })),
+    // The LLM catalogue with one row in its documented shape (F-97): `pricing`
+    // carries USD per token as strings — `prompt`, `completion`, and
+    // `input_cache_read` where the model has it (https://openrouter.ai/docs/api/api-reference/models/get-models.md;
+    // TRD-06's OpenRouter "Pricing refresh" row). GPT-5.6 Luna at the reference
+    // doc §2.4 figures, $0.20 / $1.20 per million. It answered `{ data: [] }`,
+    // so the token branch of the price refresh never ran in the suite.
+    http.get('https://openrouter.ai/api/v1/models', () =>
+      HttpResponse.json({
+        data: [
+          {
+            id: 'openai/gpt-5.6-luna',
+            canonical_slug: 'openai/gpt-5.6-luna',
+            name: 'OpenAI: GPT-5.6 Luna',
+            created: 1_780_000_000,
+            context_length: 400_000,
+            architecture: { input_modalities: ['text', 'image'], output_modalities: ['text'] },
+            pricing: { prompt: '0.0000002', completion: '0.0000012', input_cache_read: '0.00000002' },
+            supported_parameters: ['tools', 'tool_choice', 'max_tokens'],
+          },
+        ],
+      }),
+    ),
     http.get('https://api.fal.ai/v1/models/pricing', () =>
       HttpResponse.json({
         prices: [
