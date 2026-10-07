@@ -62,11 +62,20 @@ export async function chatScreenProps(sessionId: string): Promise<ChatScreenProp
       : {},
   );
 
-  const models: ChatModelOption[] = listChatModels(rows, connected).map((entry) => ({
-    provider: entry.ref.provider,
-    model: entry.ref.model,
-    price_label: entry.price_label,
-  }));
+  // The registry's display name for each model, so the select reads names, not
+  // ids (UX-08).
+  const names = new Map(
+    registry.models.map((model) => [`${model.provider}:${model.model_id}`, model.display_name]),
+  );
+  const models: ChatModelOption[] = listChatModels(rows, connected).map((entry) => {
+    const display = names.get(`${entry.ref.provider}:${entry.ref.model}`);
+    return {
+      provider: entry.ref.provider,
+      model: entry.ref.model,
+      ...(display ? { display_name: display } : {}),
+      price_label: entry.price_label,
+    };
+  });
   for (const model of ollama.models) {
     if (model.tools) models.push({ provider: 'ollama', model: model.name, price_label: 'free' });
   }

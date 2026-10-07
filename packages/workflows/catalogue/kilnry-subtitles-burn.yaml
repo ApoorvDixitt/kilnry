@@ -4,6 +4,7 @@
 # See LICENSE.md in the repository root. You may not remove or obscure this notice.
 id: kilnry-subtitles-burn
 name: Subtitles burn
+summary: "Transcribe a video, edit the words, and burn readable captions into it."
 version: 1.0.0
 description: >
   Transcribe a video and burn readable captions into it. Review and edit the transcript before it is burned; choose the look,
@@ -81,6 +82,7 @@ steps:
     outputs: { lines: '{{ result.structured.lines }}' }
 
   - id: review
+    name: "Edit the words"
     kind: approval
     mode: soft
     title: 'Review the transcript'
@@ -116,6 +118,7 @@ steps:
     outputs: { pass: '{{ result.structured.pass }}' }
 
   - id: export
+    name: "Save the video"
     kind: export
     files:
       - { ref: '{{ steps.burn.outputs.asset }}', name: captioned.mp4, tags: [deliverable] }

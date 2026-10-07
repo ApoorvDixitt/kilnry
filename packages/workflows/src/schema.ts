@@ -327,6 +327,10 @@ export const WorkflowFileSchema = z.object({
   name: z.string().max(80),
   version: z.string().regex(/^\d+\.\d+\.\d+$/),
   description: z.string().max(1024).optional(),
+  // The one line a catalogue card shows a user (UX-09, PRD-10 §1 "one-line
+  // purpose"). The description stays the agent-facing text, which may cite
+  // spec sections; the summary is plain words.
+  summary: z.string().max(160).optional(),
   category: z.enum(['ads', 'characters', 'video', 'audio', 'image', 'utility']),
   requires: z.array(CapabilitySchema).default([]),
   inputs: z.record(z.string(), z.unknown()).default({ type: 'object', properties: {} }),

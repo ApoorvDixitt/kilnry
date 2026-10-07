@@ -1091,14 +1091,14 @@
     "searchLabel": "Search workflows",
     "searchPlaceholder": "Search workflows by name or category",
     "run": "Run",
-    "costRange": "≈ ${min} – ${max}",
+    "costFrom": "from ≈ ${amount}",
     "costUnknown": "Priced when you run it",
     "stepCount": "{count} step workflow",
     "etaRange": "{min}–{max} min",
     "skipApprovals": "Skip approvals: I'll review the result",
     "needsLabel": "Needs: {capabilities}",
     "needsProvider": "Needs a provider for {capabilities}. Add a key in Settings › Providers.",
-    "costHover": "Range for defaults. The exact plan is priced before you approve.",
+    "costHover": "At the default inputs. The exact plan is priced before you approve.",
     "empty": "No workflows match {category}.",
     "emptyAll": "No workflows are installed yet.",
     "planSteps": "{n} of {m} steps",
@@ -1187,7 +1187,8 @@
       "video": "Video",
       "audio": "Audio",
       "image": "Image",
-      "utility": "Utility"
+      "utility": "Utility",
+      "mine": "Mine"
     }
   },
   "characters": {

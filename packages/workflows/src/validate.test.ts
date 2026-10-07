@@ -172,3 +172,38 @@ steps:
     expect(validateWorkflowFile(yaml, 'kilnry-a').ok).toBe(true);
   });
 });
+
+// UX-09 / UX-18: the run view and the approval card showed bare step ids
+// (`export`, `pick`, `text`) and the catalogue card the agent-facing
+// description, because nothing required a shipped workflow to name its steps or
+// carry a one-line summary.
+describe('rule 7.12: a shipped catalogue workflow names every step and has a summary', () => {
+  const shipped = '/repo/packages/workflows/catalogue/kilnry-test.yaml';
+  const base = (extra = '', stepName = ''): string => `id: kilnry-test
+name: Test
+version: 1.0.0
+category: utility
+${extra}steps:
+  - id: one
+${stepName}    kind: set
+    values: { a: "{{ 1 }}" }
+`;
+  const rule12 = (yaml: string, path?: string): string[] =>
+    validateWorkflowFile(yaml, 'kilnry-test', path)
+      .issues.filter((issue) => issue.rule === '7.12')
+      .map((issue) => issue.message);
+
+  it('refuses a shipped workflow with an unnamed step or no summary', () => {
+    expect(validateWorkflowFile(base(), 'kilnry-test', shipped).ok).toBe(false);
+    expect(rule12(base(), shipped)).toEqual([
+      'a catalogue workflow needs a one-line summary for its card.',
+      'step "one" needs a name: the run view and the approval card show it.',
+    ]);
+  });
+
+  it('accepts it named and summarised, and leaves a user or imported file optional', () => {
+    expect(rule12(base('summary: One line.\n', '    name: One\n'), shipped)).toEqual([]);
+    expect(rule12(base(), '/home/me/.kilnry/workflows/kilnry-test.yaml')).toEqual([]);
+    expect(rule12(base())).toEqual([]);
+  });
+});

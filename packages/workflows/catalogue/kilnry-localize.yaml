@@ -4,6 +4,7 @@
 # See LICENSE.md in the repository root. You may not remove or obscure this notice.
 id: kilnry-localize
 name: Localize
+summary: "Dub a video into up to three languages, with a review of the translations before any voice is made."
 version: 1.0.0
 description: >
   Dub a video into up to three languages: transcribe, translate with timing hints, review the translations, then either a
@@ -52,6 +53,7 @@ steps:
     outputs: { transcript: '{{ result.assets[0] }}', text: '{{ result.result.text }}' }
 
   - id: translate
+    name: "Translate"
     kind: foreach
     over: '{{ inputs.target_languages }}'
     as: lang
@@ -74,12 +76,14 @@ steps:
         outputs: { segments: '{{ result.structured.segments }}', lang: '{{ lang }}' }
 
   - id: review
+    name: "Review the translations"
     kind: approval
     mode: soft
     title: 'Review the {{ len(inputs.target_languages) }} translation(s)'
     message: 'Approve to dub, or deny to stop.'
 
   - id: dubs
+    name: "Dub each language"
     kind: foreach
     over: '{{ inputs.target_languages }}'
     as: lang
@@ -87,6 +91,7 @@ steps:
     concurrency: 2
     steps:
       - id: audio
+        name: "Make the voice track"
         kind: branch
         when: '{{ inputs.provider_dub }}'
         then:
@@ -107,6 +112,7 @@ steps:
             params: { voice: '{{ inputs.voice }}', language: '{{ lang }}', format: wav }
             outputs: { asset: '{{ result.assets[0] }}' }
       - id: track
+        name: "Keep the voice track"
         kind: set
         values: { audio: '{{ steps.provider_dub.outputs.asset | default(steps.tts_dub.outputs.asset) }}' }
       # Preserve the original music and background: pull the source bed off the
@@ -115,6 +121,7 @@ steps:
       # dubbing returns a finished video, so it carries its own mixed bed and
       # skips this. With keep_music off, the new voice replaces the track.
       - id: bed
+        name: "Keep the background sound"
         kind: branch
         when: '{{ inputs.keep_music && !inputs.provider_dub }}'
         then:
@@ -135,9 +142,11 @@ steps:
             outputs: { asset: '{{ result.asset_id }}' }
         else: []
       - id: voice_track
+        name: "Use the voice track"
         kind: set
         values: { audio: '{{ steps.mix_voice.outputs.asset | default(vars.audio) }}' }
       - id: mux
+        name: "Put the voice on the video"
         kind: assemble
         op: mux_audio
         inputs: ['{{ inputs.video }}', '{{ vars.audio }}']
@@ -145,19 +154,23 @@ steps:
         output_name: 'dubbed_{{ lang }}.mp4'
         outputs: { asset: '{{ result.asset_id }}' }
       - id: lip
+        name: "Lip-sync"
         kind: branch
         when: '{{ inputs.lipsync }}'
         then:
           - id: lipsync_one
+            name: "Match the lips"
             kind: transform
             op: lipsync
             source: '{{ steps.mux.outputs.asset }}'
             outputs: { asset: '{{ result.assets[0] }}' }
         else: []
       - id: subs
+        name: "Pick the video"
         kind: set
         values: { video: '{{ steps.lipsync_one.outputs.asset | default(steps.mux.outputs.asset) }}' }
       - id: burn
+        name: "Burn the subtitles"
         kind: assemble
         when: '{{ inputs.burn_subtitles }}'
         op: burn_captions
@@ -173,6 +186,7 @@ steps:
         output_name: 'final_{{ lang }}.mp4'
         outputs: { asset: '{{ result.asset_id }}' }
       - id: final_one
+        name: "Save the language"
         kind: export
         files:
           - {
@@ -182,6 +196,7 @@ steps:
             }
 
   - id: done
+    name: "Finish"
     kind: set
     values: { first: '{{ steps.dubs.outputs[0].video }}' }
 outputs:

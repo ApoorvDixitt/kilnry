@@ -8,10 +8,12 @@
 import { useEffect, useState } from 'react';
 import { apiFetch } from '../lib/api-client';
 import { message } from '../lib/messages';
+import { chatModelLabel } from '../lib/provider-names';
 
 interface ChatModel {
   provider: string;
   model: string;
+  display_name?: string;
   price_label: string;
   vision: boolean;
 }
@@ -138,8 +140,8 @@ export function ChatSettings(): React.ReactNode {
         ) : (
           <select value={selected} onChange={(event) => setSelected(event.target.value)}>
             {models.map((model) => (
-              <option key={refKey(model)} value={refKey(model)}>
-                {model.provider} · {model.model} · {model.price_label}
+              <option key={refKey(model)} value={refKey(model)} title={model.model}>
+                {chatModelLabel(model)}
                 {model.vision ? ` · ${message('settings.chat.visionLabel')}` : ''}
               </option>
             ))}

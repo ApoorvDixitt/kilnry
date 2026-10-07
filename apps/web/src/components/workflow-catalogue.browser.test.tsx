@@ -47,11 +47,56 @@ function row(overrides: Partial<WorkflowCatalogueRowData> = {}): WorkflowCatalog
 }
 
 describe('workflow catalogue (F-WFL-01)', () => {
-  it('shows a cost range when the workflow declares a budget', () => {
-    expect(costLabel(row())).toContain('8.00');
-    expect(
-      costLabel(row({ cost_range: undefined as unknown as { min_usd: number; max_usd: number } })),
-    ).toContain('run');
+  // UX-09: the card read "≈ $0.00 – $8.00" — a zero floor and the budget cap.
+  // It reads the workflow priced at its default inputs, or says it is priced
+  // when you run it; never a range that starts at $0.
+  it('shows "from ≈ $x" at the default inputs, and never a range from $0', () => {
+    expect(costLabel(row({ from_usd: 2.25 }))).toBe('from ≈ $2.25');
+    expect(costLabel(row())).toBe('Priced when you run it');
+    expect(costLabel(row())).not.toContain('$0.00');
+  });
+
+  it('shows the plain summary, spelled-out capabilities and the category name (UX-09)', async () => {
+    const host = await render(
+      <WorkflowCatalogue
+        initial={[
+          row({
+            summary: 'One finished 9:16 creator-style ad.',
+            description: 'One finished 9:16 creator-style ad (W2, F-WFL-08, PRD-10 §9).',
+            requires: ['tts', 'stt'],
+            unmet_requires: ['tts'],
+          }),
+        ]}
+      />,
+    );
+    expect(host.querySelector('.workflow-description')?.textContent).toBe(
+      'One finished 9:16 creator-style ad.',
+    );
+    expect([...host.querySelectorAll('.workflow-cap-chip')].map((chip) => chip.textContent)).toEqual([
+      'text-to-speech',
+      'speech-to-text',
+    ]);
+    expect(host.querySelector('.workflow-needs-note')?.textContent).toContain(
+      'Needs a provider for text-to-speech.',
+    );
+    expect(host.querySelector('.workflow-category')?.textContent).toBe('Ads');
+  });
+
+  // UX-17: the save toast promises "in the catalogue under Mine", and there was
+  // no Mine pill.
+  it('lists saved workflows under a Mine pill', async () => {
+    const rows = [
+      row(),
+      row({ id: 'me.bee-thumbnails', name: 'Bee thumbnails', category: 'image', mine: true }),
+    ];
+    expect(visibleWorkflows(rows, 'mine', '').map((entry) => entry.id)).toEqual(['me.bee-thumbnails']);
+    const host = await render(<WorkflowCatalogue initial={rows} />);
+    const mine = [...host.querySelectorAll('.workflow-tab')].find((tab) => tab.textContent === 'Mine');
+    expect(mine).toBeDefined();
+    await act(async () => (mine as HTMLButtonElement).click());
+    expect([...host.querySelectorAll('.workflow-name')].map((name) => name.textContent)).toEqual([
+      'Bee thumbnails',
+    ]);
   });
 
   it('shows the real step count and an ETA range, not the input count (F-WFL-01)', () => {
@@ -93,13 +138,13 @@ describe('workflow catalogue (F-WFL-01)', () => {
     const article = host.querySelector('[data-workflow-id="kilnry-ugc-ad"]') as HTMLElement;
     expect(article.classList.contains('is-dimmed')).toBe(true);
     const unmetChip = host.querySelector('.workflow-cap-chip.is-unmet');
-    expect(unmetChip?.textContent).toBe('reference2video');
+    expect(unmetChip?.textContent).toBe('reference-to-video');
     // The met capability keeps a normal chip.
     const metChips = [...host.querySelectorAll('.workflow-cap-chip:not(.is-unmet)')].map(
       (chip) => chip.textContent,
     );
-    expect(metChips).toContain('text2image');
-    expect(host.querySelector('.workflow-needs-note')?.textContent).toContain('reference2video');
+    expect(metChips).toContain('text-to-image');
+    expect(host.querySelector('.workflow-needs-note')?.textContent).toContain('reference-to-video');
     expect((host.querySelector('.workflow-run-button') as HTMLButtonElement).disabled).toBe(true);
   });
 

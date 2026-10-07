@@ -4,6 +4,7 @@
 # See LICENSE.md in the repository root. You may not remove or obscure this notice.
 id: kilnry-faceless-video
 name: Faceless narrated video
+summary: "A narrated channel video in one illustrated style, with one voice, optional music and burned subtitles."
 version: 1.1.0
 description: >
   A narrator-led channel video in a locked non-photoreal style: explainer, history, kids, picture story, or myth.
@@ -79,6 +80,7 @@ defaults:
 budget: { max_usd: 12, warn_usd: 6 }
 steps:
   - id: plan
+    name: "Plan the blocks"
     kind: set
     values:
       n_blocks: '{{ max(3, round(inputs.duration_s / defaults.block_s)) }}'
@@ -135,6 +137,7 @@ steps:
       }
 
   - id: assets
+    name: "Make the asset roster"
     kind: foreach
     over: '{{ steps.script.outputs.roster }}'
     as: item
@@ -157,6 +160,7 @@ steps:
         outputs: { asset: '{{ result.assets[0] }}', kind: '{{ item.kind }}', name: '{{ item.name }}' }
 
   - id: approve_assets
+    name: "Approve the assets"
     kind: approval
     mode: soft
     title: 'Approve the style and {{ len(steps.script.outputs.roster) }} assets'
@@ -164,6 +168,7 @@ steps:
     show: ['{{ steps.style_key.outputs.asset }}', '{{ steps.assets.assets }}']
 
   - id: narration
+    name: "Record the narration"
     kind: foreach
     over: '{{ steps.script.outputs.blocks }}'
     as: block
@@ -180,20 +185,24 @@ steps:
         params: { voice: '{{ inputs.voice }}', language: '{{ inputs.language }}', format: wav }
         outputs: { asset: '{{ result.assets[0] }}' }
       - id: vo_probe
+        name: "Measure the line"
         kind: assemble
         op: probe
         inputs: ['{{ steps.vo.outputs.asset }}']
         outputs: { dur: '{{ result.duration_s }}' }
       - id: vo_fit
+        name: "Fit the line to its block"
         kind: branch
         when: '{{ steps.vo_probe.outputs.dur > 9.5 }}'
         then:
           - id: shorten
+            name: "Shorten the line"
             kind: analyze
             task: describe
             instructions: 'Rewrite this line to at most 20 words, same meaning and tone, no new facts: {{ block.line }}'
             outputs: { line: '{{ result.text }}' }
           - id: vo2
+            name: "Record the shorter line"
             kind: generate
             capability: tts
             model: auto
@@ -202,6 +211,7 @@ steps:
             outputs: { asset: '{{ result.assets[0] }}' }
         else: []
       - id: vo_final
+        name: "Keep the take"
         kind: set
         values:
           {
@@ -209,16 +219,19 @@ steps:
             line: '{{ steps.shorten.outputs.line | default(block.line) }}',
           }
       - id: vo_probe2
+        name: "Measure the take"
         kind: assemble
         when: '{{ steps.vo2.outputs.asset }}'
         op: probe
         inputs: ['{{ steps.vo2.outputs.asset }}']
         outputs: { dur: '{{ result.duration_s }}' }
       - id: vo_dur
+        name: "Note its length"
         kind: set
         values: { dur: '{{ steps.vo_probe2.outputs.dur | default(steps.vo_probe.outputs.dur) }}' }
 
   - id: blocks
+    name: "Animate the blocks"
     kind: foreach
     when: "{{ inputs.motion_mode == 'animated' }}"
     over: '{{ steps.script.outputs.blocks }}'
@@ -255,6 +268,7 @@ steps:
         retry: { max: 2, on: [MODERATION_REJECTED, PROVIDER_ERROR, TIMEOUT], reword: true }
         outputs: { asset: '{{ result.assets[0] }}' }
       - id: cut_check
+        name: "Check the cuts"
         kind: assemble
         op: extract_frames
         inputs: ['{{ steps.block_gen.outputs.asset }}']
@@ -262,10 +276,12 @@ steps:
         on_fail: continue
         outputs: { cuts: '{{ len(result.assets) }}' }
       - id: cut_retry
+        name: "Retry a bad cut"
         kind: branch
         when: '{{ steps.cut_check.outputs.cuts < vars.cuts - 1 }}'
         then:
           - id: block_gen2
+            name: "Re-render the block"
             kind: generate
             capability: reference2video
             model: '{{ steps.block_gen.route.model }}'
@@ -275,10 +291,12 @@ steps:
             outputs: { asset: '{{ result.assets[0] }}' }
         else: []
       - id: block_final
+        name: "Keep the block"
         kind: set
         values: { asset: '{{ steps.block_gen2.outputs.asset | default(steps.block_gen.outputs.asset) }}' }
 
   - id: stills
+    name: "Make the stills"
     kind: foreach
     when: "{{ inputs.motion_mode == 'stills' }}"
     over: '{{ steps.script.outputs.blocks }}'
@@ -309,12 +327,14 @@ steps:
     outputs: { asset: '{{ result.assets[0] }}' }
 
   - id: voiced
+    name: "Voice each scene"
     kind: foreach
     over: '{{ range(0, vars.n_blocks) }}'
     as: k
     concurrency: 4
     steps:
       - id: still_clip
+        name: "Hold the still for the line"
         kind: assemble
         when: "{{ inputs.motion_mode == 'stills' }}"
         op: concat
@@ -326,11 +346,13 @@ steps:
           }
         outputs: { asset: '{{ result.asset_id }}' }
       - id: src
+        name: "Pick the scene clip"
         kind: set
         values:
           video: "{{ inputs.motion_mode == 'animated' ? steps.blocks.outputs[k].asset : steps.still_clip.outputs.asset }}"
           video_s: "{{ inputs.motion_mode == 'animated' ? defaults.block_s : steps.narration.outputs[k].dur + 0.4 }}"
       - id: mux
+        name: "Add the voice"
         kind: assemble
         op: mux_audio
         inputs: ['{{ vars.video }}', '{{ steps.narration.outputs[k].asset }}']
@@ -344,6 +366,7 @@ steps:
         outputs: { asset: '{{ result.asset_id }}' }
 
   - id: concat
+    name: "Join the scenes"
     kind: assemble
     op: concat
     inputs: "{{ steps.voiced.outputs | map('asset') }}"
@@ -352,6 +375,7 @@ steps:
     outputs: { asset: '{{ result.asset_id }}' }
 
   - id: bed
+    name: "Add the music bed"
     kind: assemble
     when: '{{ inputs.music }}'
     op: mux_audio
@@ -361,6 +385,7 @@ steps:
     outputs: { asset: '{{ result.asset_id }}' }
 
   - id: assemble
+    name: "Level the sound"
     kind: assemble
     op: normalize_audio
     inputs: ['{{ steps.bed.outputs.asset | default(steps.concat.outputs.asset) }}']
@@ -369,16 +394,19 @@ steps:
     outputs: { asset: '{{ result.asset_id }}' }
 
   - id: subtitles
+    name: "Subtitles"
     kind: branch
     when: '{{ inputs.subtitles }}'
     then:
       - id: transcribe
+        name: "Transcribe the narration"
         kind: transform
         op: transcribe
         source: '{{ steps.assemble.outputs.asset }}'
         params: { language: '{{ inputs.language }}' }
         outputs: { transcript: '{{ result.assets[0] }}' }
       - id: burn
+        name: "Burn the subtitles"
         kind: assemble
         op: burn_captions
         inputs: ['{{ steps.assemble.outputs.asset }}']
@@ -414,6 +442,7 @@ steps:
     outputs: { asset: '{{ result.assets[0] }}' }
 
   - id: export
+    name: "Save the video"
     kind: export
     files:
       - { ref: '{{ steps.assemble.outputs.asset }}', name: final.mp4, tags: [master] }

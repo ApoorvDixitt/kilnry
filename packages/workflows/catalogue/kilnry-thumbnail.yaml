@@ -4,6 +4,7 @@
 # See LICENSE.md in the repository root. You may not remove or obscure this notice.
 id: kilnry-thumbnail
 name: Thumbnail
+summary: "A high-contrast video thumbnail from a topic, with three framings to pick from and a burned title."
 version: 1.0.0
 description: >
   A high-contrast video thumbnail from a topic and optional face references: three framings to pick from, a cast pass that
@@ -95,6 +96,7 @@ steps:
     outputs: { framings: '{{ result.structured.framings }}' }
 
   - id: pick
+    name: "Pick a framing"
     kind: approval
     mode: soft
     title: 'Pick a framing'
@@ -186,6 +188,7 @@ steps:
     outputs: { asset: '{{ result.assets[0] }}' }
 
   - id: text
+    name: "Add the title"
     kind: assemble
     when: '{{ inputs.headline }}'
     op: overlay_text
@@ -202,6 +205,7 @@ steps:
     outputs: { asset: '{{ result.asset_id }}' }
 
   - id: export
+    name: "Save the thumbnail"
     kind: export
     files:
       - {

@@ -50,6 +50,7 @@ export { parseWorkflow, canonicaliseId, WorkflowParseError } from './parse.js';
 export {
   validateWorkflow,
   validateWorkflowFile,
+  isShippedCatalogueFile,
   type WorkflowIssue,
   type ValidationResult,
 } from './validate.js';

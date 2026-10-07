@@ -12,6 +12,7 @@ import { GlbViewerTile } from './glb-viewer-tile';
 import { AnimatePresence, motion } from 'motion/react';
 import { apiFetch } from '../lib/api-client';
 import { message } from '../lib/messages';
+import { providerLabel } from '../lib/provider-names';
 import type { ApiEstimate, ApiModel } from '../lib/composer-types';
 import { Composer } from './composer';
 import { batchRequests, parseBatch } from './batch-logic';
@@ -549,10 +550,10 @@ interface ResultTileJob {
 function stepFor(status: string, provider: string): string {
   switch (status) {
     case 'queued':
-      return message('create.tile.queued').replace('{provider}', provider);
+      return message('create.tile.queued').replace('{provider}', providerLabel(provider));
     case 'running':
       return message('create.tile.rendering').replace('{elapsed}', '…');
     default:
-      return message('create.tile.queued').replace('{provider}', provider);
+      return message('create.tile.queued').replace('{provider}', providerLabel(provider));
   }
 }

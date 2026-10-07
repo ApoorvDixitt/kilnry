@@ -4,6 +4,7 @@
 # See LICENSE.md in the repository root. You may not remove or obscure this notice.
 id: kilnry-ad-multiplier
 name: Ad Multiplier
+summary: "Turn one short ad into several edited versions with different people, places or props, keeping its motion, timing, captions and sound."
 version: 1.0.0
 description: >
   Take one short source ad (4–30 s) and produce N separately edited variants — different people,
@@ -165,6 +166,7 @@ steps:
     outputs: { versions: '{{ result.structured.versions }}' }
 
   - id: approve
+    name: "Approve the versions"
     kind: approval
     mode: hard
     skippable: false
@@ -173,6 +175,7 @@ steps:
     show: ["{{ steps.plan_edits.outputs.versions | map('edit') }}"]
 
   - id: versions
+    name: "Make each version"
     kind: foreach
     over: '{{ steps.plan_edits.outputs.versions }}'
     as: version
@@ -251,6 +254,7 @@ steps:
         outputs: { pass: '{{ result.structured.pass }}', issues: '{{ result.structured.issues }}', final: '{{ steps.pick.outputs.final }}' }
 
   - id: qa_gate
+    name: "Check the versions"
     kind: approval
     mode: soft
     when: "{{ steps.versions.outputs | map('pass') | some(false) }}"
@@ -259,6 +263,7 @@ steps:
     show: ["{{ steps.versions.outputs | map('final') }}"]
 
   - id: deliver
+    name: "Save the versions"
     kind: export
     files:
       - ref: "{{ steps.versions.outputs | map('final') }}"

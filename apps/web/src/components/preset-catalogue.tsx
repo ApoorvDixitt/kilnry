@@ -12,6 +12,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { message } from '../lib/messages';
+import { providerLabel } from '../lib/provider-names';
 import { PresetDrawer } from './preset-drawer';
 import { PresetImport } from './preset-import';
 import type { DrawerPreset } from './preset-drawer-logic';
@@ -136,7 +137,7 @@ export function PresetCard({
           <span />
         ) : (
           <span className="preset-needs-badge">
-            {copy.needsKey.replace('{provider}', row.missing_provider)}
+            {copy.needsKey.replace('{provider}', providerLabel(row.missing_provider))}
           </span>
         )}
         <button type="button" className="preset-use-button" disabled={busy} onClick={() => onUse(row)}>

@@ -11,6 +11,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { detectProviderKey } from '@kilnry/core/security/key-detection';
 import { apiFetch } from '../lib/api-client';
 import { message } from '../lib/messages';
+import { providerLabel } from '../lib/provider-names';
 import { priceAgeLine } from './provider-settings-logic';
 import { RecoveryProof } from './recovery-proof';
 
@@ -475,7 +476,7 @@ export function ProviderSettings({
         ) : null}
         <small>
           {detected
-            ? message('settings.providers.detected').replace('{provider}', detected)
+            ? message('settings.providers.detected').replace('{provider}', providerLabel(detected))
             : ambiguous
               ? message('settings.providers.ambiguous')
               : message('settings.providers.encryptionHelp')}

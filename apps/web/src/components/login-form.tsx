@@ -28,7 +28,19 @@ export function LoginForm(): React.ReactNode {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
       });
-      if (!response.ok) throw new Error(message('login.error'));
+      if (!response.ok) {
+        // A refused origin carries the server's sentence naming the address to
+        // open (UX-07); every other failure keeps the one generic line, which
+        // does not say whether the email or the password was wrong.
+        const body = (await response.json().catch(() => ({}))) as {
+          error?: { code?: string; message?: string };
+        };
+        throw new Error(
+          body.error?.code === 'INVALID_ORIGIN' && body.error.message
+            ? body.error.message
+            : message('login.error'),
+        );
+      }
       router.push('/create');
       router.refresh();
     } catch (cause) {

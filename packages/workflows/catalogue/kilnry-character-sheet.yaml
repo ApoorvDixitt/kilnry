@@ -4,6 +4,7 @@
 # See LICENSE.md in the repository root. You may not remove or obscure this notice.
 id: kilnry-character-sheet
 name: Character sheet
+summary: "Build a Character's reference sheet — turnarounds, a full-body shot, expressions and optional outfits — each saved as its own reference."
 version: 1.0.0
 description: >
   Builds or extends a Character's reference sheet from its anchor: two turnaround row sheets (front, ¾ left, left profile, back · ¾ right, right profile),
@@ -75,6 +76,7 @@ defaults:
 budget: { max_usd: 3, warn_usd: 1.5 }
 steps:
   - id: char
+    name: "Read the Character"
     kind: set
     values:
       c: '{{ characters[inputs.character] }}'
@@ -86,6 +88,7 @@ steps:
       want_full: "{{ 'full_body' in inputs.views }}"
 
   - id: anchor
+    name: "Pick the anchor"
     kind: branch
     when: '{{ !vars.anchor_ref }}'
     then:
@@ -101,11 +104,13 @@ steps:
         approval: soft
         outputs: { asset: '{{ result.assets[0] }}' }
       - id: anchor_reg
+        name: "Save the new anchor"
         kind: export
         files: [{ ref: '{{ steps.anchor_gen.outputs.asset }}', name: anchor.png, tags: [reference, anchor] }]
         register_references: { character: '{{ inputs.character }}', role: anchor, view: front }
     else: []
   - id: anchor_id
+    name: "Use the anchor"
     kind: set
     values: { anchor: '{{ vars.anchor_ref | default(steps.anchor_gen.outputs.asset) }}' }
 
@@ -122,6 +127,7 @@ steps:
     retry: { max: 1, on: [MODERATION_REJECTED, PROVIDER_ERROR], reword: true }
     outputs: { sheet: '{{ result.assets[0] }}' }
   - id: split_a
+    name: "Cut turnaround sheet A"
     kind: assemble
     when: '{{ len(vars.want_a) > 0 }}'
     op: split_grid
@@ -150,6 +156,7 @@ steps:
     medias: [{ role: reference, ref: '{{ vars.anchor }}', label: anchor }]
     outputs: { sheet: '{{ result.assets[0] }}' }
   - id: split_b
+    name: "Cut turnaround sheet B"
     kind: assemble
     when: '{{ len(vars.want_b) > 0 }}'
     op: split_grid
@@ -179,6 +186,7 @@ steps:
     outputs: { asset: '{{ result.assets[0] }}' }
 
   - id: check_turnaround
+    name: "Check the turnaround"
     kind: analyze
     task: consistency_check
     when: "{{ settings.consistency_check && inputs.look == 'photoreal' }}"
@@ -187,6 +195,7 @@ steps:
     on_fail: continue
 
   - id: approve_turnaround
+    name: "Approve the turnaround"
     kind: approval
     mode: soft
     title: 'Approve the turnaround for @{{ inputs.character }}'
@@ -211,6 +220,7 @@ steps:
     retry: { max: 1, on: [MODERATION_REJECTED, PROVIDER_ERROR], reword: true }
     outputs: { sheet: '{{ result.assets[0] }}' }
   - id: split_expr
+    name: "Cut the expression grid"
     kind: assemble
     when: '{{ inputs.expressions }}'
     op: split_grid
@@ -228,6 +238,7 @@ steps:
     outputs: { assets: '{{ result.assets }}' }
 
   - id: outfits
+    name: "Outfits"
     kind: foreach
     when: '{{ len(inputs.outfits) > 0 }}'
     over: '{{ inputs.outfits }}'
@@ -248,6 +259,7 @@ steps:
         outputs: { asset: '{{ result.assets[0] }}', label: '{{ outfit.label }}' }
 
   - id: states
+    name: "States"
     kind: foreach
     when: '{{ len(inputs.states) > 0 }}'
     over: '{{ inputs.states }}'
@@ -289,6 +301,7 @@ steps:
     outputs: { appearance: '{{ result.structured }}' }
 
   - id: register
+    name: "Save to the Character"
     kind: export
     files:
       - {

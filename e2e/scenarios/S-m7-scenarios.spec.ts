@@ -1322,15 +1322,20 @@ test('@m7 F-WFL-10 save a completed run as a workflow with one input fixed as a 
   await page.getByTestId('run-save-confirm').click();
   await expect(page.getByTestId('run-saved-note')).toContainText('me.', { timeout: 20_000 });
 
-  // The catalogue's "Mine" now lists the saved workflow.
+  // The catalogue's Mine pill lists the saved workflow, titled from the dialog's
+  // name field — which starts from the workflow's display name, so the card
+  // reads "Thumbnail (saved)", not the id (UX-17).
   await page.goto('/workflows');
-  const savedRow = page.locator('.workflow-row[data-workflow-id="me.kilnry-thumbnail-saved"]');
+  await page.getByRole('tab', { name: 'Mine' }).click();
+  const savedRow = page.locator('.workflow-row[data-workflow-id="me.thumbnail-saved"]');
   await expect(savedRow).toBeVisible({ timeout: 20_000 });
+  await expect(savedRow.locator('.workflow-name')).toHaveText('Thumbnail (saved)');
+  await expect(page.locator('.workflow-row[data-workflow-id="kilnry-thumbnail"]')).toHaveCount(0);
 
   // Opening its intake shows `topic` as a read-only chip (not an editable field)
   // carrying the run's value; the other inputs stay editable fields.
   await savedRow.getByRole('button', { name: 'Run' }).first().click();
-  const drawer = page.locator('.workflow-drawer[data-workflow-id="me.kilnry-thumbnail-saved"]');
+  const drawer = page.locator('.workflow-drawer[data-workflow-id="me.thumbnail-saved"]');
   await expect(drawer).toBeVisible();
   const chip = drawer.getByTestId('workflow-field-const');
   await expect(chip).toContainText('The secret life of bees');

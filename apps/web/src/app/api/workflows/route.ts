@@ -12,14 +12,22 @@ import { NextResponse } from 'next/server';
 import { loadConfig, loadRegistry, providerRouteStates } from '@kilnry/core';
 import type { Step } from '@kilnry/workflows';
 import { errorResponse, requireSession } from '../../../server/http';
-import { loadCatalogue } from '../../../server/workflows';
-import { runtimeServices } from '../../../server/runtime';
+import { firstSentence } from '../../../lib/workflow-copy';
+import { loadCatalogue, priceAtDefaults } from '../../../server/workflows';
+import { ensureRuntimeEngine, runtimeServices } from '../../../server/runtime';
 
 export interface WorkflowCatalogueRow {
   id: string;
   name: string;
   category: string;
   description: string;
+  // The card's one line (UX-09): the workflow's `summary`, else the first
+  // sentence of its description with any parenthetical ids removed.
+  summary: string;
+  // A workflow the user saved (`me.<slug>`), shown under the Mine pill (UX-17).
+  mine: boolean;
+  // The workflow priced at its default inputs; absent when it cannot be.
+  from_usd?: number;
   requires: string[];
   // The required capabilities no connected provider offers yet; the catalogue
   // greys these chips and dims the row with a "needs a provider" note (F-WFL-01).
@@ -91,7 +99,13 @@ export async function GET(): Promise<Response> {
       // With no registry or providers yet, every requirement is unmet; the rows
       // dim until a provider is connected.
     }
-    const rows: WorkflowCatalogueRow[] = [...catalogue.values()].map((entry) => {
+    const engine = await ensureRuntimeEngine();
+    const entries = [...catalogue.values()];
+    const fromPrices = await Promise.all(
+      entries.map((entry) => priceAtDefaults(services.database, engine, entry)),
+    );
+    const rows: WorkflowCatalogueRow[] = entries.map((entry, index) => {
+      const from = fromPrices[index];
       const properties = (entry.workflow.inputs as { properties?: Record<string, unknown> }).properties ?? {};
       const eta = etaRange(entry.workflow.steps);
       const unmet = entry.workflow.requires.filter((capability) => !connectedCapabilities.has(capability));
@@ -100,6 +114,9 @@ export async function GET(): Promise<Response> {
         name: entry.workflow.name,
         category: entry.workflow.category,
         description: entry.workflow.description ?? '',
+        summary: entry.workflow.summary ?? firstSentence(entry.workflow.description ?? ''),
+        mine: entry.workflow.id.startsWith('me.'),
+        ...(from === undefined ? {} : { from_usd: from }),
         requires: entry.workflow.requires,
         unmet_requires: unmet,
         ...(entry.workflow.budget === undefined

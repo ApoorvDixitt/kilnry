@@ -470,6 +470,12 @@ async function pricePlan(
   // run for the source's length) is priced on the real duration rather than the
   // model's minimum (W10: output duration equals the source).
   const probed = await probeOutputsAtPlanTime(db, workflow, base.inputs, base.vars);
+  // The first pass priced every spending leaf with planContext's stub, which
+  // names no model, so the planner warned "step <id> has no provider" for each
+  // one; those warnings are the stub's, not the registry's, and every persisted
+  // plan carried them. Drop them here: the second pass below adds the warning
+  // back for exactly the steps the engine cannot route.
+  base.warnings = base.warnings.filter((warning) => !/^step \S+ has no provider$/.test(warning));
   // Second pass: estimate each spending step through the engine for real prices.
   let total = 0;
   let eta = 0;
@@ -507,6 +513,59 @@ async function pricePlan(
   base.total_estimate_usd = Math.round(total * 1_000_000) / 1_000_000;
   base.eta_s = Math.round(eta);
   return base;
+}
+
+/**
+ * What a catalogue card's "from ≈ $x" reads: the workflow priced at its default
+ * inputs through the same estimator a plan uses (PRD-10 §1, "cost_range_usd at
+ * default inputs"), with nothing persisted. The card used to show
+ * "≈ $0.00 – $14.00" — a zero floor and the budget cap, which is not a price
+ * (UX-09). When the defaults cannot be planned (a required input has no
+ * default) or any spending step has no connected provider to price it, there is
+ * no honest figure and this returns undefined; the card then says it is priced
+ * when you run it.
+ */
+export async function priceAtDefaults(
+  db: DatabaseState,
+  engine: JobEngine,
+  entry: CatalogueEntry,
+): Promise<number | undefined> {
+  try {
+    const ctx = planContext(fileRootsFor(entry), await characterResolver(db));
+    const priced = await pricePlan(engine, entry.workflow, standInInputs(entry.workflow), ctx, db);
+    if (priced.warnings.some((warning) => warning.endsWith('has no provider'))) return undefined;
+    return priced.total_estimate_usd > 0 ? priced.total_estimate_usd : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+// Required inputs with no default, filled so the defaults can be planned. A
+// price depends on capability, model, count, duration and resolution, not on
+// prompt text (pricePlan's note above), so a required free-text input such as
+// the Thumbnail's `topic` takes a neutral word and a required number its
+// minimum. A required media or Character input is left out: what it holds can
+// change the price, so the plan refuses and the card shows no figure.
+function standInInputs(workflow: WorkflowFile): Record<string, unknown> {
+  const schema = workflow.inputs as {
+    required?: string[];
+    properties?: Record<
+      string,
+      { type?: string; default?: unknown; minimum?: number; 'x-kilnry'?: { widget?: string } }
+    >;
+  };
+  const out: Record<string, unknown> = {};
+  for (const name of schema.required ?? []) {
+    const property = schema.properties?.[name];
+    if (!property || property.default !== undefined) continue;
+    const widget = property['x-kilnry']?.widget;
+    if (widget === 'media' || widget === 'character') continue;
+    if (property.type === 'string') out[name] = 'example';
+    else if (property.type === 'number' || property.type === 'integer') out[name] = property.minimum ?? 1;
+    else if (property.type === 'boolean') out[name] = false;
+    else if (property.type === 'array') out[name] = [];
+  }
+  return out;
 }
 
 // Find a step (including nested) by its id.

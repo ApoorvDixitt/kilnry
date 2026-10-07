@@ -4,6 +4,7 @@
 # See LICENSE.md in the repository root. You may not remove or obscure this notice.
 id: kilnry-narrator
 name: Narrator
+summary: "Turn written lines into narration in one voice: separate takes, one track, or a presenter reading to camera."
 version: 1.0.0
 description: >
   Turn written lines into spoken narration with one voice: separate takes, one continuous track, or a presenter reading to camera.
@@ -55,6 +56,7 @@ inputs:
 budget: { max_usd: 3, warn_usd: 1.5 }
 steps:
   - id: takes
+    name: "Record each line"
     kind: foreach
     over: '{{ inputs.lines }}'
     as: line
@@ -70,6 +72,7 @@ steps:
         params: { voice: '{{ inputs.voice }}', language: '{{ inputs.language }}', format: wav }
         outputs: { asset: '{{ result.assets[0] }}' }
       - id: probe
+        name: "Measure the take"
         kind: assemble
         op: probe
         inputs: ['{{ steps.vo.outputs.asset }}']
@@ -77,6 +80,7 @@ steps:
       # A take that runs past the budget is shortened rather than time-stretched:
       # rewrite the line tighter and re-speak it (PRD-10 §9 refit loop).
       - id: refit
+        name: "Shorten a long line"
         kind: branch
         when: '{{ steps.probe.outputs.dur > inputs.max_take_s }}'
         then:
@@ -100,10 +104,12 @@ steps:
             outputs: { asset: '{{ result.assets[0] }}' }
         else: []
       - id: take_final
+        name: "Keep the take"
         kind: set
         values: { asset: '{{ steps.vo_refit.outputs.asset | default(steps.vo.outputs.asset) }}' }
 
   - id: continuous
+    name: "One continuous track"
     kind: branch
     when: "{{ inputs.mode == 'continuous' }}"
     then:
@@ -120,6 +126,7 @@ steps:
   # presenter — a talking-head video of the presenter reading the narration to
   # camera, lip-synced to the joined track (PRD-10 §9 presenter mode).
   - id: presenter_read
+    name: "Presenter to camera"
     kind: branch
     when: "{{ inputs.mode == 'presenter' && inputs.presenter != '' }}"
     then:
@@ -151,6 +158,7 @@ steps:
     else: []
 
   - id: export
+    name: "Save the narration"
     kind: export
     files:
       - {

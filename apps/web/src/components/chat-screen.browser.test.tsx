@@ -28,8 +28,18 @@ async function render(node: React.ReactNode): Promise<HTMLElement> {
 }
 
 const models: ChatModelOption[] = [
-  { provider: 'openrouter', model: 'anthropic/claude-sonnet-5', price_label: '$2 / $10 per M' },
-  { provider: 'openrouter', model: 'openai/gpt-5.6-luna', price_label: '$0.20 / $1.20 per M' },
+  {
+    provider: 'openrouter',
+    model: 'anthropic/claude-sonnet-5',
+    display_name: 'Claude Sonnet 5',
+    price_label: '$2 / $10 per M',
+  },
+  {
+    provider: 'openrouter',
+    model: 'openai/gpt-5.6-luna',
+    display_name: 'GPT 5.6 Luna',
+    price_label: '$0.20 / $1.20 per M',
+  },
 ];
 
 describe('ChatScreen (F-CHT-04)', () => {
@@ -69,9 +79,15 @@ describe('ChatScreen (F-CHT-04)', () => {
     );
     const select = host.querySelector<HTMLSelectElement>('.chat-model select');
     expect(select?.value).toBe('openrouter:openai/gpt-5.6-luna');
+    // UX-08: the option reads the model's name and the provider's spelling, not
+    // the raw id, which stays in the tooltip.
     expect([...(select?.options ?? [])].map((option) => option.textContent)).toEqual([
-      'anthropic/claude-sonnet-5 · $2 / $10 per M',
-      'openai/gpt-5.6-luna · $0.20 / $1.20 per M',
+      'Claude Sonnet 5 · OpenRouter · $2 / $10 per M',
+      'GPT 5.6 Luna · OpenRouter · $0.20 / $1.20 per M',
+    ]);
+    expect([...(select?.options ?? [])].map((option) => option.title)).toEqual([
+      'anthropic/claude-sonnet-5',
+      'openai/gpt-5.6-luna',
     ]);
   });
 

@@ -208,7 +208,7 @@ async function driveRun(
     slugPrefix: string;
     inputs: Record<string, string | number>;
   },
-): Promise<{ folder: string; manifest: RunManifest }> {
+): Promise<{ folder: string; manifest: RunManifest; runId: string }> {
   await ensureSignedIn(page, '/workflows');
   await page
     .locator(`.workflow-row[data-workflow-id="${options.workflowId}"]`)
@@ -373,7 +373,7 @@ async function driveRun(
     )
     .toBe('completed');
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as RunManifest;
-  return { folder: folder!, manifest };
+  return { folder: folder!, manifest, runId };
 }
 
 interface RunView {
@@ -624,7 +624,18 @@ test.describe('M6 workflows acceptance', () => {
     test.setTimeout(600_000);
     await ensureProvider(page, 'fal', FAL_KEY);
     await ensureProvider(page, 'openrouter', OPENROUTER_KEY);
-    const { folder, manifest } = await driveRun(page, {
+
+    // UX-09: the card reads its one-line summary, a price at the default inputs
+    // ("from ≈ $x", never "≈ $0.00 – $1.50"), and capabilities in words.
+    await ensureSignedIn(page, '/workflows');
+    const card = page.locator('.workflow-row[data-workflow-id="kilnry-thumbnail"]');
+    await expect(card.locator('.workflow-description')).toHaveText(
+      'A high-contrast video thumbnail from a topic, with three framings to pick from and a burned title.',
+    );
+    await expect(card.locator('.workflow-cost')).toHaveText(/^from ≈ \$\d+\.\d{2}$/, { timeout: 20_000 });
+    await expect(card.locator('.workflow-cap-chip').first()).toHaveText('image editing');
+
+    const { folder, manifest, runId } = await driveRun(page, {
       workflowId: 'kilnry-thumbnail',
       folder: 'Thumb_A',
       slugPrefix: 'Thumbnail_',
@@ -638,6 +649,15 @@ test.describe('M6 workflows acceptance', () => {
     expect(manifest.outputs?.final ?? '').not.toBe('');
     const files = readdirSync(folder);
     expect(files.some((name) => /\.png$/.test(name))).toBe(true);
+
+    // UX-18: the run view names every step; the bare ids `pick`, `text` and
+    // `export` no longer reach the step list.
+    await page.goto(`/workflows/runs/${runId}`);
+    const names = page.locator('.run-step-name');
+    await expect(names.first()).toBeVisible({ timeout: 20_000 });
+    const shown = await names.allTextContents();
+    for (const id of ['pick', 'text', 'export']) expect(shown).not.toContain(id);
+    expect(shown).toEqual(expect.arrayContaining(['Pick a framing', 'Add the title', 'Save the thumbnail']));
   });
 
   test('@m6 @m6-video kilnry-subtitles-burn transcribes and burns captions', async ({ page }) => {

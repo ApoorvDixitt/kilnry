@@ -69,12 +69,27 @@ export async function GET(): Promise<Response> {
         : undefined;
     const ollama = await detectOllama(ollamaBaseUrl ? { base_url: ollamaBaseUrl } : {});
 
-    const models = listChatModels(rows, connected).map((entry) => ({
-      provider: entry.ref.provider,
-      model: entry.ref.model,
-      price_label: entry.price_label,
-      vision: entry.vision,
-    }));
+    // The registry's display name for each model, so Settings › Chat reads
+    // names, not ids (UX-08).
+    const names = new Map(
+      registry.models.map((model) => [`${model.provider}:${model.model_id}`, model.display_name]),
+    );
+    const models: Array<{
+      provider: string;
+      model: string;
+      display_name?: string;
+      price_label: string;
+      vision: boolean;
+    }> = listChatModels(rows, connected).map((entry) => {
+      const display = names.get(`${entry.ref.provider}:${entry.ref.model}`);
+      return {
+        provider: entry.ref.provider,
+        model: entry.ref.model,
+        ...(display ? { display_name: display } : {}),
+        price_label: entry.price_label,
+        vision: entry.vision,
+      };
+    });
     for (const model of ollama.models) {
       if (!model.tools) continue;
       models.push({

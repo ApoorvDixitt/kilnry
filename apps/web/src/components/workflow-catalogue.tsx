@@ -11,6 +11,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { message } from '../lib/messages';
+import { capabilityLabel } from '../lib/workflow-copy';
 import { WorkflowIntakeDrawer } from './workflow-intake-drawer';
 
 export interface WorkflowCatalogueRowData {
@@ -18,6 +19,12 @@ export interface WorkflowCatalogueRowData {
   name: string;
   category: string;
   description: string;
+  /** The card's one line in plain words (UX-09); the description is the agent's. */
+  summary?: string;
+  /** A workflow the user saved, listed under Mine (UX-17). */
+  mine?: boolean;
+  /** Priced at the default inputs; absent when it cannot be (UX-09). */
+  from_usd?: number;
   requires: string[];
   unmet_requires?: string[];
   cost_range?: { min_usd: number; max_usd: number };
@@ -34,14 +41,20 @@ const CATEGORY_TABS = [
   { id: 'audio', key: 'workflows.category.audio' },
   { id: 'image', key: 'workflows.category.image' },
   { id: 'utility', key: 'workflows.category.utility' },
+  // The save toast says a saved workflow is "in the catalogue under Mine"
+  // (PRD-10:196); without this pill it was not (UX-17).
+  { id: 'mine', key: 'workflows.category.mine' },
 ] as const;
 
-/** The cost line a row shows: a range when the workflow declares a budget. */
+/**
+ * The cost line a row shows: "from ≈ $x", the workflow priced at its default
+ * inputs. It used to read "≈ $0.00 – $14.00" — a zero floor and the budget
+ * cap — and a range that starts at $0 is not a price (UX-09). With no honest
+ * figure the row says it is priced when you run it.
+ */
 export function costLabel(row: WorkflowCatalogueRowData): string {
-  if (!row.cost_range) return message('workflows.costUnknown');
-  return message('workflows.costRange')
-    .replace('{min}', row.cost_range.min_usd.toFixed(2))
-    .replace('{max}', row.cost_range.max_usd.toFixed(2));
+  if (row.from_usd === undefined || row.from_usd <= 0) return message('workflows.costUnknown');
+  return message('workflows.costFrom').replace('{amount}', row.from_usd.toFixed(2));
 }
 
 /** The step-count and ETA line a row shows (PRD-10 §1). */
@@ -62,9 +75,14 @@ export function visibleWorkflows(
 ): WorkflowCatalogueRowData[] {
   const needle = query.trim().toLowerCase();
   return rows.filter((row) => {
-    if (tab !== 'all' && row.category !== tab) return false;
+    if (tab === 'mine') {
+      if (row.mine !== true) return false;
+    } else if (tab !== 'all' && row.category !== tab) return false;
     if (needle === '') return true;
-    return [row.name, row.category, row.description].join(' ').toLowerCase().includes(needle);
+    return [row.name, row.category, row.summary ?? '', row.description]
+      .join(' ')
+      .toLowerCase()
+      .includes(needle);
   });
 }
 
@@ -92,9 +110,9 @@ export function WorkflowCatalogueRow({
     >
       <div className="workflow-row-head">
         <h3 className="workflow-name">{row.name}</h3>
-        <span className="workflow-category">{row.category}</span>
+        <span className="workflow-category">{message(`workflows.category.${row.category}`)}</span>
       </div>
-      <p className="workflow-description">{row.description}</p>
+      <p className="workflow-description">{row.summary ?? row.description}</p>
       <div className="workflow-row-meta">
         <span className="workflow-cost" title={message('workflows.costHover')}>
           {costLabel(row)}
@@ -107,7 +125,7 @@ export function WorkflowCatalogueRow({
                 key={capability}
                 className={unmet.includes(capability) ? 'workflow-cap-chip is-unmet' : 'workflow-cap-chip'}
               >
-                {capability}
+                {capabilityLabel(capability)}
               </span>
             ))}
           </span>
@@ -115,7 +133,10 @@ export function WorkflowCatalogueRow({
       </div>
       {dimmed ? (
         <p className="workflow-needs-note">
-          {message('workflows.needsProvider').replace('{capabilities}', unmet.join(', '))}
+          {message('workflows.needsProvider').replace(
+            '{capabilities}',
+            unmet.map(capabilityLabel).join(', '),
+          )}
         </p>
       ) : null}
       <div className="workflow-row-actions">
@@ -183,7 +204,10 @@ export function WorkflowCatalogue({ initial }: { initial?: WorkflowCatalogueRowD
         <p className="workflow-empty">
           {rows.length === 0
             ? message('workflows.emptyAll')
-            : message('workflows.empty').replace('{category}', tab)}
+            : message('workflows.empty').replace(
+                '{category}',
+                message(CATEGORY_TABS.find((entry) => entry.id === tab)?.key ?? 'workflows.category.all'),
+              )}
         </p>
       ) : (
         <div className="workflow-list">

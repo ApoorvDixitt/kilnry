@@ -4,6 +4,7 @@
 # See LICENSE.md in the repository root. You may not remove or obscure this notice.
 id: kilnry-product-photoshoot
 name: Product photoshoot
+summary: "Studio and lifestyle shots from one product photo that keep the product's shape and label."
 version: 1.0.0
 description: >
   Studio and lifestyle product shots from one product image: packshot, lifestyle, with a person, hero banner, carousel, ad pack, try-on, conceptual or restyle.
@@ -101,6 +102,7 @@ steps:
       { desc: '{{ result.structured.description }}', visible_text: '{{ result.structured.visible_text }}' }
 
   - id: refs
+    name: "Set up the references"
     kind: set
     values:
       character_ref: "{{ inputs.character ? (characters[inputs.character].references | filter('role','anchor') | first).asset_id : null }}"
@@ -130,10 +132,12 @@ steps:
     retry: { max: 1, on: [MODERATION_REJECTED, PROVIDER_ERROR], reword: true }
     outputs: { asset: '{{ result.assets[0] }}' }
   - id: anchor_reg
+    name: "Save the product image"
     kind: export
     files: [{ ref: '{{ steps.anchor.outputs.asset }}', name: '01_anchor/anchor.png', tags: [anchor] }]
 
   - id: shots
+    name: "Make each shot"
     kind: foreach
     over: '{{ range(0, inputs.variants) }}'
     as: k
@@ -194,16 +198,19 @@ steps:
         on_fail: continue
         outputs: { asset: '{{ result.assets[0] | default(steps.shot_refine.outputs.asset) }}' }
       - id: shot_bg
+        name: "Background"
         kind: branch
         when: "{{ inputs.background == 'transparent' }}"
         then:
           - id: cutout
+            name: "Cut out the product"
             kind: transform
             op: bg_remove
             source: '{{ steps.shot_upscale.outputs.asset }}'
             outputs: { asset: '{{ result.assets[0] }}' }
         else: []
       - id: shot_final
+        name: "Keep the shot"
         kind: set
         values: { asset: '{{ steps.cutout.outputs.asset | default(steps.shot_upscale.outputs.asset) }}' }
 
@@ -230,6 +237,7 @@ steps:
     outputs: { asset: '{{ result.asset_id }}' }
 
   - id: export
+    name: "Save the shots"
     kind: export
     files:
       - {

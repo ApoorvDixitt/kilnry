@@ -9,6 +9,7 @@ import { useMemo, useState } from 'react';
 import { AlertTriangle, Check, Search } from 'lucide-react';
 import { LayoutGroup, motion } from 'motion/react';
 import { message } from '../lib/messages';
+import { providerLabel } from '../lib/provider-names';
 import type { ApiModel } from '../lib/composer-types';
 
 // The composer modes and the capabilities each one can route to. F-CRE-03 shows
@@ -26,21 +27,6 @@ const MODE_CAPABILITIES: Record<ComposerMode, string[]> = {
 // manifest so the picker never drifts from the engine's registry.
 export type PickerModel = ApiModel;
 
-const PROVIDER_NAMES: Record<string, string> = {
-  fal: 'fal',
-  openrouter: 'OpenRouter',
-  google: 'Google',
-  openai: 'OpenAI',
-  elevenlabs: 'ElevenLabs',
-  minimax: 'MiniMax',
-  higgsfield: 'Higgsfield',
-  replicate: 'Replicate',
-  kie: 'kie.ai',
-  wavespeed: 'WaveSpeed',
-  ollama: 'Ollama',
-  pollinations: 'Pollinations',
-};
-
 const UNIT_SUFFIX: Record<string, string> = {
   image: '/img',
   second: '/s',
@@ -54,10 +40,9 @@ const UNIT_SUFFIX: Record<string, string> = {
 
 const STALE_PRICE_DAYS = 30;
 
-/** A provider's own spelling of its name (DES-01 §6). */
-export function providerLabel(provider: string): string {
-  return PROVIDER_NAMES[provider] ?? provider;
-}
+// The one provider-name map lives in lib/provider-names (UX-08); re-exported
+// for the components that already import it from here.
+export { providerLabel };
 
 export function formatPrice(price: { unit: string; amount_usd: number; estimated?: boolean }): string {
   const suffix = UNIT_SUFFIX[price.unit] ?? `/${price.unit}`;

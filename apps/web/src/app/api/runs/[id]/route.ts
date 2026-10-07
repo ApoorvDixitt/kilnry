@@ -8,9 +8,10 @@
 // estimate and actual cost.
 
 import { NextResponse } from 'next/server';
+import { loadConfig } from '@kilnry/core';
 import { errorResponse, requireSession } from '../../../../server/http';
 import { runtimeServices } from '../../../../server/runtime';
-import { getRun } from '../../../../server/workflows';
+import { getRun, getWorkflow } from '../../../../server/workflows';
 
 export async function GET(
   _request: Request,
@@ -20,7 +21,12 @@ export async function GET(
     await requireSession();
     const { id } = await context.params;
     const services = await runtimeServices();
-    return NextResponse.json({ run: await getRun(services.database, id) });
+    const run = await getRun(services.database, id);
+    // The workflow's display name, so the run view and its "Save as Workflow"
+    // dialog read "Thumbnail" rather than the id `kilnry-thumbnail` (UX-17).
+    const config = await loadConfig();
+    const workflowName = getWorkflow(config.data_dir, run.workflow_id)?.workflow.name ?? null;
+    return NextResponse.json({ run: { ...run, workflow_name: workflowName } });
   } catch (error) {
     return errorResponse(error);
   }

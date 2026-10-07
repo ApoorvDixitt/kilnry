@@ -18,6 +18,7 @@ import { useChat } from '@ai-sdk/react';
 import { DefaultChatTransport, lastAssistantMessageIsCompleteWithApprovalResponses } from 'ai';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { message } from '../lib/messages';
+import { chatModelLabel } from '../lib/provider-names';
 import { apiFetch } from '../lib/api-client';
 import { attachmentKey, ChatAttachmentTray, type ChatAttachment } from './chat-attachment-tray';
 import { confirmerLabel } from './jobs-table';
@@ -257,6 +258,8 @@ const DEFAULT_RATIO = 0.4;
 export interface ChatModelOption {
   provider: string;
   model: string;
+  /** The registry's display name; absent for a local Ollama model (UX-08). */
+  display_name?: string;
   price_label: string;
 }
 
@@ -508,8 +511,12 @@ export function ChatScreen({
             }}
           >
             {models.map((model) => (
-              <option key={`${model.provider}:${model.model}`} value={`${model.provider}:${model.model}`}>
-                {model.model} · {model.price_label}
+              <option
+                key={`${model.provider}:${model.model}`}
+                value={`${model.provider}:${model.model}`}
+                title={model.model}
+              >
+                {chatModelLabel(model)}
               </option>
             ))}
           </select>

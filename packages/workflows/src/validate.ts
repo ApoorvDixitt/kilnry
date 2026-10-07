@@ -11,7 +11,7 @@
 // does not fail validation.
 
 import { CapabilitySchema, MediaRoleSchema } from '@kilnry/core/types';
-import { dirname } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { evaluateExpression, TemplateError } from './template.js';
 import { readFileSource, packagesRootFrom, type FileSourceRoots } from './file-source.js';
 import { parseWorkflow, WorkflowParseError } from './parse.js';
@@ -141,6 +141,7 @@ export function validateWorkflow(
   workflow: WorkflowFile,
   fileName?: string,
   roots?: FileSourceRoots,
+  options: { catalogue?: boolean } = {},
 ): WorkflowIssue[] {
   const issues: WorkflowIssue[] = [];
   const error = (rule: string, message: string): void => {
@@ -301,7 +302,28 @@ export function validateWorkflow(
     if (!resolves) error('7.9', 'outputs.final does not resolve to an asset-producing step.');
   }
 
+  // Rule 12 (shipped catalogue only): a user reads every step's name in the run
+  // view and on the approval card, and a card's one line, so a file Kilnry
+  // ships carries a `summary` and a `name` on every step — otherwise the run
+  // view showed bare ids such as `export`, `pick` and `text` (UX-09, UX-18). A
+  // user's own or imported file keeps both optional, as TRD-12 §1 has them.
+  if (options.catalogue === true) {
+    if (workflow.summary === undefined || workflow.summary.trim() === '') {
+      error('7.12', 'a catalogue workflow needs a one-line summary for its card.');
+    }
+    walk(workflow.steps, (step) => {
+      if (step.name === undefined || step.name.trim() === '') {
+        error('7.12', `step "${step.id}" needs a name: the run view and the approval card show it.`);
+      }
+    });
+  }
+
   return issues;
+}
+
+/** Whether a workflow file is one Kilnry ships (packages/workflows/catalogue). */
+export function isShippedCatalogueFile(filePath: string): boolean {
+  return /[\\/]packages[\\/]workflows[\\/]catalogue[\\/][^\\/]+\.ya?ml$/i.test(resolve(filePath));
 }
 
 /** Validate a workflow from its YAML text; the parse errors become rule 1. */
@@ -333,7 +355,9 @@ export function validateWorkflowFile(yaml: string, fileName?: string, filePath?:
       issues: [{ rule: '7.10', level: 'error', message: 'description exceeds 1,024 characters.' }],
     };
   }
-  const issues = validateWorkflow(workflow, fileName, rootsFor(filePath));
+  const issues = validateWorkflow(workflow, fileName, rootsFor(filePath), {
+    catalogue: filePath !== undefined && isShippedCatalogueFile(filePath),
+  });
   return { ok: !issues.some((issue) => issue.level === 'error'), workflow, issues };
 }
 

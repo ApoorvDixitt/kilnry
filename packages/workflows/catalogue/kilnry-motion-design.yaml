@@ -4,6 +4,7 @@
 # See LICENSE.md in the repository root. You may not remove or obscure this notice.
 id: kilnry-motion-design
 name: Explainer and motion design
+summary: "A short explainer in a motion-design style: scripted scenes, narration, an end card with your logo, and subtitles."
 version: 1.0.0
 description: >
   A short explainer in a chosen motion-design style: a scripted set of scenes, a locked style key, a moving clip per scene,
@@ -84,6 +85,7 @@ defaults:
 budget: { max_usd: 6, warn_usd: 3 }
 steps:
   - id: plan
+    name: "Plan the scenes"
     kind: set
     values:
       n_scenes: '{{ max(2, round(inputs.duration_s / defaults.block_s)) }}'
@@ -103,6 +105,7 @@ steps:
     outputs: { scenes: '{{ result.structured.scenes }}' }
 
   - id: approve_plan
+    name: "Approve the plan"
     kind: approval
     mode: soft
     title: 'Approve the scene plan'
@@ -123,6 +126,7 @@ steps:
     outputs: { asset: '{{ result.assets[0] }}' }
 
   - id: scenes
+    name: "Make each scene"
     kind: foreach
     over: '{{ steps.script.outputs.scenes }}'
     as: scene
@@ -152,6 +156,7 @@ steps:
         params: { voice: '{{ inputs.voice }}', language: '{{ inputs.language }}', format: wav }
         outputs: { asset: '{{ result.assets[0] }}' }
       - id: scene_mux
+        name: "Add the narration"
         kind: assemble
         op: mux_audio
         inputs: ['{{ steps.scene_gen.outputs.asset }}', '{{ steps.scene_vo.outputs.asset }}']
@@ -181,6 +186,7 @@ steps:
     outputs: { asset: '{{ result.asset_id }}' }
 
   - id: music
+    name: "Music"
     kind: branch
     when: '{{ inputs.music }}'
     then:
@@ -194,6 +200,7 @@ steps:
         on_fail: continue
         outputs: { asset: '{{ result.assets[0] }}' }
       - id: music_mix
+        name: "Mix in the music"
         kind: assemble
         op: mux_audio
         inputs: ['{{ steps.concat.outputs.asset }}', '{{ steps.music_gen.outputs.asset }}']
@@ -204,10 +211,12 @@ steps:
     else: []
 
   - id: with_music
+    name: "Use the mix"
     kind: set
     values: { music_asset: '{{ steps.music_mix.outputs.asset | default(steps.concat.outputs.asset) }}' }
 
   - id: end_card
+    name: "Add the end card"
     kind: assemble
     when: '{{ inputs.logo }}'
     op: overlay_image
@@ -223,10 +232,12 @@ steps:
     outputs: { asset: '{{ result.asset_id }}' }
 
   - id: master
+    name: "Master"
     kind: set
     values: { master: '{{ steps.end_card.outputs.asset | default(vars.music_asset) }}' }
 
   - id: transcribe
+    name: "Transcribe the narration"
     kind: transform
     when: '{{ inputs.titles }}'
     op: transcribe
@@ -234,6 +245,7 @@ steps:
     params: { language: '{{ inputs.language }}' }
     outputs: { transcript: '{{ result.assets[0] }}' }
   - id: burn
+    name: "Burn the subtitles"
     kind: assemble
     when: '{{ inputs.titles }}'
     op: burn_captions
@@ -251,6 +263,7 @@ steps:
     outputs: { asset: '{{ result.asset_id }}' }
 
   - id: export
+    name: "Save the video"
     kind: export
     files:
       - { ref: '{{ steps.burn.outputs.asset | default(vars.master) }}', name: final.mp4, tags: [deliverable] }

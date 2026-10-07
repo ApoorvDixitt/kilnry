@@ -37,6 +37,8 @@ export interface RunStepView {
 export interface RunView {
   id: string;
   workflow_id: string;
+  /** The workflow's display name, when it is still installed (UX-17). */
+  workflow_name?: string | null;
   status: string;
   folder: string | null;
   estimate_usd: number;
@@ -93,4 +95,15 @@ export function statusLabel(status: string): string {
     // the run emits today has a key, so this is only a safety net.
     return status;
   }
+}
+
+/**
+ * The name the Save as Workflow dialog starts with. The saved card is titled
+ * from this field, and it used to start as the id ("kilnry-thumbnail (saved)"),
+ * so the new card in the catalogue read like a slug (UX-17). It starts from the
+ * workflow's display name; the user can edit it.
+ */
+export function saveDialogName(run: Pick<RunView, 'workflow_id' | 'workflow_name'>): string {
+  if (run.workflow_name) return `${run.workflow_name} (saved)`;
+  return run.workflow_id ? `${run.workflow_id} (saved)` : 'Saved run';
 }

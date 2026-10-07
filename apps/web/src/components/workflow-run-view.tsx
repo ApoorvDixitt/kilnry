@@ -22,6 +22,7 @@ import {
   statusLabel,
   type RunStepView,
   type RunView,
+  saveDialogName,
 } from './workflow-run-view-logic';
 
 const DETAIL_TABS = ['inputs', 'outputs', 'logs', 'cost'] as const;
@@ -669,7 +670,7 @@ export function WorkflowRunView({ runId, initial }: { runId: string; initial?: R
     const keys = Object.keys(run.inputs ?? {});
     const fields: Record<string, boolean> = {};
     for (const key of keys) fields[key] = true;
-    setSaveDialog({ name: run.workflow_id ? `${run.workflow_id} (saved)` : 'Saved run', fields });
+    setSaveDialog({ name: saveDialogName(run), fields });
   }, [run]);
 
   const confirmSaveAsWorkflow = useCallback((): void => {

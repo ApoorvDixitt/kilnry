@@ -7,6 +7,7 @@
 
 import { useState } from 'react';
 import { message } from '../lib/messages';
+import { modelCell, providerLabel } from '../lib/provider-names';
 
 export type JobStatus = 'queued' | 'running' | 'waiting' | 'completed' | 'failed' | 'cancelled' | 'moderated';
 
@@ -19,6 +20,8 @@ export interface JobRow {
   request?: { prompt?: string | null } | null;
   model?: string | null;
   modelId?: string | null;
+  // The registry's display name for the model, joined by /api/jobs (UX-08).
+  modelName?: string | null;
   confirmedBy?: string | null;
   provider?: string | null;
   providerId?: string | null;
@@ -63,7 +66,8 @@ export function timeoutMinutes(row: JobRow): number {
 
 // The provider a job ran against, for the failed-row and retry copy.
 export function providerName(row: JobRow): string {
-  return row.provider ?? row.providerId ?? 'the provider';
+  const id = row.provider ?? row.providerId;
+  return id ? providerLabel(id) : 'the provider';
 }
 
 // The failed-row explanation for an ambiguous timeout, naming the provider and
@@ -298,7 +302,9 @@ export function JobsTable({
                     <FailedRowDetail row={row} onRetry={onRetry} {...(onAction ? { onAction } : {})} />
                   ) : null}
                 </td>
-                <td className="jobs-model">{row.model ?? row.modelId ?? '—'}</td>
+                <td className="jobs-model" title={modelCell(row).title}>
+                  {modelCell(row).label}
+                </td>
                 <td className="jobs-cost" data-money="true">
                   {costCell(row)}
                 </td>

@@ -4,6 +4,7 @@
 # See LICENSE.md in the repository root. You may not remove or obscure this notice.
 id: kilnry-ugc-ad
 name: UGC ad
+summary: "One finished 9:16 creator-style ad, in which only the claims you approved are spoken as claims."
 version: 1.2.0
 description: >
   One finished 9:16 creator-style ad. Modes: review (talking head), product-only (hands/POV, voice-over only),
@@ -86,6 +87,7 @@ defaults:
 budget: { max_usd: 8, warn_usd: 4 }
 steps:
   - id: plan
+    name: "Plan the ad"
     kind: set
     values:
       needs_product: "{{ inputs.mode in ['product-only','unboxing','try-on','tutorial'] }}"
@@ -115,10 +117,12 @@ steps:
     outputs: { ok: '{{ result.structured.ok }}', reasons: '{{ result.structured.reasons }}' }
 
   - id: gate_stop
+    name: "Claims check"
     kind: branch
     when: '{{ !steps.gate.outputs.ok }}'
     then:
       - id: gate_fail
+        name: "Fix the claims"
         kind: approval
         mode: hard
         skippable: false
@@ -128,10 +132,12 @@ steps:
     else: []
 
   - id: product
+    name: "Product"
     kind: branch
     when: '{{ inputs.product }}'
     then:
       - id: product_norm
+        name: "Describe the product"
         kind: analyze
         task: describe
         refs: ['{{ inputs.product }}']
@@ -149,6 +155,7 @@ steps:
     else: []
 
   - id: creator
+    name: "Creator"
     kind: branch
     when: '{{ vars.on_camera && !inputs.creator }}'
     then:
@@ -169,6 +176,7 @@ steps:
     else: []
 
   - id: refs
+    name: "Set up the references"
     kind: set
     values:
       creator_ref: "{{ inputs.creator ? (characters[inputs.creator].references | filter('role','anchor') | first).asset_id : (vars.on_camera ? steps.creator_gen.outputs.asset : null) }}"
@@ -198,6 +206,7 @@ steps:
     outputs: { segments: '{{ result.structured.segments }}', hook: '{{ result.structured.hook }}' }
 
   - id: boards
+    name: "Draw the storyboards"
     kind: foreach
     over: '{{ range(0, vars.n_boards) }}'
     as: k
@@ -247,6 +256,7 @@ steps:
         outputs: { clean: '{{ result.assets[0] | default(steps.board_gen.outputs.raw) }}' }
 
   - id: approve_boards
+    name: "Approve the storyboards"
     kind: approval
     mode: soft
     title: "Approve {{ vars.n_boards }} storyboard{{ vars.n_boards > 1 ? 's' : '' }} before rendering video"
@@ -254,6 +264,7 @@ steps:
     show: ["{{ steps.boards.outputs | map('clean') }}"]
 
   - id: clips
+    name: "Film each clip"
     kind: foreach
     over: '{{ range(0, vars.n_boards) }}'
     as: k
@@ -294,6 +305,7 @@ steps:
         retry: { max: 1, on: [MODERATION_REJECTED, PROVIDER_ERROR, TIMEOUT], reword: true }
         outputs: { asset: '{{ result.assets[0] }}' }
       - id: clip_qa
+        name: "Check the clip"
         kind: analyze
         task: qa_check
         refs: ['{{ steps.clip_gen.outputs.asset }}']
@@ -310,6 +322,7 @@ steps:
         outputs: { pass: '{{ result.structured.pass }}', issues: '{{ result.structured.issues }}' }
 
   - id: qa_gate
+    name: "Check the clips"
     kind: approval
     mode: soft
     when: "{{ steps.clips.outputs | map('pass') | some(false) }}"
@@ -318,6 +331,7 @@ steps:
     show: ['{{ steps.clips.assets }}']
 
   - id: assemble
+    name: "Join the clips"
     kind: assemble
     op: concat
     inputs: '{{ steps.clips.assets }}'
@@ -326,6 +340,7 @@ steps:
     outputs: { asset: '{{ result.asset_id }}' }
 
   - id: overlay_site
+    name: "Website cards"
     kind: foreach
     when: "{{ inputs.mode == 'website' && len(inputs.site_shots) > 0 }}"
     over: '{{ inputs.site_shots }}'
@@ -333,6 +348,7 @@ steps:
     concurrency: 1
     steps:
       - id: overlay_one
+        name: "Add a website card"
         kind: assemble
         op: overlay_image
         inputs:
@@ -351,6 +367,7 @@ steps:
         outputs: { asset: '{{ result.asset_id }}' }
 
   - id: cut
+    name: "Final cut"
     kind: set
     values:
       {
@@ -358,16 +375,19 @@ steps:
       }
 
   - id: captions
+    name: "Captions"
     kind: branch
     when: "{{ inputs.captions == 'subtitles' }}"
     then:
       - id: transcribe
+        name: "Transcribe the voice"
         kind: transform
         op: transcribe
         source: '{{ vars.master }}'
         params: { language: '{{ inputs.language }}' }
         outputs: { transcript: '{{ result.assets[0] }}' }
       - id: burn
+        name: "Burn the captions"
         kind: assemble
         op: burn_captions
         inputs: ['{{ vars.master }}']
@@ -385,6 +405,7 @@ steps:
     else: []
 
   - id: export
+    name: "Save the ad"
     kind: export
     files:
       - { ref: '{{ vars.master }}', name: final.mp4, tags: [master] }
