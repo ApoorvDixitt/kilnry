@@ -1968,6 +1968,39 @@ kbd {
   white-space: nowrap;
 }
 
+.import-folder-dialog {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin: 12px 0;
+  max-width: 520px;
+  padding: 16px;
+}
+
+.import-folder-dialog form {
+  display: grid;
+  gap: 8px;
+}
+
+.import-folder-dialog h2 {
+  font-size: 15px;
+  margin: 0;
+}
+
+.import-folder-dialog fieldset {
+  border: 0;
+  display: flex;
+  gap: 16px;
+  margin: 0;
+  padding: 0;
+}
+
+.import-folder-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
 .library-import-status {
   color: var(--text-muted);
   font-size: 12px;

@@ -6,6 +6,7 @@
 import {
   existsSync,
   mkdirSync,
+  mkdtempSync,
   readFileSync,
   readdirSync,
   renameSync,
@@ -13,6 +14,7 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 import { distinctPng } from './distinct-pngs';
@@ -384,7 +386,9 @@ test('@m3 S-14 import a folder of legacy renders through the interface', async (
   await expect(folderButton).toBeVisible({ timeout: 10_000 });
   await folderButton.click();
   await expect(folderButton).toHaveClass(/is-selected/);
-  await page.getByRole('button', { name: 'Import folder' }).click();
+  // The re-scan of a folder already in the Library (F-125 renamed it from
+  // "Import folder", which now imports from anywhere on this machine).
+  await page.getByRole('button', { name: 'Re-scan this folder' }).click();
   await expect(page.locator('.library-import-status')).toContainText(/Imported \d+ files\./, {
     timeout: 30_000,
   });
@@ -394,6 +398,36 @@ test('@m3 S-14 import a folder of legacy renders through the interface', async (
       timeout: 30_000,
     })
     .toBe(IMPORT_COUNT);
+  rmSync(source, { recursive: true, force: true });
+});
+
+// F-125: PRD-06 §2 — "Library toolbar \"Import folder…\" … otherwise copy into
+// the chosen folder (`inbox/` default) unless --move". A folder outside the
+// Library is copied in through the dialog; the originals stay where they were.
+test('@m3 import a folder from outside the Library through Import folder…', async ({ page }) => {
+  await ensureSignedIn(page, '/library');
+  const source = mkdtempSync(join(tmpdir(), 'kilnry-outside-renders-'));
+  const name = source.split('/').at(-1)!;
+  for (let index = 0; index < 3; index += 1) {
+    // Bytes no other scenario has imported: a duplicate is skipped by design.
+    writeFileSync(
+      join(source, `render_${index}.png`),
+      Buffer.concat([distinctPng(index), Buffer.from(`outside-${name}-${index}`)]),
+    );
+  }
+  await page.getByRole('button', { name: 'Import folder…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Import a folder' });
+  await dialog.getByLabel('Folder on this computer').fill(source);
+  await expect(dialog.getByLabel('Into Library folder')).toHaveValue(/.+/);
+  await dialog.getByLabel('Into Library folder').fill('inbox');
+  await dialog.getByRole('button', { name: 'Import' }).click();
+  await expect(page.locator('.library-import-status')).toContainText(`Imported 3 files into inbox/${name}.`, {
+    timeout: 30_000,
+  });
+  expect(readdirSync(join(libraryDir(), 'inbox', name)).filter((file) => file.endsWith('.png'))).toHaveLength(
+    3,
+  );
+  expect(readdirSync(source).filter((file) => file.endsWith('.png'))).toHaveLength(3);
   rmSync(source, { recursive: true, force: true });
 });
 

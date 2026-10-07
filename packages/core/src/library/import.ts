@@ -3,10 +3,15 @@
 // SPDX-License-Identifier: LicenseRef-Sustainable-Use-1.0
 // See LICENSE.md in the repository root. You may not remove or obscure this notice.
 
-import { opendir, copyFile, mkdir, writeFile } from 'node:fs/promises';
-import { basename, join, relative } from 'node:path';
+import { constants, createReadStream } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { opendir, copyFile, mkdir, realpath, rename, stat, unlink, writeFile } from 'node:fs/promises';
+import { basename, dirname, extname, isAbsolute, join, relative, sep } from 'node:path';
+import { eq } from 'drizzle-orm';
+import { assets } from '@kilnry/db';
 import { createDerivatives } from '@kilnry/media';
 import type { DatabaseState } from '@kilnry/db';
+import { KilnryError } from '../errors.js';
 import { resolveInRoot } from './containment.js';
 import { indexAsset } from './index.js';
 import { safeFetch } from '../security/ssrf.js';
@@ -85,6 +90,142 @@ export async function importFolder(
   }
 
   return { scanned: files.length, imported, recovered, errors };
+}
+
+export interface PathImportReport extends ImportReport {
+  /** in_place for a folder already under the root; otherwise copy or move. */
+  mode: 'in_place' | 'copy' | 'move';
+  /** The Library-relative folder the files landed in. */
+  destination: string;
+  /** Files whose bytes are already in the Library, not imported again. */
+  duplicates: number;
+}
+
+async function sha256Of(path: string): Promise<string> {
+  const hash = createHash('sha256');
+  for await (const chunk of createReadStream(path)) hash.update(chunk as Buffer);
+  return hash.digest('hex');
+}
+
+/**
+ * Import a folder anywhere on this machine (PRD-06 §2, F-ONB-07): "Default is
+ * in-place when the source is already inside the Library root; otherwise copy
+ * into the chosen folder (`inbox/` default) unless `--move`." The Library's
+ * "Import folder" only re-indexed the folder already shown, so a folder of
+ * renders kept elsewhere had no way in (F-125).
+ *
+ * Outside the root, each media file (the same walk as importFolder: no dot
+ * files, no symbolic links, no sidecars or partial downloads) lands under
+ * `<into>/<source folder name>/` with its subfolders kept, so two imports
+ * cannot collide (default; adjustable). Every destination goes through
+ * resolveInRoot. A file whose sha256 is already in the Library is skipped and
+ * counted, as PRD-06 §2 says; with `move` it is left where it was.
+ */
+export async function importFromPath(
+  state: DatabaseState,
+  root: string,
+  libraryId: string,
+  input: { source: string; into?: string; mode?: 'copy' | 'move'; dataDir?: string },
+): Promise<PathImportReport> {
+  if (!isAbsolute(input.source)) {
+    throw new KilnryError('INVALID_INPUT', 'Give the full path of the folder to import.');
+  }
+  let source: string;
+  try {
+    source = await realpath(input.source);
+    if (!(await stat(source)).isDirectory()) throw new Error('not a folder');
+  } catch {
+    throw new KilnryError('NOT_FOUND', `No folder at ${input.source}.`);
+  }
+  const rootReal = await realpath(root);
+  const inside = relative(rootReal, source);
+  if (inside === '' || (!inside.startsWith('..') && !isAbsolute(inside))) {
+    const folderRel = inside.split(sep).join('/');
+    const report = await importFolder(state, root, libraryId, folderRel, {
+      ...(input.dataDir === undefined ? {} : { dataDir: input.dataDir }),
+    });
+    return { ...report, mode: 'in_place', destination: folderRel, duplicates: 0 };
+  }
+
+  const mode = input.mode ?? 'copy';
+  const destination = join(input.into ?? 'inbox', basename(source))
+    .split(sep)
+    .join('/');
+  const files = await walkMedia(source);
+  const report: PathImportReport = {
+    scanned: files.length,
+    imported: 0,
+    recovered: 0,
+    errors: [],
+    mode,
+    destination,
+    duplicates: 0,
+  };
+  for (const file of files) {
+    const rel = relative(source, file).split(sep).join('/');
+    try {
+      const sha = await sha256Of(file);
+      const known = await state.db
+        .select({ id: assets.id })
+        .from(assets)
+        .where(eq(assets.sha256, sha))
+        .limit(1);
+      if (known.length > 0) {
+        report.duplicates += 1;
+        continue;
+      }
+      let target = await resolveInRoot(root, `${destination}/${rel}`, { mustExist: false });
+      for (let n = 2; await exists(target.abs); n += 1) {
+        const ext = extname(rel);
+        target = await resolveInRoot(
+          root,
+          `${destination}/${rel.slice(0, rel.length - ext.length)}-${n}${ext}`,
+          {
+            mustExist: false,
+          },
+        );
+      }
+      await mkdir(dirname(target.abs), { recursive: true });
+      if (mode === 'move') await moveFile(file, target.abs);
+      else await copyFile(file, target.abs, constants.COPYFILE_EXCL);
+      const result = await indexAsset(state, root, target.abs, libraryId);
+      if (input.dataDir) {
+        await createDerivatives({
+          source: target.abs,
+          dataDir: input.dataDir,
+          assetId: result.sidecar.asset_id,
+          mime: result.sidecar.file.mime,
+          ...(result.sidecar.file.duration_s === undefined
+            ? {}
+            : { durationS: result.sidecar.file.duration_s }),
+        });
+      }
+      report.imported += 1;
+    } catch (error) {
+      report.errors.push({ path: rel, message: error instanceof Error ? error.message : String(error) });
+    }
+  }
+  return report;
+}
+
+async function exists(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// A rename, or a copy and delete when the source is on another volume.
+async function moveFile(from: string, to: string): Promise<void> {
+  try {
+    await rename(from, to);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EXDEV') throw error;
+    await copyFile(from, to, constants.COPYFILE_EXCL);
+    await unlink(from);
+  }
 }
 
 // The result of importing a list of sources (kilnry_import, F-ONB-07): the

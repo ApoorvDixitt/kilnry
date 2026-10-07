@@ -10,6 +10,7 @@ import * as z from 'zod';
 import {
   KilnryError,
   importFolder,
+  importFromPath,
   indexAsset,
   libraryMarker,
   loadConfig,
@@ -18,7 +19,15 @@ import {
 import { errorResponse, requireSession } from '../../../../server/http';
 import { runtimeServices } from '../../../../server/runtime';
 
-const ImportRequest = z.object({ folder: z.string().max(900).default('') });
+// `folder` re-scans a folder already in the Library. `source` imports a folder
+// from anywhere on this machine (PRD-06 §2, F-125): in place when it is already
+// under the root, otherwise copied (or moved) into `into`.
+const ImportRequest = z.object({
+  folder: z.string().max(900).default(''),
+  source: z.string().min(1).max(4096).optional(),
+  into: z.string().min(1).max(900).default('inbox'),
+  mode: z.enum(['copy', 'move']).default('copy'),
+});
 
 // The browser's drop and file-pick path (TRD-16 §3: "`kilnry_import` input **or**
 // `multipart/form-data` (files ≤ 20, 4 GB each, streamed to `inbox/` or
@@ -79,6 +88,15 @@ export async function POST(request: Request): Promise<Response> {
     if (!config.library_root) throw new KilnryError('NOT_FOUND', 'Library root is not configured.');
     const services = await runtimeServices();
     const marker = await libraryMarker(config.library_root);
+    if (input.source !== undefined) {
+      const report = await importFromPath(services.database, config.library_root, marker.library_id, {
+        source: input.source,
+        into: input.into,
+        mode: input.mode,
+        dataDir: config.data_dir,
+      });
+      return NextResponse.json({ report });
+    }
     const report = await importFolder(
       services.database,
       config.library_root,

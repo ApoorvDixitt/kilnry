@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { apiFetch } from '../lib/api-client';
 import { message } from '../lib/messages';
+import { ImportFolderDialog } from './import-folder-dialog';
 import type { AssetDetail, AssetListItem, AssetSort, MetadataPatch } from '../lib/composer-types';
 import { FolderTree, type FolderNode, type SmartFolderNode } from './folder-tree';
 import { AssetGrid } from './asset-grid';
@@ -196,8 +197,11 @@ export function LibraryBrowser(): React.ReactNode {
   }, [selection, reloadAssets]);
 
   const [importStatus, setImportStatus] = useState('');
-  const importFolder = useCallback(async () => {
-    setImportStatus(message('library.importFolder'));
+  const [importing, setImporting] = useState(false);
+  // Re-index the folder already shown: what the toolbar's "Import folder" did
+  // before it could import from outside the Library (F-125).
+  const rescanFolder = useCallback(async () => {
+    setImportStatus(message('library.rescanFolder'));
     try {
       const response = await apiFetch('/api/library/import', {
         method: 'POST',
@@ -290,10 +294,24 @@ export function LibraryBrowser(): React.ReactNode {
               {message('library.saveSearch')}
             </button>
           )}
-          <button type="button" className="library-import" onClick={() => void importFolder()}>
+          <button type="button" className="library-rescan" onClick={() => void rescanFolder()}>
+            {message('library.rescanFolder')}
+          </button>
+          <button type="button" className="library-import" onClick={() => setImporting(true)}>
             {message('library.importFolder')}
           </button>
         </div>
+        {importing ? (
+          <ImportFolderDialog
+            defaultInto={selected && selected !== 'Trash' ? selected : 'inbox'}
+            onClose={() => setImporting(false)}
+            onDone={(summary) => {
+              setImporting(false);
+              setImportStatus(summary);
+              reloadAssets();
+            }}
+          />
+        ) : null}
         {importStatus ? (
           <p className="library-import-status" role="status" aria-live="polite">
             {importStatus}
