@@ -7,7 +7,11 @@ import { spawn } from 'node:child_process';
 import { join } from 'node:path';
 
 const root = process.cwd();
-const child = spawn('turbo', ['run', 'dev', '--filter=@kilnry/web'], {
+// Stream the server's output as it is written. Turbo's default log order,
+// `auto`, groups a task's output until the task finishes when it detects CI, and
+// a dev server never finishes — so in CI nothing it printed, including the
+// first-run setup link, reached the terminal (T53 fix-forward).
+const child = spawn('turbo', ['run', 'dev', '--filter=@kilnry/web', '--log-order=stream'], {
   cwd: root,
   env: {
     ...process.env,
