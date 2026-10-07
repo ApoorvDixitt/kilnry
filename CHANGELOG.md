@@ -74,6 +74,8 @@ All notable changes to Kilnry are documented here. The format follows Keep a Cha
 - The import crash test made one diagnostic CI run and now runs locally and in the release checklist.
 - Every `(default; adjustable)` choice in the code has its STATUS line, and every STATUS default has its code line.
 - Goldens G-31 to G-36 pin the seed-only providers' prices.
+- The workflow run view's progress bar has an accessible name.
+- The bundled price seed is stamped 2026-10-05, the date its prices were last verified.
 
 ### Changed
 

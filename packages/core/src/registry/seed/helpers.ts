@@ -12,7 +12,7 @@ import {
 } from '../manifest.js';
 import type { Capability, MediaRole, ProviderId } from '../../types.js';
 
-export const SEEDED_AT = '2026-09-19T00:00:00.000Z';
+export const SEEDED_AT = '2026-10-05T00:00:00.000Z';
 
 interface SeedInput {
   provider: ProviderId;
