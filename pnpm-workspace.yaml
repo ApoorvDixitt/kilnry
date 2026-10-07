@@ -8,6 +8,7 @@ packages:
   - packages/*
 
 allowBuilds:
+  # The pinned tsx runner needs esbuild's platform binary, so its build script is allowed (default; adjustable).
   esbuild: true
   msw: false
 

@@ -40,6 +40,7 @@ function providerOf(ref: string): string | undefined {
   return undefined;
 }
 
+// A preset is resolved on the server, with its estimate (default; adjustable).
 export async function POST(
   request: Request,
   context: { params: Promise<{ id: string }> },

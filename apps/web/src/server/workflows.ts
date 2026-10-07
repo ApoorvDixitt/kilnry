@@ -374,6 +374,7 @@ export async function planWorkflow(
   // free — and refused with the input's named reason before any approval or
   // spend. A URL or a value that is not an asset is not probed here.
   await checkInputConstraints(entry.workflow, applyInputDefaults(entry.workflow, inputs), (ref) =>
+    // A plan prices a probe step's duration from the asset (default; adjustable).
     probeAssetDuration(db, ref),
   );
 
@@ -521,6 +522,7 @@ async function pricePlan(
  * no honest figure and this returns undefined; the card then says it is priced
  * when you run it.
  */
+// A catalogue card's from-price plans at default inputs with neutral stand-ins (default; adjustable).
 export async function priceAtDefaults(
   db: DatabaseState,
   engine: JobEngine,
@@ -784,6 +786,7 @@ function canonicalRequestForStep(step: Step, scope: Scope): CanonicalForStep {
     else extra[key] = value;
   }
   if (Object.keys(extra).length > 0) params.extra = extra;
+  // A generate step routes on its explicit capability (default; adjustable).
   // Honour the step's explicit capability (reference2video, image_edit, …) and
   // the media kind it implies, rather than inferring from kind alone: a clip
   // step is reference2video with audio, not a plain image. The step's own
@@ -871,6 +874,7 @@ export function buildSpendInput(
   return {
     request: { ...canonical.request, source: 'workflow', target_folder: folder },
     constraints: canonical.constraints,
+    // A run's steps confirm at the engine's own estimate; the plan total was approved (default; adjustable).
     confirmed_cost_usd: confirmedCostUsd,
     confirmed_by: 'user',
     run_id: runId,

@@ -197,6 +197,7 @@ export function validateSkillInstall(input: {
 
 /** The installed skills root under the data directory (TRD-13 §7 Paths). */
 export function installedSkillsRoot(dataDir: string): string {
+  // Installed skills live under <dataDir>/skills (default; adjustable).
   return join(dataDir, 'skills');
 }
 

@@ -134,6 +134,7 @@ export async function PUT(request: Request): Promise<Response> {
     // NOT NULL, so writing a null failed the whole save with a 500 (F-121).
     const clears: string[] = [];
     if (input.default_llm !== undefined) {
+      // A null clears the stored setting, so the default applies again (default; adjustable).
       if (input.default_llm === null) clears.push('chat.default_llm');
       else writes.push(['chat.default_llm', input.default_llm]);
     }

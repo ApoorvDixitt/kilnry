@@ -42,6 +42,7 @@ export interface SavedWorkflow {
 }
 
 export function slugify(name: string): string {
+  // Save-as-Workflow suffixes a clashing slug, and fixes a toggled-off input as a const chip (default; adjustable).
   const slug = name
     .toLowerCase()
     .trim()

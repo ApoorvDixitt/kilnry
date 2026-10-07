@@ -219,6 +219,7 @@ function principalKey(request: NextRequest, policy: string): string {
     .slice(0, 24);
 }
 
+// With a src/ App Router the proxy lives at src/proxy.ts; the root location was not executed by Next 16.3 (default; adjustable).
 export function proxy(request: NextRequest): NextResponse {
   const nonce = randomBytes(16).toString('base64');
   const requestId = ulid();

@@ -22,6 +22,7 @@ import jsep from 'jsep';
 import jsepObject from '@jsep-plugin/object';
 import { readFileSource, type FileSourceRoots } from './file-source.js';
 
+// The object-literal templating plugin (default; adjustable).
 // Register the object-literal plugin so `{ a: 1, b: x }` parses (used as the
 // argument to render() in the shipped workflows, TRD-12 §8–10).
 jsep.plugins.register(jsepObject);

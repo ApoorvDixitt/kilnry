@@ -32,6 +32,7 @@ export interface CastPick {
   cast_params: Record<string, unknown>;
 }
 
+// The cast builder's age options start at adult and a free-text minor blocks Generate (default; adjustable).
 export function CastBuilder({ onPick }: { onPick: (pick: CastPick) => void }): React.ReactNode {
   const [form, setForm] = useState<CastForm>(defaultCastForm());
   const [generating, setGenerating] = useState(false);

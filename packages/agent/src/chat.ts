@@ -206,6 +206,7 @@ export async function streamChatTurn(input: ChatTurnInput): Promise<Response> {
     ? uiStream.pipeThrough(approvalDescriptorTransform(input.approvalDescriptor))
     : uiStream;
 
+  // The chat stream is the AI SDK's UI message stream with Kilnry's step descriptions (default; adjustable).
   return createUIMessageStreamResponse({ stream: describedStream });
 }
 

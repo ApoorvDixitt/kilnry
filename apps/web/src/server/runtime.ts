@@ -84,6 +84,7 @@ async function boot(): Promise<void> {
   const config = loadConfig();
   const state = database(config.data_dir);
   await state.ready;
+  // Production builds collect routes on an isolated in-memory PGlite, never the live data directory (default; adjustable).
   if (process.env.NEXT_PHASE === 'phase-production-build') {
     global.__kilnryRuntimeStatus = { stage: 'ready', readyAt: new Date().toISOString() };
     return;

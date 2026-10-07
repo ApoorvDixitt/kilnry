@@ -11,7 +11,7 @@
 // The specification suggests argon2id. Because these are 32-byte high-entropy
 // secrets rather than user-chosen passwords, a SHA-256 hash with a constant-time
 // comparison is sufficient and avoids a native dependency; this is a documented
-// deviation (default; adjustable).
+// deviation (decided: D-65).
 
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { eq, isNull } from 'drizzle-orm';

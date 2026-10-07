@@ -132,6 +132,7 @@ function ffmpegCheck(): DoctorCheck {
   const firstLine = result.stdout.split('\n')[0] ?? 'ffmpeg found';
   const match = /ffmpeg version\s+(\d+(?:\.\d+)?)/i.exec(firstLine);
   const major = Number(match?.[1]?.split('.')[0] ?? 0);
+  // Any FFmpeg major version from 7 up passes the doctor check (default; adjustable).
   return { id: 'ffmpeg.binary', group: 'media', status: major >= 7 ? 'pass' : 'warn', summary: firstLine };
 }
 

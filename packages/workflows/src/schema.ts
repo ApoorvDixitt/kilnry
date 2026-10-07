@@ -26,6 +26,7 @@ import { CapabilitySchema, KindSchema, MediaRoleSchema } from '@kilnry/core/type
 // Underscores are allowed because the step ids in the shipped workflows
 // (TRD-12 §8–10, e.g. sheet_a, split_grid, full_body) use them; the file-name
 // workflow id itself uses hyphens.
+// Step ids allow an underscore (default; adjustable).
 export const Id = z.string().regex(/^[a-z0-9][a-z0-9._-]{1,63}$/);
 
 // Any string may contain {{ }} templates; the engine (template.ts) evaluates them.
@@ -155,6 +156,7 @@ export const GenerateStep = z.object({
   constraints: RouteConstraintsSchema.partial().optional(),
   prompt: Expr,
   negative_prompt: Expr.optional(),
+  // A generate step's params may be one whole template (default; adjustable).
   params: z.union([z.record(z.string(), z.unknown()), Expr]).default({}),
   medias: z.union([z.array(MediaItem), Expr]).default([]),
   characters: z.array(Expr).default([]),
@@ -303,6 +305,7 @@ export const ForeachStep = z.object({
   over: Expr,
   as: z.string().default('item'),
   index_as: z.string().default('index'),
+  // A foreach expect may be a number (default; adjustable).
   expect: z.union([z.number(), Expr]).optional(),
   concurrency: z.number().int().min(1).max(12).default(4),
   get steps() {

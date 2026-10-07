@@ -125,6 +125,7 @@ export function renderParams(preset: PresetJson, values: SlotValues): Record<str
  * Render a preset into the one request it describes. Reports any required slot
  * left empty so the drawer can ask rather than the provider refusing.
  */
+// Slot mapping and prompt templating as below (default; adjustable).
 export function renderPreset(preset: PresetJson, values: SlotValues): RenderedPreset {
   const missing = preset.slots
     .filter((slot) => slot.required && isEmpty(slotValue(slot, values)))

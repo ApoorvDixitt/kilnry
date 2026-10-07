@@ -161,6 +161,7 @@ async function assertRegularFile(extractDir: string, rel: string): Promise<void>
   }
 }
 
+// A Character exports as one self-contained .kilnry-character.zip (default; adjustable).
 export async function exportCharacterBundle(
   services: CharacterBundleServices,
   options: CharacterExportOptions,

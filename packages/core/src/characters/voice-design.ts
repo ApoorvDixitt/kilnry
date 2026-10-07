@@ -103,6 +103,7 @@ export interface DesignServices {
   keyFor: (provider: DesignProvider) => Promise<string | undefined>;
   fetch?: typeof fetch;
   now?: () => Date;
+  // The designed-voice preview is kept as a Library asset (default; adjustable).
   // Save the provider's preview audio as an asset and return its id, so a paid
   // design is audible the way clones are (item 7). Optional: when absent, the
   // preview url is still returned to the caller but not stored as an asset.

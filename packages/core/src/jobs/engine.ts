@@ -481,6 +481,7 @@ export class JobEngine {
       // A bound voice on another provider (PRD-08 B4): Auto switches the TTS model
       // to the voice's provider and says so; a pinned model blocks. Never a
       // different-sounding voice without a word.
+      // A pinned model refuses a voice from another provider with this copy (default; adjustable).
       if (resolved.voice_mismatch) {
         const mismatch = resolved.voice_mismatch;
         const voiceProvider = ProviderIdSchema.safeParse(mismatch.provider);

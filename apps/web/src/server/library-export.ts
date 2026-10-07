@@ -60,6 +60,7 @@ export async function bundleExporter(): Promise<BundleExporter> {
           libraryRoot,
           libraryId: marker?.library_id ?? '',
           exportsRoot,
+          // Stripping embedded metadata applies to images only (default; adjustable).
           stripMetadata: stripEmbeddedMetadata,
           labelIptc: embedIptcProvenance,
           embedIfMissing: async (path, mime) => {
