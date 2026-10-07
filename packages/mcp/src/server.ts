@@ -10,7 +10,13 @@
 // tool) so Chat and MCP share exactly one implementation (TRD-10 §2.9); this
 // package only wires them onto the protocol.
 
-import { McpServer, ResourceTemplate, createMcpHandler } from '@modelcontextprotocol/server';
+import {
+  McpServer,
+  ResourceTemplate,
+  acceptedContent,
+  createMcpHandler,
+  inputRequired,
+} from '@modelcontextprotocol/server';
 import * as z from 'zod';
 import { toolAllowedForScope, type KilnryTool, type ToolServices } from '@kilnry/core';
 
@@ -50,6 +56,34 @@ const UI_WIDGET_TITLES: Record<string, string> = {
 };
 
 export const MCP_APPS_PROTOCOL_VERSION = '2026-01-26';
+
+/** The key the confirm request and its response travel under (SEP-2322). */
+export const CONFIRM_REQUEST_KEY = 'confirm';
+
+/**
+ * The confirmation a spend tool asked for, read from the legacy shape the tools
+ * already return. TRD-10:23 keeps `needs_confirmation` for legacy clients and
+ * requires `resultType: "input_required"` for modern ones (F-44).
+ */
+export function confirmationFrom(
+  structured: Record<string, unknown> | undefined,
+): { message: string; estimateUsd: number } | undefined {
+  if (!structured || structured.needs_confirmation !== true) return undefined;
+  const estimate = structured.estimate as { estimate_usd?: unknown; authoritative_usd?: unknown } | undefined;
+  const direct = typeof structured.estimate_usd === 'number' ? structured.estimate_usd : undefined;
+  const fromEstimate =
+    typeof estimate?.authoritative_usd === 'number'
+      ? estimate.authoritative_usd
+      : typeof estimate?.estimate_usd === 'number'
+        ? estimate.estimate_usd
+        : undefined;
+  const estimateUsd = direct ?? fromEstimate ?? 0;
+  const reason = typeof structured.reason === 'string' ? ` (${structured.reason})` : '';
+  return {
+    message: `This costs about $${estimateUsd.toFixed(2)}${reason}. Approve it?`,
+    estimateUsd,
+  };
+}
 
 export function uiWidgetHtml(view: string): string {
   const title = UI_WIDGET_TITLES[view] ?? 'Kilnry';
@@ -290,7 +324,19 @@ export function createKilnryMcpServer(options: {
         annotations: tool.annotations,
         ...(tool.meta ? { _meta: tool.meta } : {}),
       },
-      async (input: Record<string, unknown>) => {
+      async (input: Record<string, unknown>, ctx) => {
+        // MRTR (SEP-2322, TRD-10:23): a spend that needs the owner's word is
+        // answered with resultType "input_required" carrying a confirm request,
+        // and the client retries the call with its response. A retry arrives
+        // here with inputResponses, so the confirmed figure becomes the
+        // argument the tool already understands.
+        const confirmed = acceptedContent<{ confirm?: boolean; confirm_cost_usd?: number }>(
+          ctx.mcpReq?.inputResponses,
+          CONFIRM_REQUEST_KEY,
+        );
+        if (confirmed?.confirm === true && typeof confirmed.confirm_cost_usd === 'number') {
+          input = { ...input, confirm_cost_usd: confirmed.confirm_cost_usd };
+        }
         // A read-only token cannot run a mutating tool or a mutating action of a
         // mixed tool (TRD-10 §7).
         if (!toolAllowedForScope(tool, scope, input)) {
@@ -307,6 +353,29 @@ export function createKilnryMcpServer(options: {
           };
         }
         const result = await tool.execute(input, options.services);
+        // A legacy client reads structuredContent.needs_confirmation and the
+        // same breakdown; a modern one needs the input_required disposition,
+        // which nothing emitted (F-44).
+        const confirmation = confirmationFrom(result.structuredContent);
+        if (confirmation) {
+          return inputRequired({
+            inputRequests: {
+              [CONFIRM_REQUEST_KEY]: inputRequired.elicit({
+                message: confirmation.message,
+                requestedSchema: z.object({
+                  confirm: z.boolean().meta({ title: 'Approve this spend' }),
+                  confirm_cost_usd: z
+                    .number()
+                    .min(0)
+                    .meta({ title: 'The cost you are approving, in US dollars' }),
+                }),
+              }),
+            },
+            // Opaque to the client and never trusted on return: the tool
+            // re-prices and re-checks the figure it is given.
+            requestState: JSON.stringify({ tool: tool.name, estimate_usd: confirmation.estimateUsd }),
+          });
+        }
         return {
           content: [{ type: 'text' as const, text: result.text }],
           structuredContent: result.structuredContent,

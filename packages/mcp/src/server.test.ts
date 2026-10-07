@@ -10,6 +10,7 @@ import {
   MCP_APPS_PROTOCOL_VERSION,
   MCP_INSTRUCTIONS,
   TOOLS_LIST_TTL_MS,
+  confirmationFrom,
   createKilnryMcpServer,
   handleMcpRequest,
   uiWidgetHtml,
@@ -193,5 +194,26 @@ describe('MCP server core (F-MCP-01)', () => {
     const uiTool = tools.find((tool) => tool.name === 'kilnry_ui');
     const uiMeta = uiTool?._meta as { ui?: { resourceUri?: string } } | undefined;
     expect(uiMeta?.ui?.resourceUri).toBe('ui://kilnry/job_progress');
+  });
+
+  // F-44: TRD-10:23 requires `resultType: "input_required"` with a confirm
+  // request for a modern client, keeping `needs_confirmation` for legacy ones.
+  // Only the legacy shape was ever returned, so an MRTR client had nothing to
+  // drive its approval interface with.
+  it('turns a needs_confirmation result into a confirm request (SEP-2322)', () => {
+    const asked = confirmationFrom({
+      needs_confirmation: true,
+      reason: 'ask_first',
+      estimate: { estimate_usd: 1.26 },
+    });
+    expect(asked).toEqual({ message: 'This costs about $1.26 (ask_first). Approve it?', estimateUsd: 1.26 });
+    // The authoritative figure wins when the provider gave one.
+    expect(
+      confirmationFrom({ needs_confirmation: true, estimate: { estimate_usd: 1, authoritative_usd: 0.9 } })
+        ?.estimateUsd,
+    ).toBe(0.9);
+    // A result that needs nothing is left alone.
+    expect(confirmationFrom({ jobs: [] })).toBeUndefined();
+    expect(confirmationFrom(undefined)).toBeUndefined();
   });
 });
